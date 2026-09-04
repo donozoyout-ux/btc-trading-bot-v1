@@ -7,9 +7,11 @@ The repository is ready to run as a Render Python web service.
 - Runtime: Python
 - Build command: `python -m pip install --upgrade pip && pip install -r requirements.txt && python -m compileall -q . && python dashboard_server.py --self-test`
 - Start command: `python start_dashboard.py`
-- Health check path: `/`
+- Health check path: `/api/bootstrap`
 
-`start_dashboard.py` binds to `0.0.0.0` and reads Render's injected `PORT` variable automatically. Do not hard-code a port in Render.
+`start_dashboard.py` launches the Render wrapper, binds to `0.0.0.0`, and reads Render's injected `PORT` variable automatically. Do not hard-code a port in Render.
+
+The Render wrapper adds an always-visible **Render Runtime** panel to the existing dashboard. It appears before external market-data requests finish, so a cold-starting service no longer looks empty. It also exposes the network-free `GET /api/bootstrap` endpoint for service health and configuration-presence checks.
 
 ## Required environment values for signed Binance TESTNET account reads
 
@@ -45,7 +47,8 @@ The blueprint defaults to the free web plan so deployment does not unexpectedly 
 
 After deployment:
 
-1. Open `/` and confirm the dashboard loads.
-2. Open `/api/health` and confirm the service reports `ok: true`.
-3. If Binance TESTNET credentials are configured, verify the account status without exposing credentials.
-4. Review Render logs; startup output reports only whether secrets are configured, never their values.
+1. Open `/` and confirm the full dashboard plus **Render Runtime** panel loads immediately.
+2. Open `/api/bootstrap` and confirm `ok: true` and `ui: READY`.
+3. Open `/api/health` for the deeper application/account status.
+4. If Binance TESTNET credentials are configured, verify the account status without exposing credentials.
+5. Review Render logs; startup output reports only whether secrets are configured, never their values.
