@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#07111f" />
+  <title>BTC Intelligence Console</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+  <main class="shell">
+    <header class="topbar glass">
+      <div class="brand-wrap"><div class="logo-orbit"><span>₿</span></div><div><div class="eyebrow">BTC TRADING BOT</div><h1>Intelligence Console</h1></div></div>
+      <div class="top-actions"><div class="mode-pill"><span class="pulse-dot"></span> DEMO · READ ONLY</div><div id="connectionPill" class="connection-pill warning">Bağlanıyor…</div><button id="refreshBtn" class="icon-btn" title="Veriyi yenile">↻</button></div>
+    </header>
+
+    <section class="hero-grid">
+      <article class="hero-card glass">
+        <div class="hero-top"><div><div class="muted">BTCUSDT · Binance Futures</div><div class="price-line"><span id="price">—</span><span id="change24h" class="change neutral">—</span></div></div><div class="decision-core" id="decisionCore"><div class="decision-orb"></div><div><div class="muted tiny">FINAL DECISION</div><strong id="finalDecision">WAIT</strong></div></div></div>
+        <div class="mini-strip"><div><span>Mark</span><strong id="markPrice">—</strong></div><div><span>Regime</span><strong id="regime">—</strong></div><div><span>Confidence</span><strong id="confidence">—</strong></div><div><span>Volatility</span><strong id="volatility">—</strong></div></div>
+      </article>
+      <article class="glass risk-card"><div class="section-head"><span>Risk Core</span><span id="killSwitchBadge" class="badge good">SAFE</span></div><div class="risk-ring-wrap"><div class="risk-ring" id="riskRing"><span id="riskRR">—</span><small>R:R</small></div><div class="risk-meta"><div><span>Trend Risk</span><strong id="trendRisk">—</strong></div><div><span>Counter Risk</span><strong id="counterRisk">—</strong></div><div><span>Daily Limit</span><strong id="dailyLimit">—</strong></div></div></div></article>
+    </section>
+
+    <section class="metrics-grid">
+      <article class="metric glass"><span>Open Interest</span><strong id="openInterest">—</strong><small>Binance</small></article>
+      <article class="metric glass"><span>Funding</span><strong id="funding">—</strong><small id="fundingTone">8h rate</small></article>
+      <article class="metric glass"><span>Long / Short</span><strong id="longShort">—</strong><small>Account ratio</small></article>
+      <article class="metric glass"><span>Taker Flow</span><strong id="takerRatio">—</strong><small>Buy / Sell ratio</small></article>
+      <article class="metric glass"><span>RSI 14</span><strong id="rsiValue">—</strong><small id="rsiTone">Momentum</small></article>
+      <article class="metric glass"><span>ADX 14</span><strong id="adxValue">—</strong><small id="adxTone">Trend strength</small></article>
+    </section>
+
+    <section class="workbench glass">
+      <div class="workbench-head"><div><div class="eyebrow">SMART CHART</div><h2>Price + EMA + Bollinger + S/R</h2></div><div class="tf-tabs" id="tfTabs"><button data-tf="5m" class="active">5M</button><button data-tf="15m">15M</button><button data-tf="1h">1H</button><button data-tf="4h">4H</button></div></div>
+      <div class="legend"><span><i class="dot ema20"></i>EMA20</span><span><i class="dot ema50"></i>EMA50</span><span><i class="dot ema200"></i>EMA200</span><span><i class="dot bb"></i>Bollinger</span><span><i class="dot sr"></i>S/R zone</span></div>
+      <div class="chart-wrap"><canvas id="priceChart"></canvas><div id="chartTooltip" class="chart-tooltip hidden"></div></div>
+      <div class="rsi-wrap"><div class="rsi-title"><span>RSI 14</span><span id="rsiChartValue">—</span></div><canvas id="rsiChart"></canvas></div>
+    </section>
+
+    <section class="dual-grid">
+      <article class="glass panel"><div class="section-head"><span>Decision Pipeline</span><span class="badge info">LIVE LOGIC</span></div><div id="pipeline" class="pipeline"></div></article>
+      <article class="glass panel"><div class="section-head"><span>Signal Intelligence</span><span id="setupBadge" class="badge neutral">NO SETUP</span></div><div class="intelligence-grid"><div><span>4H Structure</span><strong id="structure4h">—</strong></div><div><span>1H Structure</span><strong id="structure1h">—</strong></div><div><span>Location</span><strong id="location">—</strong></div><div><span>Setup</span><strong id="setup">—</strong></div><div><span>Trigger</span><strong id="trigger">—</strong></div><div><span>Derivatives</span><strong id="derivatives">—</strong></div><div><span>Overextended Up</span><strong id="oeUp">—</strong></div><div><span>Overextended Down</span><strong id="oeDown">—</strong></div></div><div class="reason-box"><span>Neden?</span><p id="decisionReason">Veri bekleniyor…</p></div></article>
+    </section>
+
+    <section class="dual-grid">
+      <article class="glass panel"><div class="section-head"><span>Trade Plan</span><span class="badge neutral">PRE-TRADE</span></div><div class="trade-plan"><div><span>Entry</span><strong id="entryPrice">—</strong></div><div><span>Stop</span><strong id="stopLoss">—</strong></div><div><span>TP1</span><strong id="tp1">—</strong></div><div><span>TP2</span><strong id="tp2">—</strong></div><div><span>Position</span><strong id="positionSize">—</strong></div><div><span>Risk $</span><strong id="riskAmount">—</strong></div></div></article>
+      <article class="glass panel"><div class="section-head"><span>Data Sources</span><span class="badge info">PROVENANCE</span></div><div class="sources"><div class="source-row"><div><b>Binance</b><small>Price · OI · Funding · L/S · Taker</small></div><span id="binanceStatus" class="source-status">—</span></div><div class="source-row"><div><b>CoinGlass</b><small>Liquidations · Aggregate OI</small></div><span id="coinglassStatus" class="source-status">—</span></div><div class="source-row"><div><b>CoinMarketCap</b><small>Dominance · Market Cap · Volume</small></div><span id="cmcStatus" class="source-status">—</span></div></div></article>
+    </section>
+
+    <section class="glass panel event-panel"><div class="section-head"><span>System Events</span><span id="lastUpdate" class="muted tiny">—</span></div><div id="eventLog" class="event-log"></div></section>
+    <footer><span>Read-only demo · Signed endpoints disabled · No real orders</span><span>Predict less. Filter better. Risk less. Measure everything.</span></footer>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>
