@@ -13,10 +13,14 @@ def test_dashboard_assets_exist():
 def test_dashboard_server_is_read_only():
     source = (ROOT / "dashboard_server.py").read_text(encoding="utf-8")
     assert 'orders_enabled": False' in source
-    assert "place_order(" not in source
-    assert 'api_key=None, api_secret=None' in source
+    assert '"/api/order"' not in source
+    assert "api_key=None" in source
+    assert "api_secret=None" in source
+    assert "testnet=True" in source
+    assert "read_only=True" in source
     assert 'path == "/api/snapshot"' in source
     assert 'path == "/api/health"' in source
+    assert 'path == "/api/account"' in source
 
 
 def test_dashboard_does_not_ship_secrets_to_browser():

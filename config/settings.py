@@ -19,6 +19,7 @@ class BotSettings(BaseSettings):
     APP_NAME: str = "BTC-Trading-Bot-V2"
     ENV: str = "development"  # development, testnet, production
     LOG_LEVEL: str = "INFO"
+    DASHBOARD_ADMIN_TOKEN: Optional[str] = None
 
     # Asset & Exchange
     SYMBOL: str = "BTC/USDT"
@@ -29,10 +30,31 @@ class BotSettings(BaseSettings):
     BINANCE_API_KEY: Optional[str] = None
     BINANCE_API_SECRET: Optional[str] = None
     BINANCE_TESTNET: bool = True
+    BINANCE_RECV_WINDOW_MS: int = 5000
+    ACCOUNT_READ_ONLY: bool = True
 
     # External APIs (Context only)
     COINGLASS_API_KEY: Optional[str] = None
     COINMARKETCAP_API_KEY: Optional[str] = None
+
+    # Telegram notifications
+    TELEGRAM_ENABLED: bool = False
+    TELEGRAM_BOT_TOKEN: Optional[str] = None
+    TELEGRAM_CHAT_ID: Optional[str] = None
+    TELEGRAM_NOTIFY_WAIT: bool = False
+
+    # Optional AI analyst. Advisory/explanation only; never execution authority.
+    AI_ENABLED: bool = False
+    AI_PROVIDER: str = "openai"
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-5-mini"
+    AI_TIMEOUT_SEC: int = 20
+
+    # News engine. Can be replaced with comma-separated URLs in NEWS_RSS_URLS.
+    NEWS_ENABLED: bool = True
+    NEWS_MAX_ITEMS: int = 20
+    NEWS_LOOKBACK_HOURS: int = 24
+    NEWS_RSS_URLS: str = "https://www.coindesk.com/arc/outboundfeeds/rss/,https://cointelegraph.com/rss,https://decrypt.co/feed"
 
     # Database Configuration
     DB_URL: str = "sqlite:///trading_bot.db"
@@ -45,7 +67,7 @@ class BotSettings(BaseSettings):
     TREND_RISK_PCT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["trend_risk_per_trade_pct"])
     COUNTER_TREND_RISK_PCT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["counter_trend_risk_pct"])
     MIN_RISK_REWARD: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["min_risk_reward_ratio"])
-    
+
     WICK_REJECTION_RATIO: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["wick_rejection_ratio"])
     DIRECTIONAL_BODY_RATIO: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["directional_body_ratio"])
     VOLUME_RVOL_THRESHOLD: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["volume_rvol_threshold"])
@@ -75,6 +97,10 @@ class BotSettings(BaseSettings):
 
     # Storage Paths
     JOURNAL_DIR: str = "journal_logs"
+
+    @property
+    def news_rss_urls(self) -> List[str]:
+        return [url.strip() for url in self.NEWS_RSS_URLS.split(",") if url.strip()]
 
 
 @lru_cache
