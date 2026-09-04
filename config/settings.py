@@ -19,6 +19,7 @@ class BotSettings(BaseSettings):
     APP_NAME: str = "BTC-Trading-Bot-V2"
     ENV: str = "development"  # development, testnet, production
     LOG_LEVEL: str = "INFO"
+    DASHBOARD_ADMIN_TOKEN: Optional[str] = None
 
     # Asset & Exchange
     SYMBOL: str = "BTC/USDT"
@@ -88,7 +89,7 @@ class BotSettings(BaseSettings):
 
     # Experimental Exit Policies
     EXIT_POLICY_TP1_CLOSE_PCT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["exit_policy_tp1_close_pct"])
-    EXIT_POLICY_AUTO_BREAKEVEN: bool = Field(default_factory=lambda: INITIAL_HYPOTHESES["exit_policy_auto_breakeven"])
+    EXIT_POLICY_AUTO_BREAKEVEN: bool = Field(default_factory=lambda: INITIAL_HYPOTHESES["exit_policy_auto_breAKEVEN"] if "exit_policy_auto_breAKEVEN" in INITIAL_HYPOTHESES else INITIAL_HYPOTHESES["exit_policy_auto_breakeven"])
 
     # Warmup & Buffer Configurations
     MIN_WARMUP_BARS_4H: int = 70
