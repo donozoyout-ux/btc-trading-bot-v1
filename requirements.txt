@@ -1,0 +1,7 @@
+numpy>=1.26,<3
+requests>=2.31,<3
+loguru>=0.7,<1
+pydantic>=2.6,<3
+pydantic-settings>=2.2,<3
+python-dotenv>=1.0,<2
+rich>=13.7,<15
