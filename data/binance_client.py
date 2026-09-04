@@ -48,10 +48,14 @@ class BinanceFuturesClient:
         api_secret: Optional[str] = None,
         testnet: bool = False,
         timeout: int = 5,
+        read_only: bool = False,
+        recv_window_ms: int = 5000,
     ):
         self.api_key = api_key
         self.api_secret = api_secret
         self.testnet = testnet
+        self.read_only = bool(read_only)
+        self.recv_window_ms = max(1000, min(int(recv_window_ms), 60000))
         self.base_url = self.TESTNET_URL if testnet else self.PROD_URL
         self.timeout = timeout
         self.session = requests.Session()
@@ -188,6 +192,8 @@ class BinanceFuturesClient:
         dashboard uses :class:`BinanceFuturesAccountClient` instead.
         """
         if not self.api_key or not self.api_secret:
+            if self.read_only:
+                raise RuntimeError("Binance account credentials are not configured")
             return None
 
         url = f"{self.base_url}/fapi/v2/account"
@@ -200,6 +206,78 @@ class BinanceFuturesClient:
                 return float(asset.get("walletBalance", 0.0))
         return None
 
+    def _account_reader(self):
+        """Compatibility bridge to the TESTNET-only account reader."""
+        return BinanceFuturesAccountClient(
+            api_key=self.api_key,
+            api_secret=self.api_secret,
+            testnet=self.testnet,
+            timeout=self.timeout,
+            recv_window=self.recv_window_ms,
+        )
+
+    def get_account_information(self) -> Dict[str, Any]:
+        return self._account_reader()._signed_get("/fapi/v2/account")
+
+    def get_position_risk(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+        params = {"symbol": symbol} if symbol else None
+        payload = self._account_reader()._signed_get("/fapi/v2/positionRisk", params)
+        return payload if isinstance(payload, list) else []
+
+    def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+        params = {"symbol": symbol} if symbol else None
+        payload = self._account_reader()._signed_get("/fapi/v1/openOrders", params)
+        return payload if isinstance(payload, list) else []
+
+    @staticmethod
+    def _float(value: Any) -> Optional[float]:
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def get_account_summary(self) -> Dict[str, Any]:
+        """V1-compatible summary; the dashboard uses the safer account client."""
+        account = self.get_account_information()
+        position_rows = self.get_position_risk()
+        order_rows = self.get_open_orders()
+        usdt = next((row for row in account.get("assets", []) if row.get("asset") == "USDT"), {})
+        positions = []
+        for row in position_rows:
+            amount = self._float(row.get("positionAmt")) or 0.0
+            if amount == 0.0:
+                continue
+            position_side = row.get("positionSide")
+            if position_side in (None, "", "BOTH"):
+                side = "LONG" if amount > 0 else "SHORT"
+            else:
+                side = str(position_side)
+            positions.append(
+                {
+                    "symbol": row.get("symbol"),
+                    "side": side,
+                    "position_amount": amount,
+                    "entry_price": self._float(row.get("entryPrice")),
+                    "mark_price": self._float(row.get("markPrice")),
+                    "unrealized_pnl": self._float(row.get("unRealizedProfit")),
+                }
+            )
+        return {
+            "environment": "TESTNET" if self.testnet else "MAINNET",
+            "read_only": True,
+            "orders_enabled": False,
+            "wallet_balance_usdt": self._float(usdt.get("walletBalance")),
+            "available_balance_usdt": self._float(usdt.get("availableBalance")),
+            "margin_balance_usdt": self._float(usdt.get("marginBalance")),
+            "unrealized_pnl_usdt": self._float(usdt.get("unrealizedProfit")),
+            "open_position_count": len(positions),
+            "open_order_count": len(order_rows),
+            "positions": positions,
+            "open_orders": order_rows,
+        }
+
     def place_order(
         self,
         symbol: str = "BTCUSDT",
@@ -211,6 +289,8 @@ class BinanceFuturesClient:
         reduce_only: bool = False,
     ) -> Dict[str, Any]:
         """Order submission is deliberately unavailable in the demo phase."""
+        if self.read_only:
+            raise PermissionError("Order submission is disabled for this read-only Binance client")
         raise RuntimeError("ORDER_SUBMISSION_DISABLED")
 
 
@@ -226,10 +306,12 @@ class BinanceFuturesAccountClient:
         testnet: bool = True,
         timeout: int = 5,
         recv_window: int = 5000,
+        read_only: bool = True,
     ):
         self.api_key = (api_key or "").strip() or None
         self.api_secret = (api_secret or "").strip() or None
         self.testnet = bool(testnet)
+        self.read_only = True
         self.base_url = self.TESTNET_URL
         self.timeout = timeout
         self.recv_window = max(1000, min(int(recv_window), 60000))

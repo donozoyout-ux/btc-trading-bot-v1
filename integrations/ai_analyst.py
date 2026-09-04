@@ -52,6 +52,10 @@ class AIAnalystV2:
             "model": self.model if self.configured else None,
         }
 
+    def status(self) -> Dict[str, Any]:
+        """Backward-compatible public status alias for the V1 integration."""
+        return self.safe_status()
+
     @staticmethod
     def unavailable(category: str = "AI_UNAVAILABLE") -> Dict[str, Any]:
         return {
@@ -125,3 +129,7 @@ class AIAnalystV2:
             raise AIAnalystError("AI_NETWORK_ERROR") from None
         except (ValueError, TypeError, KeyError, json.JSONDecodeError):
             raise AIAnalystError("AI_RESPONSE_INVALID") from None
+
+
+# Preserve the public V1 import while the dashboard uses the stricter V2 schema.
+AIAnalyst = AIAnalystV2

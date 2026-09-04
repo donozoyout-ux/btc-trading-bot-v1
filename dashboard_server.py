@@ -48,6 +48,7 @@ DASHBOARD_DIR = ROOT / "dashboard"
 CACHE_TTL_SECONDS = 15
 ACCOUNT_READ_ONLY = True
 ORDERS_ENABLED = False
+DASHBOARD_ORDER_STATUS = "ORDER SUBMISSION: DISABLED IN DASHBOARD"
 BLOCKED_REASON = "Demo dashboard only permits Binance Futures Testnet credentials."
 
 
@@ -230,6 +231,7 @@ class DashboardRuntime:
                 api_key=self.settings.BINANCE_API_KEY,
                 api_secret=self.settings.BINANCE_API_SECRET,
                 testnet=True,
+                read_only=True,
                 recv_window=self.settings.BINANCE_RECV_WINDOW,
             )
         self.coinglass = coinglass_client or CoinGlassClient(api_key=self.settings.COINGLASS_API_KEY)

@@ -32,6 +32,28 @@ class NewsEngineV2:
     NEGATIVE = ("hack", "exploit", "breach", "ban", "lawsuit", "outflow", "crash", "liquidation")
     HIGH_IMPORTANCE = ("fed", "fomc", "cpi", "etf", "sec", "hack", "exploit", "liquidation")
 
+    @classmethod
+    def _score_item(cls, item: Dict[str, Any]) -> Dict[str, Any]:
+        """Return the transparent V1 keyword score alongside V2 normalization."""
+        title = str(item.get("title") or "").lower()
+        high_hits = sorted(term for term in cls.HIGH_IMPORTANCE if term in title)
+        bullish_hits = sorted(term for term in cls.POSITIVE if term in title)
+        bearish_hits = sorted(term for term in cls.NEGATIVE if term in title)
+        result = dict(item)
+        result.update(
+            {
+                "risk_score": min(100, len(high_hits) * 35 + len(bearish_hits) * 10),
+                "risk_terms": high_hits,
+                "sentiment": "BULLISH"
+                if len(bullish_hits) > len(bearish_hits)
+                else "BEARISH"
+                if len(bearish_hits) > len(bullish_hits)
+                else "NEUTRAL",
+                "sentiment_score": len(bullish_hits) - len(bearish_hits),
+            }
+        )
+        return result
+
     def __init__(self, urls: Iterable[str], enabled: bool = True, timeout: int = 6, cache_seconds: int = 300):
         self.urls = [url.strip() for url in urls if url and url.strip()]
         self.enabled = enabled
@@ -151,3 +173,7 @@ class NewsEngineV2:
             }
         self._cache, self._cached_at = result, time.monotonic()
         return result
+
+
+# Preserve the V1 import name for callers that only use its public helpers.
+NewsEngine = NewsEngineV2
