@@ -1,0 +1,14 @@
+{
+  "STOP_LOSS": {
+    "count": 11,
+    "avg_r": -1.091,
+    "avg_pnl_usdt": -55.05,
+    "total_pnl_usdt": -605.52
+  },
+  "TAKE_PROFIT_2": {
+    "count": 5,
+    "avg_r": 1.43,
+    "avg_pnl_usdt": 119.81,
+    "total_pnl_usdt": 599.05
+  }
+}

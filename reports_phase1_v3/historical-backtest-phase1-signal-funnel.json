@@ -1,0 +1,104 @@
+{
+  "TOTAL_EVALUATIONS": {
+    "count": 313411,
+    "conversion_from_prev_pct": 0.0,
+    "conversion_from_total_pct": 100.0,
+    "top_rejection_reasons": {}
+  },
+  "DATA_HEALTH_PASS": {
+    "count": 313411,
+    "conversion_from_prev_pct": 100.0,
+    "conversion_from_total_pct": 100.0,
+    "top_rejection_reasons": {}
+  },
+  "REGIME_ELIGIBLE": {
+    "count": 313411,
+    "conversion_from_prev_pct": 100.0,
+    "conversion_from_total_pct": 100.0,
+    "top_rejection_reasons": {}
+  },
+  "KILL_SWITCH_PASS": {
+    "count": 298436,
+    "conversion_from_prev_pct": 95.22,
+    "conversion_from_total_pct": 95.22,
+    "top_rejection_reasons": {
+      "Kill Switch latched: Kill Switch Activated: Consecutive loss cooldown: 3 >= 3": 14862,
+      "Kill Switch latched: No active setup detected across current market state": 48,
+      "Kill Switch latched: BREAKOUT_RETEST setup detected; waiting 5M trigger (Setup BREAKOUT_RETEST active; waiting for 5M candle trigger confirmation)": 37,
+      "Kill Switch latched: TREND_PULLBACK setup detected; waiting 5M trigger (Setup TREND_PULLBACK active; waiting for 5M candle trigger confirmation)": 6,
+      "Kill Switch latched: Bad trade location filtered": 4,
+      "Kill Switch latched: All conditions met for LONG via BREAKOUT_RETEST: Bullish Engulfing + Volume Expansion": 2,
+      "Kill Switch latched: All conditions met for LONG via BREAKOUT_RETEST: Wick Rejection (54%) + Volume Expansion": 1,
+      "Kill Switch latched: All conditions met for LONG via BREAKOUT_RETEST: Strong Bullish Body (71%) + Volume Expansion": 1,
+      "Kill Switch latched: BREAKOUT_RETEST setup detected; waiting 5M trigger (5M Entry trigger confirmed: Strong Bullish Body (92%) + Micro BOS High Break + Volume Expansion)": 1,
+      "Kill Switch latched: BREAKOUT_RETEST setup detected; waiting 5M trigger (5M Entry trigger confirmed: Bullish Engulfing + Strong Bullish Body (94%) + Micro BOS High Break + Volume Expansion)": 1
+    }
+  },
+  "STRUCTURE_ELIGIBLE": {
+    "count": 247846,
+    "conversion_from_prev_pct": 83.05,
+    "conversion_from_total_pct": 79.08,
+    "top_rejection_reasons": {
+      "4H and 1H structure both MIXED": 50590
+    }
+  },
+  "GOOD_TRADE_LOCATION": {
+    "count": 217193,
+    "conversion_from_prev_pct": 87.63,
+    "conversion_from_total_pct": 69.3,
+    "top_rejection_reasons": {
+      "Location BAD_LOCATION": 19332,
+      "Location NEUTRAL": 11321
+    }
+  },
+  "SETUP_DETECTED": {
+    "count": 83681,
+    "conversion_from_prev_pct": 38.53,
+    "conversion_from_total_pct": 26.7,
+    "top_rejection_reasons": {
+      "No setup detected": 133512
+    }
+  },
+  "ENTRY_TRIGGER_DETECTED": {
+    "count": 2407,
+    "conversion_from_prev_pct": 2.88,
+    "conversion_from_total_pct": 0.77,
+    "top_rejection_reasons": {
+      "Trigger IN_POSITION": 71033,
+      "Trigger WAITING_TRIGGER": 10241
+    }
+  },
+  "MOMENTUM_PASS": {
+    "count": 2407,
+    "conversion_from_prev_pct": 100.0,
+    "conversion_from_total_pct": 0.77,
+    "top_rejection_reasons": {}
+  },
+  "DERIVATIVES_ACCEPTABLE": {
+    "count": 2407,
+    "conversion_from_prev_pct": 100.0,
+    "conversion_from_total_pct": 0.77,
+    "top_rejection_reasons": {}
+  },
+  "TRADE_PLAN_CREATED": {
+    "count": 2407,
+    "conversion_from_prev_pct": 100.0,
+    "conversion_from_total_pct": 0.77,
+    "top_rejection_reasons": {}
+  },
+  "RISK_PASS": {
+    "count": 550,
+    "conversion_from_prev_pct": 22.85,
+    "conversion_from_total_pct": 0.18,
+    "top_rejection_reasons": {
+      "BAD_RISK_REWARD": 1770,
+      "CONSECUTIVE_LOSS_GUARD": 87
+    }
+  },
+  "TRADES_OPENED": {
+    "count": 550,
+    "conversion_from_prev_pct": 100.0,
+    "conversion_from_total_pct": 0.18,
+    "top_rejection_reasons": {}
+  }
+}

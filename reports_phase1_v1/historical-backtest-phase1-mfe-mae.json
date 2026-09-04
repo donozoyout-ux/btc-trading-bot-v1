@@ -1,0 +1,10 @@
+{
+  "average_mfe_pct": 2.264,
+  "median_mfe_pct": 1.007,
+  "average_mae_pct": 1.209,
+  "median_mae_pct": 1.272,
+  "winning_avg_mfe_pct": 5.429,
+  "losing_avg_mfe_pct": 0.826,
+  "winning_avg_mae_pct": 0.635,
+  "losing_avg_mae_pct": 1.469
+}

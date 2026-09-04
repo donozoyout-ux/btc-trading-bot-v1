@@ -1,0 +1,37 @@
+# Environment files with secrets
+.env
+.env.local
+.env.*.local
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs with potential sensitive data
+journal_logs/*.jsonl
+journal_logs/decisions.jsonl
+journal_logs/trades.jsonl
+
+# Virtual environments
+venv/
+.venv/
+
+# Regenerable Binance 5M parquet cache (59MB, use --use-cache to rebuild)
+data_cache/

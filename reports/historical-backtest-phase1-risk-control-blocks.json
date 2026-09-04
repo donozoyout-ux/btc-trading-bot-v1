@@ -1,0 +1,10 @@
+{
+  "daily_loss_blocks": 0,
+  "consecutive_loss_blocks": 14975,
+  "emergency_latch_blocks": 0,
+  "guard_block_counts": {
+    "OTHER_RISK_CONTROL_BLOCK": 298436,
+    "CONSECUTIVE_LOSS_GUARD": 14975
+  },
+  "total_blocked": 14975
+}

@@ -1,0 +1,8 @@
+{
+  "stopped_trades": 11,
+  "avg_stop_loss_r": -1.091,
+  "findings": [
+    "Stopped trades represent X% of total trades",
+    "Analysis of post-stop price action requires forward data"
+  ]
+}

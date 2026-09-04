@@ -1,0 +1,82 @@
+{
+  "TOTAL_EVALUATIONS": {
+    "count": 313411,
+    "conversion_from_prev_pct": 0.0,
+    "conversion_from_total_pct": 100.0,
+    "top_rejection_reasons": {}
+  },
+  "DATA_HEALTH_PASS": {
+    "count": 313411,
+    "conversion_from_prev_pct": 100.0,
+    "conversion_from_total_pct": 100.0,
+    "top_rejection_reasons": {}
+  },
+  "KILL_SWITCH_PASS": {
+    "count": 13143,
+    "conversion_from_prev_pct": 4.19,
+    "conversion_from_total_pct": 4.19,
+    "top_rejection_reasons": {
+      "Kill Switch latched: Kill Switch Activated: Max consecutive losses reached: 3": 300268
+    }
+  },
+  "STRUCTURE_ELIGIBLE": {
+    "count": 9372,
+    "conversion_from_prev_pct": 71.31,
+    "conversion_from_total_pct": 2.99,
+    "top_rejection_reasons": {
+      "4H and 1H structure both MIXED": 3771
+    }
+  },
+  "GOOD_TRADE_LOCATION": {
+    "count": 7992,
+    "conversion_from_prev_pct": 85.28,
+    "conversion_from_total_pct": 2.55,
+    "top_rejection_reasons": {
+      "Location BAD_LOCATION": 1167,
+      "Location NEUTRAL": 213
+    }
+  },
+  "SETUP_DETECTED": {
+    "count": 1758,
+    "conversion_from_prev_pct": 22.0,
+    "conversion_from_total_pct": 0.56,
+    "top_rejection_reasons": {
+      "No setup detected": 6234
+    }
+  },
+  "ENTRY_TRIGGER_DETECTED": {
+    "count": 35,
+    "conversion_from_prev_pct": 1.99,
+    "conversion_from_total_pct": 0.01,
+    "top_rejection_reasons": {
+      "Trigger IN_POSITION": 1594,
+      "Trigger WAITING_TRIGGER": 129
+    }
+  },
+  "DERIVATIVES_ACCEPTABLE": {
+    "count": 35,
+    "conversion_from_prev_pct": 100.0,
+    "conversion_from_total_pct": 0.01,
+    "top_rejection_reasons": {}
+  },
+  "TRADE_PLAN_CREATED": {
+    "count": 35,
+    "conversion_from_prev_pct": 100.0,
+    "conversion_from_total_pct": 0.01,
+    "top_rejection_reasons": {}
+  },
+  "RISK_PASS": {
+    "count": 12,
+    "conversion_from_prev_pct": 34.29,
+    "conversion_from_total_pct": 0.0,
+    "top_rejection_reasons": {
+      "INSUFFICIENT_RR": 23
+    }
+  },
+  "TRADES_OPENED": {
+    "count": 12,
+    "conversion_from_prev_pct": 100.0,
+    "conversion_from_total_pct": 0.0,
+    "top_rejection_reasons": {}
+  }
+}

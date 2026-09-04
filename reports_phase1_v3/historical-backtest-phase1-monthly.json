@@ -1,0 +1,372 @@
+[
+  {
+    "month": "2023-09",
+    "trades": 3,
+    "wins": 1,
+    "losses": 2,
+    "gross_profit": 21.469999999999985,
+    "net_pnl": 11.799999999999997,
+    "r_sum": 0.2599999999999998,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2023-10",
+    "trades": 15,
+    "wins": 4,
+    "losses": 11,
+    "gross_profit": 31.949999999999978,
+    "net_pnl": -25.21,
+    "r_sum": -5.109999999999999,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2023-11",
+    "trades": 11,
+    "wins": 5,
+    "losses": 6,
+    "gross_profit": 315.43000000000006,
+    "net_pnl": 278.65000000000003,
+    "r_sum": -1.6400000000000006,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2023-12",
+    "trades": 10,
+    "wins": 3,
+    "losses": 7,
+    "gross_profit": 66.76000000000005,
+    "net_pnl": 35.02999999999996,
+    "r_sum": -4.04,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2024-01",
+    "trades": 8,
+    "wins": 3,
+    "losses": 5,
+    "gross_profit": 170.06999999999996,
+    "net_pnl": 133.96,
+    "r_sum": 0.3600000000000003,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2024-02",
+    "trades": 27,
+    "wins": 11,
+    "losses": 16,
+    "gross_profit": 686.5399999999998,
+    "net_pnl": 578.91,
+    "r_sum": -5.830000000000001,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2024-03",
+    "trades": 38,
+    "wins": 9,
+    "losses": 29,
+    "gross_profit": 41.429999999999794,
+    "net_pnl": -99.45999999999982,
+    "r_sum": -15.590000000000002,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2024-04",
+    "trades": 22,
+    "wins": 3,
+    "losses": 19,
+    "gross_profit": -632.5800000000002,
+    "net_pnl": -719.7600000000001,
+    "r_sum": -20.81000000000001,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2024-05",
+    "trades": 27,
+    "wins": 5,
+    "losses": 22,
+    "gross_profit": -368.94,
+    "net_pnl": -518.05,
+    "r_sum": -42.26,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2024-06",
+    "trades": 16,
+    "wins": 4,
+    "losses": 12,
+    "gross_profit": -116.36,
+    "net_pnl": -183.54999999999998,
+    "r_sum": -8.56,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2024-07",
+    "trades": 28,
+    "wins": 7,
+    "losses": 21,
+    "gross_profit": -104.49000000000001,
+    "net_pnl": -208.68,
+    "r_sum": -13.84,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2024-08",
+    "trades": 24,
+    "wins": 11,
+    "losses": 13,
+    "gross_profit": 663.9899999999999,
+    "net_pnl": 578.31,
+    "r_sum": -2.19,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2024-09",
+    "trades": 17,
+    "wins": 4,
+    "losses": 13,
+    "gross_profit": -120.67999999999998,
+    "net_pnl": -194.31999999999994,
+    "r_sum": -11.049999999999999,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2024-10",
+    "trades": 24,
+    "wins": 8,
+    "losses": 16,
+    "gross_profit": 163.08999999999995,
+    "net_pnl": 69.89999999999998,
+    "r_sum": -15.3,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2024-11",
+    "trades": 41,
+    "wins": 10,
+    "losses": 31,
+    "gross_profit": -140.02999999999992,
+    "net_pnl": -276.88,
+    "r_sum": -29.47,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2024-12",
+    "trades": 28,
+    "wins": 7,
+    "losses": 21,
+    "gross_profit": -194.83999999999997,
+    "net_pnl": -296.15,
+    "r_sum": -20.720000000000002,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2025-01",
+    "trades": 40,
+    "wins": 8,
+    "losses": 32,
+    "gross_profit": -570.0200000000001,
+    "net_pnl": -697.1700000000001,
+    "r_sum": -32.56000000000001,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2025-02",
+    "trades": 9,
+    "wins": 2,
+    "losses": 7,
+    "gross_profit": -93.39000000000001,
+    "net_pnl": -121.7,
+    "r_sum": -5.24,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2025-03",
+    "trades": 15,
+    "wins": 4,
+    "losses": 11,
+    "gross_profit": 24.43000000000002,
+    "net_pnl": -33.64999999999996,
+    "r_sum": -5.2700000000000005,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2025-04",
+    "trades": 24,
+    "wins": 6,
+    "losses": 18,
+    "gross_profit": -24.23999999999996,
+    "net_pnl": -128.82000000000002,
+    "r_sum": -8.120000000000001,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2025-05",
+    "trades": 24,
+    "wins": 6,
+    "losses": 18,
+    "gross_profit": 59.169999999999895,
+    "net_pnl": -15.270000000000003,
+    "r_sum": -14.429999999999998,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2025-06",
+    "trades": 6,
+    "wins": 3,
+    "losses": 3,
+    "gross_profit": 178.58,
+    "net_pnl": 159.70000000000002,
+    "r_sum": -3.3200000000000003,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2025-07",
+    "trades": 15,
+    "wins": 5,
+    "losses": 10,
+    "gross_profit": 130.3599999999999,
+    "net_pnl": 78.58000000000001,
+    "r_sum": 2.049999999999999,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2025-08",
+    "trades": 19,
+    "wins": 3,
+    "losses": 16,
+    "gross_profit": -267.38000000000005,
+    "net_pnl": -337.42,
+    "r_sum": -10.889999999999999,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2025-09",
+    "trades": 7,
+    "wins": 2,
+    "losses": 5,
+    "gross_profit": -8.360000000000028,
+    "net_pnl": -35.16000000000001,
+    "r_sum": -0.8400000000000003,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2025-10",
+    "trades": 20,
+    "wins": 5,
+    "losses": 15,
+    "gross_profit": -79.98999999999998,
+    "net_pnl": -148.17000000000002,
+    "r_sum": -13.140000000000002,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2025-11",
+    "trades": 12,
+    "wins": 4,
+    "losses": 8,
+    "gross_profit": 64.57000000000002,
+    "net_pnl": 19.93000000000002,
+    "r_sum": -1.8000000000000007,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2025-12",
+    "trades": 13,
+    "wins": 2,
+    "losses": 11,
+    "gross_profit": -188.84999999999997,
+    "net_pnl": -234.8,
+    "r_sum": -8.9,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2026-01",
+    "trades": 18,
+    "wins": 4,
+    "losses": 14,
+    "gross_profit": -130.21,
+    "net_pnl": -186.39999999999995,
+    "r_sum": -9.59,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2026-02",
+    "trades": 7,
+    "wins": 2,
+    "losses": 5,
+    "gross_profit": 29.790000000000006,
+    "net_pnl": 5.780000000000015,
+    "r_sum": -4.51,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2026-03",
+    "trades": 12,
+    "wins": 2,
+    "losses": 10,
+    "gross_profit": -193.82,
+    "net_pnl": -223.35,
+    "r_sum": -10.850000000000001,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2026-04",
+    "trades": 27,
+    "wins": 9,
+    "losses": 18,
+    "gross_profit": 174.95999999999998,
+    "net_pnl": 95.50000000000006,
+    "r_sum": -11.58,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2026-05",
+    "trades": 17,
+    "wins": 9,
+    "losses": 8,
+    "gross_profit": 529.16,
+    "net_pnl": 469.1199999999999,
+    "r_sum": 5.32,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2026-06",
+    "trades": 12,
+    "wins": 4,
+    "losses": 8,
+    "gross_profit": 64.14000000000001,
+    "net_pnl": 19.78000000000001,
+    "r_sum": -4.170000000000001,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2026-07",
+    "trades": 22,
+    "wins": 6,
+    "losses": 16,
+    "gross_profit": 15.060000000000002,
+    "net_pnl": -61.799999999999976,
+    "r_sum": -8.59,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2026-08",
+    "trades": 19,
+    "wins": 8,
+    "losses": 11,
+    "gross_profit": 337.87999999999994,
+    "net_pnl": 283.48,
+    "r_sum": -4.840000000000001,
+    "max_dd": 0.0
+  },
+  {
+    "month": "2026-09",
+    "trades": 4,
+    "wins": 2,
+    "losses": 2,
+    "gross_profit": 146.43,
+    "net_pnl": 130.99,
+    "r_sum": 0.9299999999999997,
+    "max_dd": 0.0
+  }
+]

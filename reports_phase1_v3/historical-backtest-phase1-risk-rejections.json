@@ -1,0 +1,25 @@
+{
+  "kill_switch_blocked": 14975,
+  "risk_rejection_breakdown": {
+    "BAD_RISK_REWARD": 1770,
+    "CONSECUTIVE_LOSS_GUARD": 87
+  },
+  "risk_rejection_top_raw": {
+    "CONSECUTIVE_LOSS_GUARD: Consecutive loss cooldown: 3 >= 3": 87,
+    "Insufficient R:R (0.75 < 1.50)": 32,
+    "Insufficient R:R (0.66 < 1.50)": 28,
+    "Insufficient R:R (0.52 < 1.50)": 24,
+    "Insufficient R:R (0.54 < 1.50)": 24,
+    "Insufficient R:R (0.68 < 1.50)": 23,
+    "Insufficient R:R (0.80 < 1.50)": 23,
+    "Insufficient R:R (0.65 < 1.50)": 23,
+    "Insufficient R:R (0.56 < 1.50)": 23,
+    "Insufficient R:R (0.53 < 1.50)": 22
+  },
+  "setup_detection_counts": {
+    "BREAKOUT_RETEST": 57300,
+    "TREND_PULLBACK": 22831,
+    "COUNTER_TREND_REACTION": 3550
+  },
+  "funnel_type": "CONDITIONAL_CHAIN (each stage counted only if all previous passed)"
+}

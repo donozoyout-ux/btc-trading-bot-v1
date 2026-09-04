@@ -1,0 +1,42 @@
+{
+  "5m": {
+    "count": 315575,
+    "start": 1693841700000,
+    "end": 1788513900000,
+    "duplicates": 0,
+    "invalid_ohlc": 0,
+    "non_positive": 0,
+    "large_gaps": 0,
+    "issues": []
+  },
+  "15m": {
+    "count": 105191,
+    "start": 1693842300000,
+    "end": 1788513300000,
+    "duplicates": 0,
+    "invalid_ohlc": 0,
+    "non_positive": 0,
+    "large_gaps": 0,
+    "issues": []
+  },
+  "1h": {
+    "count": 26297,
+    "start": 1693843200000,
+    "end": 1788508800000,
+    "duplicates": 0,
+    "invalid_ohlc": 0,
+    "non_positive": 0,
+    "large_gaps": 0,
+    "issues": []
+  },
+  "4h": {
+    "count": 6574,
+    "start": 1693843200000,
+    "end": 1788494400000,
+    "duplicates": 0,
+    "invalid_ohlc": 0,
+    "non_positive": 0,
+    "large_gaps": 0,
+    "issues": []
+  }
+}

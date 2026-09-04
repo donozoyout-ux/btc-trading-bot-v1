@@ -1,0 +1,96 @@
+"""Conditional signal funnel for backtest pipeline analysis.
+
+Strict chain semantics: a stage is counted ONLY if every previous stage passed
+in the same evaluation. A failing evaluation is recorded exactly once, as a
+rejection at the FIRST stage it failed, with an explicit reason.
+
+Stage order mirrors the pipeline gating order (kill switch gates everything,
+derivatives veto precedes trade planning, risk gates entries).
+"""
+
+from typing import Dict, List
+from dataclasses import dataclass, field
+
+
+@dataclass
+class FunnelStage:
+    count: int = 0
+    rejections: Dict[str, int] = field(default_factory=dict)
+
+    def add_pass(self, count: int = 1) -> None:
+        self.count += count
+
+    def add_rejection(self, reason: str, count: int = 1) -> None:
+        self.rejections[reason] = self.rejections.get(reason, 0) + count
+
+
+class SignalFunnel:
+    """Strict conditional signal funnel with 13 stages mirroring the pipeline.
+
+    Pipeline order:
+    TOTAL → DATA_HEALTH → REGIME → KILL_SWITCH → STRUCTURE →
+    GOOD_LOCATION → SETUP → ENTRY_TRIGGER → MOMENTUM → DERIVATIVES →
+    TRADE_PLAN → RISK → TRADES_OPENED
+
+    Invariant: every stage count <= previous stage count.
+    Every conversion_from_previous <= 100%.
+    """
+
+    STAGES = [
+        "TOTAL_EVALUATIONS",
+        "DATA_HEALTH_PASS",
+        "REGIME_ELIGIBLE",
+        "KILL_SWITCH_PASS",
+        "STRUCTURE_ELIGIBLE",
+        "GOOD_TRADE_LOCATION",
+        "SETUP_DETECTED",
+        "ENTRY_TRIGGER_DETECTED",
+        "MOMENTUM_PASS",
+        "DERIVATIVES_ACCEPTABLE",
+        "TRADE_PLAN_CREATED",
+        "RISK_PASS",
+        "TRADES_OPENED",
+    ]
+
+    def __init__(self):
+        self.stages: Dict[str, FunnelStage] = {s: FunnelStage() for s in self.STAGES}
+
+    def record_evaluation(self, total: int = 1) -> None:
+        self.stages["TOTAL_EVALUATIONS"].add_pass(total)
+
+    def record_pass(self, stage: str, count: int = 1) -> None:
+        if stage in self.stages:
+            self.stages[stage].add_pass(count)
+
+    def record_rejection(self, stage: str, reason: str, count: int = 1) -> None:
+        """Record an evaluation rejected at `stage` (first failure point)."""
+        if stage in self.stages:
+            self.stages[stage].add_rejection(reason, count)
+
+    def record_trade_opened(self) -> None:
+        # Kept for backward compatibility; prefer record_pass("TRADES_OPENED").
+        self.stages["TRADES_OPENED"].add_pass()
+
+    def get_funnel(self) -> Dict:
+        """Return conditional funnel: each count <= previous count by construction."""
+        result = {}
+        prev_count = None
+        for stage_name in self.STAGES:
+            stage = self.stages[stage_name]
+            count = stage.count
+            conversion_from_prev = 0.0
+            conversion_from_total = 0.0
+            if prev_count is not None and prev_count > 0:
+                conversion_from_prev = (count / prev_count) * 100.0
+            if self.stages["TOTAL_EVALUATIONS"].count > 0:
+                conversion_from_total = (count / self.stages["TOTAL_EVALUATIONS"].count) * 100.0
+            result[stage_name] = {
+                "count": count,
+                "conversion_from_prev_pct": round(conversion_from_prev, 2),
+                "conversion_from_total_pct": round(conversion_from_total, 2),
+                "top_rejection_reasons": dict(
+                    sorted(stage.rejections.items(), key=lambda x: x[1], reverse=True)[:10]
+                ),
+            }
+            prev_count = count
+        return result

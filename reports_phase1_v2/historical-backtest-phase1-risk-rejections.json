@@ -1,0 +1,24 @@
+{
+  "kill_switch_blocked": 300268,
+  "risk_rejection_breakdown": {
+    "INSUFFICIENT_RR": 23
+  },
+  "risk_rejection_top_raw": {
+    "Insufficient R:R (1.23 < 1.50)": 2,
+    "Insufficient R:R (1.22 < 1.50)": 2,
+    "Insufficient R:R (0.37 < 1.50)": 1,
+    "Insufficient R:R (0.10 < 1.50)": 1,
+    "Insufficient R:R (0.22 < 1.50)": 1,
+    "Insufficient R:R (0.83 < 1.50)": 1,
+    "Insufficient R:R (0.69 < 1.50)": 1,
+    "Insufficient R:R (0.99 < 1.50)": 1,
+    "Insufficient R:R (1.37 < 1.50)": 1,
+    "Insufficient R:R (0.82 < 1.50)": 1
+  },
+  "setup_detection_counts": {
+    "BREAKOUT_RETEST": 1385,
+    "TREND_PULLBACK": 342,
+    "COUNTER_TREND_REACTION": 31
+  },
+  "funnel_type": "CONDITIONAL_CHAIN (each stage counted only if all previous passed)"
+}

@@ -1,0 +1,68 @@
+2026-09-04 14:50:18.429 | INFO     | __main__:main:66 - Loaded dataset from cache: {'5m': 315575, '15m': 105191, '1h': 26297, '4h': 6574}
+2026-09-04 14:50:18.817 | INFO     | __main__:main:77 - Dataset stats: {
+ "5m": {
+  "count": 315575,
+  "start": 1693841700000,
+  "end": 1788513900000,
+  "duplicates": 0,
+  "invalid_ohlc": 0,
+  "non_positive": 0,
+  "large_gaps": 0,
+  "issues": []
+ },
+ "15m": {
+  "count": 105191,
+  "start": 1693842300000,
+  "end": 1788513300000,
+  "duplicates": 0,
+  "invalid_ohlc": 0,
+  "non_positive": 0,
+  "large_gaps": 0,
+  "issues": []
+ },
+ "1h": {
+  "count": 26297,
+  "start": 1693843200000,
+  "end": 1788508800000,
+  "duplicates": 0,
+  "invalid_ohlc": 0,
+  "non_positive": 0,
+  "large_gaps": 0,
+  "issues": []
+ },
+ "4h": {
+  "count": 6574,
+  "start": 1693843200000,
+  "end": 1788494400000,
+  "duplicates": 0,
+  "invalid_ohlc": 0,
+  "non_positive": 0,
+  "large_gaps": 0,
+  "issues": []
+ }
+}
+2026-09-04 14:50:18.822 | INFO     | backtest.phase1_runner:run:144 - Starting Phase 1 Backtest: 315575 5M candles from index 500
+2026-09-04 14:50:18.822 | INFO     | backtest.phase1_runner:run:145 - Derivatives Mode: UNAVAILABLE (Technical Baseline — Mode A)
+2026-09-04 14:50:18.824 | INFO     | backtest.phase1_runner:run:146 - Fee Model: Taker 0.04%
+2026-09-04 14:50:18.824 | INFO     | backtest.phase1_runner:run:147 - Slippage Model: 0.02%
+2026-09-04 14:50:18.824 | INFO     | backtest.phase1_runner:run:148 - Funding Model: DISABLED
+2026-09-04 15:17:54.481 | INFO     | backtest.phase1_runner:run:286 - Phase 1 Backtest Complete. Trades: 681 | Candidates: 681 | Net PnL: $-1,796.35
+2026-09-04 15:17:54.501 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-summary.md
+2026-09-04 15:17:54.504 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-summary.json
+2026-09-04 15:17:54.506 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-dataset-audit.json
+2026-09-04 15:17:54.507 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-trades.csv
+2026-09-04 15:17:54.507 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-signal-funnel.json
+2026-09-04 15:17:54.508 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-setup-breakdown.json
+2026-09-04 15:17:54.509 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-regime-breakdown.json
+2026-09-04 15:17:54.509 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-direction-breakdown.json
+2026-09-04 15:17:54.510 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-volatility-breakdown.json
+2026-09-04 15:17:54.511 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-monthly.json
+2026-09-04 15:17:54.511 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-mfe-mae.json
+2026-09-04 15:17:54.512 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-stop-analysis.json
+2026-09-04 15:17:54.512 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-exit-analysis.json
+2026-09-04 15:17:54.513 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-risk-rejections.json
+2026-09-04 15:17:54.513 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-risk-control-blocks.json
+2026-09-04 15:17:54.517 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-candidate-trade-reconciliation.json
+2026-09-04 15:17:54.519 | INFO     | backtest.phase1_runner:generate_reports:489 - Generated: reports\historical-backtest-phase1-kill-switch-timeline.json
+2026-09-04 15:17:54.523 | INFO     | __main__:main:88 - Done. Reports: ['historical-backtest-phase1-candidate-trade-reconciliation.json', 'historical-backtest-phase1-dataset-audit.json', 'historical-backtest-phase1-direction-breakdown.json', 'historical-backtest-phase1-exit-analysis.json', 'historical-backtest-phase1-kill-switch-timeline.json', 'historical-backtest-phase1-mfe-mae.json', 'historical-backtest-phase1-monthly.json', 'historical-backtest-phase1-regime-breakdown.json', 'historical-backtest-phase1-risk-control-blocks.json', 'historical-backtest-phase1-risk-rejections.json', 'historical-backtest-phase1-setup-breakdown.json', 'historical-backtest-phase1-signal-funnel.json', 'historical-backtest-phase1-stop-analysis.json', 'historical-backtest-phase1-summary.json', 'historical-backtest-phase1-summary.md', 'historical-backtest-phase1-trades.csv', 'historical-backtest-phase1-volatility-breakdown.json']
+2026-09-04 15:17:54.523 | INFO     | __main__:main:89 - Trades=681 Net=$-1796.35 WR=28.05% PF=1.03

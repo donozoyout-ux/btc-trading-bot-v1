@@ -1,0 +1,10 @@
+{
+  "total_candidates": 681,
+  "candidates_passed_risk": 681,
+  "candidates_produced_trade": 681,
+  "unreconciled_candidates": 0,
+  "unreconciled_trades": 0,
+  "reconciliation_pass": true,
+  "unreconciled_candidate_ids": [],
+  "unreconciled_trade_ids": []
+}
