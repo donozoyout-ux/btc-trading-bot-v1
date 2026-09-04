@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: btc-intelligence-console
+    runtime: python
+    plan: free
+    autoDeploy: true
+    buildCommand: >-
+      python -m pip install --upgrade pip &&
+      pip install -r requirements.txt &&
+      python -m compileall -q . &&
+      python dashboard_server.py --self-test
+    startCommand: python start_dashboard.py
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: ENV
+        value: development
+      - key: BINANCE_TESTNET
+        value: "true"
+      - key: ACCOUNT_READ_ONLY
+        value: "true"
+      - key: NEWS_ENABLED
+        value: "true"
+      - key: AI_ENABLED
+        value: "false"
+      - key: TELEGRAM_ENABLED
+        value: "false"
+      - key: BINANCE_API_KEY
+        sync: false
+      - key: BINANCE_API_SECRET
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: COINGLASS_API_KEY
+        sync: false
+      - key: COINMARKETCAP_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DASHBOARD_ADMIN_TOKEN
+        sync: false
