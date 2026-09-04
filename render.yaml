@@ -10,7 +10,7 @@ services:
       python -m compileall -q . &&
       python dashboard_server.py --self-test
     startCommand: python start_dashboard.py
-    healthCheckPath: /
+    healthCheckPath: /api/bootstrap
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
