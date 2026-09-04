@@ -1,11 +1,17 @@
 """Conditional signal funnel for backtest pipeline analysis.
 
-Strict chain semantics: a stage is counted ONLY if every previous stage passed
-in the same evaluation. A failing evaluation is recorded exactly once, as a
-rejection at the FIRST stage it failed, with an explicit reason.
+Phase 2A semantics: the conditional chain contains ONLY true pipeline gates —
+stages where the pipeline itself vetoes progress. STRUCTURE and LOCATION are
+NOT gates (the pipeline consumes them as setup-detection inputs but never
+vetoes on their coarse labels); they are recorded as parallel market-context
+observations that cannot swallow evaluations. This guarantees every opened
+trade's evaluation flows through the full chain: TRADES_OPENED ==
+EXECUTABLE_CANDIDATES == RISK_PASS by construction, and all three equal the
+execution-path trade count.
 
-Stage order mirrors the pipeline gating order (kill switch gates everything,
-derivatives veto precedes trade planning, risk gates entries).
+Strict chain semantics: a stage is counted ONLY if every previous TRUE gate
+passed in the same evaluation. A failing evaluation is recorded exactly once,
+as a rejection at the FIRST gate it failed, with an explicit reason.
 """
 
 from typing import Dict, List
@@ -25,12 +31,22 @@ class FunnelStage:
 
 
 class SignalFunnel:
-    """Strict conditional signal funnel with 13 stages mirroring the pipeline.
+    """Strict conditional signal funnel with 14 stages mirroring the pipeline.
 
     Pipeline order:
     TOTAL → DATA_HEALTH → REGIME → KILL_SWITCH → STRUCTURE →
     GOOD_LOCATION → SETUP → ENTRY_TRIGGER → MOMENTUM → DERIVATIVES →
-    TRADE_PLAN → RISK → TRADES_OPENED
+    TRADE_PLAN → RISK → EXECUTABLE → TRADES_OPENED
+
+    Stage semantics (Phase 2A):
+    - RISK_PASS: risk engine ACCEPTed the trade plan.
+    - EXECUTABLE_CANDIDATES: risk accepted AND final decision is LONG/SHORT_ENTRY
+      (derived from the canonical DecisionReport; in the current architecture the
+      derivatives veto and kill-switch veto both precede risk evaluation, so this
+      coincides with RISK_PASS — kept as an explicit stage so any future
+      post-risk veto becomes visible instead of silently collapsing counts).
+    - TRADES_OPENED: a TradeRecord was actually created by the execution path
+      (derived from _process_entry's return value, not inferred from the report).
 
     Invariant: every stage count <= previous stage count.
     Every conversion_from_previous <= 100%.
@@ -49,6 +65,7 @@ class SignalFunnel:
         "DERIVATIVES_ACCEPTABLE",
         "TRADE_PLAN_CREATED",
         "RISK_PASS",
+        "EXECUTABLE_CANDIDATES",
         "TRADES_OPENED",
     ]
 

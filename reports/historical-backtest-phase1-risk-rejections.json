@@ -1,7 +1,7 @@
 {
-  "kill_switch_blocked": 14975,
+  "kill_switch_blocked": 14862,
   "risk_rejection_breakdown": {
-    "BAD_RISK_REWARD": 1770,
+    "BAD_RISK_REWARD": 1774,
     "CONSECUTIVE_LOSS_GUARD": 87
   },
   "risk_rejection_top_raw": {
@@ -17,9 +17,9 @@
     "Insufficient R:R (0.53 < 1.50)": 22
   },
   "setup_detection_counts": {
-    "BREAKOUT_RETEST": 57300,
-    "TREND_PULLBACK": 22831,
-    "COUNTER_TREND_REACTION": 3550
+    "BREAKOUT_RETEST": 57338,
+    "TREND_PULLBACK": 22838,
+    "COUNTER_TREND_REACTION": 3552
   },
   "funnel_type": "CONDITIONAL_CHAIN (each stage counted only if all previous passed)"
 }

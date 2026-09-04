@@ -234,12 +234,16 @@ class DataHealthResult(BaseModel):
 class DecisionReport(BaseModel):
     """Master Decision Output logged every 5M cycle per Section 42."""
     timestamp: int
+    evaluation_id: str = ""
     symbol: str = "BTC/USDT"
     price: float
     regime: MarketRegime
     regime_score: float
     confidence: str
     volatility: VolatilityLevel
+    vol_percentile: float = 50.0
+    atr_distance_atrs: float = 0.0
+    current_rsi: float = 50.0
     structure_4h: StructureType
     structure_1h: StructureType
     location: LocationQuality
@@ -281,3 +285,12 @@ class TradeRecord(BaseModel):
     mae: float = 0.0
     is_closed: bool = False
     fees_paid_usdt: float = 0.0
+    # Phase 2A entry-context telemetry (observability only, never gates decisions)
+    evaluation_id: str = ""
+    candidate_id: str = ""
+    entry_regime: str = ""
+    entry_volatility: str = ""
+    entry_vol_percentile: float = 0.0
+    entry_overextended: str = "NONE"
+    entry_atr_distance_atrs: float = 0.0
+    entry_rsi: float = 0.0

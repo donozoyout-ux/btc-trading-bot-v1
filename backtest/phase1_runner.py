@@ -1,9 +1,18 @@
 """Phase 1 Historical Backtest Runner — generates all required reports.
 
-Candidate tracking: each evaluation that passes all gates up to risk
-receives a unique candidate_id. Each opened trade is reconciled to
-exactly one originating candidate. Unreconciled candidates and trades
-are reported explicitly.
+Candidate tracking: each evaluation that reaches an ENTRY decision mints a
+unique candidate_id (pipeline counter, one per risk evaluation) and registers
+it here. Each opened trade is reconciled to exactly one originating candidate.
+Unreconciled candidates and trades are reported explicitly.
+
+Phase 2A funnel semantics: the KILL_SWITCH stage uses the pre-cycle latch
+snapshot AND the post-cycle latch state from the canonical DecisionReport
+(a daily reset inside run_cycle can release a previously latched guard, in
+which case the cycle executes normally and must NOT be counted as blocked).
+RISK_PASS = risk engine ACCEPTed. EXECUTABLE_CANDIDATES = risk accepted AND
+final decision LONG/SHORT_ENTRY (from the canonical report). TRADES_OPENED =
+a TradeRecord was actually created (from _process_entry's return value).
+Invariant: TRADES_OPENED <= EXECUTABLE_CANDIDATES <= RISK_PASS.
 """
 
 import bisect
@@ -118,6 +127,7 @@ class Phase1BacktestRunner:
         self.metrics_engine = ComprehensiveMetricsEngine(self.settings.INITIAL_CAPITAL_USDT)
         self.candidates = CandidateTracker()
         self.all_trades: List[TradeRecord] = []
+        self.trade_trace: Dict[str, Dict] = {}
         self.equity_curve: List[float] = [self.settings.INITIAL_CAPITAL_USDT]
         self.regime_map: Dict[int, str] = {}
         self.volatility_map: Dict[int, str] = {}
@@ -205,8 +215,13 @@ class Phase1BacktestRunner:
             # Run pipeline cycle
             report = self.pipeline.run_cycle(candles_dict, self.state, derivatives_input=derivatives_input)
 
-            # Funnel instrumentation
-            self._record_funnel_from_report(report, ks_latched_before)
+            # Process new entry FIRST — candidate tracking. Returns the opened
+            # trade (or None). The funnel below derives TRADES_OPENED from this
+            # canonical execution outcome, not from re-inferring the report.
+            opened_trade = self._process_entry(report, curr_5m)
+
+            # Funnel instrumentation (read-only over report + execution outcome)
+            self._record_funnel_from_report(report, ks_latched_before, opened_trade is not None)
 
             # Guard block attribution from DecisionReport
             self._record_guard_blocks(report)
@@ -266,6 +281,31 @@ class Phase1BacktestRunner:
         )
         results["setup_detection_counts"] = dict(self.setup_detection_counts)
         results["candidate_reconciliation"] = reconciliation
+        results["trade_trace"] = dict(self.trade_trace)
+        funnel_counts = self.funnel.get_funnel()
+        risk_pass_n = funnel_counts["RISK_PASS"]["count"]
+        executable_n = funnel_counts["EXECUTABLE_CANDIDATES"]["count"]
+        opened_n = funnel_counts["TRADES_OPENED"]["count"]
+        results["funnel_reconciliation"] = {
+            "risk_pass": risk_pass_n,
+            "executable_candidates": executable_n,
+            "trades_opened_funnel": opened_n,
+            "trades_opened_execution": len(self.all_trades),
+            "candidates_registered": reconciliation["total_candidates"],
+            "invariant_trades_le_executable": opened_n <= executable_n,
+            "invariant_executable_le_risk": executable_n <= risk_pass_n,
+            "invariant_funnel_eq_execution": opened_n == len(self.all_trades),
+            "invariant_trace_complete": (
+                len(self.trade_trace) == len(self.all_trades)
+                and all(t.trade_id in self.trade_trace for t in self.all_trades)
+            ),
+            "semantics": (
+                "RISK_PASS: risk engine ACCEPTed. EXECUTABLE_CANDIDATES: risk accepted "
+                "AND final decision LONG/SHORT_ENTRY (canonical DecisionReport). "
+                "TRADES_OPENED: TradeRecord created by _process_entry (return value). "
+                "BACKTEST_END force-close opens no trade and creates no candidate."
+            ),
+        }
         results["derivatives_mode"] = "UNAVAILABLE (Technical Baseline — Mode A)"
         results["derivatives_fields_used"] = {
             "open_interest": "UNAVAILABLE", "funding_rate": "DISABLED",
@@ -293,12 +333,17 @@ class Phase1BacktestRunner:
 
     _last_candidate_id: str = ""
 
-    def _process_entry(self, report: DecisionReport, curr_5m) -> None:
-        """Create candidate and potentially open trade."""
+    def _process_entry(self, report: DecisionReport, curr_5m) -> Optional[TradeRecord]:
+        """Create candidate and potentially open trade.
+
+        Returns the opened TradeRecord, or None when no trade was opened.
+        Pure execution path: the funnel derives TRADES_OPENED from this
+        return value (Phase 2A canonical-path rule).
+        """
         if self.state.active_position is not None or report.risk_assessment is None:
-            return
+            return None
         if report.final_decision not in (DecisionStatus.LONG_ENTRY, DecisionStatus.SHORT_ENTRY):
-            return
+            return None
 
         risk = report.risk_assessment
         candidate_id = risk.candidate_id
@@ -337,9 +382,37 @@ class Phase1BacktestRunner:
             size_btc=risk.position_size_btc,
             size_usdt=risk.position_size_usdt,
             is_closed=False,
+            evaluation_id=report.evaluation_id,
+            candidate_id=candidate_id,
+            entry_regime=report.regime.value,
+            entry_volatility=report.volatility.value,
+            entry_vol_percentile=report.vol_percentile,
+            entry_overextended=(
+                "OVEREXTENDED_UP" if report.overextended_up
+                else ("OVEREXTENDED_DOWN" if report.overextended_down else "NONE")
+            ),
+            entry_atr_distance_atrs=report.atr_distance_atrs,
+            entry_rsi=report.current_rsi,
         )
         self.state.active_position = new_trade
         self.candidates.reconcile_trade(new_trade.trade_id, candidate_id)
+        # Phase 2A per-trade execution trace. risk_assessment_id := candidate_id:
+        # the pipeline mints exactly one candidate_id per risk evaluation
+        # (runner.py STEP 9), so the mapping is 1:1 by construction.
+        # setup_id := evaluation + setup type (setups carry no independent id).
+        self.trade_trace[new_trade.trade_id] = {
+            "evaluation_id": report.evaluation_id,
+            "candidate_id": candidate_id,
+            "setup_id": f"{report.evaluation_id}:{report.setup.value}",
+            "risk_assessment_id": candidate_id,
+            "guard_assessment": {
+                "guard_type": risk.guard_type.value,
+                "reason_code": risk.reason_code.value,
+            },
+            "executable_candidate": True,
+            "trade_id": new_trade.trade_id,
+        }
+        return new_trade
 
     def _record_guard_blocks(self, report: DecisionReport) -> None:
         """Attribute blocked evaluations to specific guard types."""
@@ -352,7 +425,7 @@ class Phase1BacktestRunner:
             elif report.guard_type.value == "EMERGENCY_LATCH":
                 self.emergency_latch_blocks += 1
 
-    def _record_funnel_from_report(self, report, ks_latched_before: bool) -> None:
+    def _record_funnel_from_report(self, report, ks_latched_before: bool, trade_opened: bool) -> None:
         f = self.funnel
 
         if "DATA UNSAFE" in (report.reason or ""):
@@ -363,7 +436,12 @@ class Phase1BacktestRunner:
         # REGIME_ELIGIBLE: regime always computed in pipeline, always passes if data health OK
         f.record_pass("REGIME_ELIGIBLE")
 
-        if ks_latched_before:
+        # Phase 2A kill-switch gate: blocked ONLY if latched before the cycle
+        # AND still latched at decision time (report.kill_switch_active).
+        # run_cycle's first action is reset_daily_metrics_if_new_day(), which
+        # releases a previous-day cooldown; such cycles execute normally and
+        # must flow through instead of being counted as blocked.
+        if ks_latched_before and report.kill_switch_active:
             self.kill_switch_blocked += 1
             f.record_rejection("KILL_SWITCH_PASS", f"Kill Switch latched: {report.reason}")
             return
@@ -414,9 +492,17 @@ class Phase1BacktestRunner:
         f.record_pass("RISK_PASS")
 
         if report.final_decision in (DecisionStatus.LONG_ENTRY, DecisionStatus.SHORT_ENTRY):
+            f.record_pass("EXECUTABLE_CANDIDATES")
+        else:
+            f.record_rejection("EXECUTABLE_CANDIDATES", f"Final decision {report.final_decision.value}: {report.reason}")
+            return
+
+        # TRADES_OPENED derives from the canonical execution path
+        # (_process_entry return value), never re-inferred from the report.
+        if trade_opened:
             f.record_pass("TRADES_OPENED")
         else:
-            f.record_rejection("TRADES_OPENED", f"Final decision {report.final_decision.value}: {report.reason}")
+            f.record_rejection("TRADES_OPENED", f"Executable but no trade opened: {report.reason}")
 
     def _track_trade(self, trade: TradeRecord) -> None:
         self.setup_breakdown_trades[trade.setup_type.value].append(trade)
@@ -654,7 +740,10 @@ Raw top rejections:
             "trade_id", "symbol", "setup_type", "direction", "entry_time", "entry_price",
             "stop_loss", "tp1", "tp2", "exit_time", "exit_price", "exit_reason",
             "size_btc", "size_usdt", "pnl_usdt", "pnl_pct", "r_multiple",
-            "mfe", "mae", "fees_paid_usdt", "is_closed"
+            "mfe", "mae", "fees_paid_usdt", "is_closed",
+            "evaluation_id", "candidate_id", "entry_regime", "entry_volatility",
+            "entry_vol_percentile", "entry_overextended", "entry_atr_distance_atrs",
+            "entry_rsi"
         ])
         for t in trades:
             writer.writerow([
@@ -662,6 +751,9 @@ Raw top rejections:
                 t.entry_time, t.entry_price, t.stop_loss, t.tp1, t.tp2,
                 t.exit_time, t.exit_price, t.exit_reason or "",
                 t.size_btc, t.size_usdt, t.pnl_usdt, t.pnl_pct, t.r_multiple,
-                t.mfe, t.mae, t.fees_paid_usdt, t.is_closed
+                t.mfe, t.mae, t.fees_paid_usdt, t.is_closed,
+                t.evaluation_id, t.candidate_id, t.entry_regime, t.entry_volatility,
+                t.entry_vol_percentile, t.entry_overextended, t.entry_atr_distance_atrs,
+                t.entry_rsi
             ])
         return output.getvalue()

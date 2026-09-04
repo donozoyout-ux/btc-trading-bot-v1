@@ -66,6 +66,7 @@ class MasterPipeline:
         self.settings = settings
         self.journaler = journaler or Journaler(settings.JOURNAL_DIR)
         self._candidate_counter = 0
+        self._evaluation_counter = 0
 
         self.data_health_engine = DataHealthEngine()
         self.structure_engine = MarketStructureEngine(left_bars=2, right_bars=2)
@@ -104,6 +105,10 @@ class MasterPipeline:
         candles_5m_in = candles_dict.get("5m", [])
         now_ts = candles_5m_in[-1].timestamp if candles_5m_in else int(time.time() * 1000)
         state.reset_daily_metrics_if_new_day(now_ts)
+        # Phase 2A: canonical evaluation id, minted once per run_cycle call.
+        # Monotonic per pipeline lifetime; unique within a backtest run.
+        self._evaluation_counter += 1
+        evaluation_id = f"EV-{self._evaluation_counter:08d}"
 
         # STEP 1: DATA HEALTH ENGINE
         health_result = self.data_health_engine.evaluate_health(
@@ -118,6 +123,7 @@ class MasterPipeline:
         if health_result.overall_safety == DataSafetyStatus.UNSAFE:
             report = DecisionReport(
                 timestamp=now_ts,
+                evaluation_id=evaluation_id,
                 price=current_price,
                 regime=MarketRegime.RANGE,
                 regime_score=0.0,
@@ -280,11 +286,15 @@ class MasterPipeline:
 
         report = DecisionReport(
             timestamp=candles_5m[-1].timestamp if candles_5m else now_ts,
+            evaluation_id=evaluation_id,
             price=current_price,
             regime=regime_result.regime,
             regime_score=regime_result.score,
             confidence=regime_result.confidence,
             volatility=regime_result.volatility,
+            vol_percentile=float(regime_result.details.get("vol_percentile", 50.0)),
+            atr_distance_atrs=float(regime_result.details.get("atr_distance_atrs", 0.0)),
+            current_rsi=float(regime_result.details.get("current_rsi", 50.0)),
             structure_4h=struct_4h.structure,
             structure_1h=struct_1h.structure,
             location=location_result.quality,

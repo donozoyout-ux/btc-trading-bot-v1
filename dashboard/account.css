@@ -1,0 +1,32 @@
+.account-console{margin:14px 0 12px;border-radius:22px;padding:22px;position:relative;overflow:hidden}
+.account-console:before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(105deg,transparent 30%,rgba(61,224,255,.035) 50%,transparent 70%);animation:accountScan 8s linear infinite;transform:translateX(-100%)}
+@keyframes accountScan{to{transform:translateX(100%)}}
+.account-head,.account-badges,.account-table-title{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.account-badges{justify-content:flex-end}.badge.testnet{color:var(--amber);background:rgba(255,204,102,.08);border-color:rgba(255,204,102,.22)}
+.account-message{margin-top:14px;padding:10px 12px;border-left:2px solid var(--cyan);background:rgba(61,224,255,.04);color:#9eb2c5;font-size:11px}
+.account-balance-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-top:16px;border:1px solid rgba(255,255,255,.045);border-radius:16px;overflow:hidden;background:rgba(2,9,17,.42)}
+.wallet-balance,.account-stat{padding:18px 16px;border-right:1px solid rgba(255,255,255,.055)}
+.account-stat:last-child{border-right:0}.wallet-balance span,.account-stat span,.wallet-balance small,.account-stat small{display:block;color:var(--muted);font-size:10px}.wallet-balance strong{display:inline-block;margin:7px 7px 4px 0;font-size:30px}.account-stat strong{display:inline-block;margin:9px 5px 5px 0;font-size:17px}.wallet-balance small,.account-stat small{display:inline}.account-console .positive{color:var(--green);animation:accountPositive .7s ease-out}.account-console .negative{color:var(--red);animation:accountNegative .7s ease-out}@keyframes accountPositive{50%{text-shadow:0 0 18px rgba(54,230,162,.8)}}@keyframes accountNegative{50%{text-shadow:0 0 18px rgba(255,95,122,.8)}}
+.account-table-wrap{margin-top:14px;overflow-x:auto}.orders-table-wrap{margin-top:20px}.account-table-title{margin-bottom:9px;color:#aebed0;font-size:11px;font-weight:800}.account-table-title small{color:var(--muted);font-size:9px}
+.account-table{width:100%;min-width:850px;border-collapse:collapse}.account-table th,.account-table td{padding:10px 12px;text-align:left;border-bottom:1px solid rgba(255,255,255,.05);font-size:10px}.account-table th{color:var(--muted);font-weight:700;letter-spacing:.06em}.account-table td{color:#c8d7e6}.empty-cell{text-align:center!important;color:var(--muted)!important;padding:22px!important}.side{display:inline-block;min-width:46px;text-align:center;padding:3px 5px;border:1px solid currentColor;border-radius:6px;font-size:9px;font-weight:900}.side.long,.side.buy{color:var(--green)}.side.short,.side.sell{color:var(--red)}
+@media(max-width:1100px){.account-balance-row{grid-template-columns:repeat(3,1fr)}.wallet-balance{grid-column:span 3}.account-stat:nth-child(4){border-right:0}}
+@media(max-width:720px){.account-head{align-items:flex-start;flex-direction:column}.account-balance-row{grid-template-columns:1fr 1fr}.wallet-balance{grid-column:span 2}.account-stat:nth-child(odd){border-right:0}.account-table-title{align-items:flex-start;flex-direction:column}}
+@media(prefers-reduced-motion:reduce){.account-console:before,.account-console .positive,.account-console .negative{animation:none}}
+
+.intelligence-console{margin-top:12px}
+.tf-intelligence{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.tf-intel-card{padding:14px;border:1px solid rgba(61,224,255,.11);border-radius:14px;background:linear-gradient(145deg,rgba(61,224,255,.035),rgba(255,255,255,.018));transition:transform .2s,border-color .2s}
+.tf-intel-card:hover{transform:translateY(-2px);border-color:rgba(61,224,255,.3)}
+.tf-intel-card>div{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:12px}
+.tf-intel-card>div b{font-size:15px;color:var(--cyan)}
+.tf-intel-card>div span{font-size:12px;font-weight:800;color:#c8d7e6}
+.tf-intel-card dl{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin:0}
+.tf-intel-card dt,.tf-intel-card dd{font-size:12px;margin:0}
+.tf-intel-card dt{color:var(--muted)}.tf-intel-card dd{text-align:right;color:#c5d6e7;font-weight:700}
+.tf-intel-card>small{display:block;min-height:30px;margin-top:11px;padding-top:9px;border-top:1px solid rgba(255,255,255,.05);color:#87a0b8;font-size:11px;line-height:1.4}
+.compact-events{max-height:220px}.compact-events .event{grid-template-columns:90px 1fr;font-size:12px;line-height:1.45}
+.compact-events .event.muted{display:block;color:var(--muted)}
+.source-status.AVAILABLE,.source-status.READY,.source-status.CONNECTED{color:var(--green)}
+.source-status.PROTECTED{color:var(--amber)}
+@media(max-width:1100px){.tf-intelligence{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:720px){.tf-intelligence{grid-template-columns:1fr}}

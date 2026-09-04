@@ -1,9 +1,27 @@
 """Volatility Engine measuring normalized ATR percentiles over the last 90 4H candles."""
 
+import os
 from typing import List, Tuple
 import numpy as np
 from core.models import Candle
 from config.constants import VolatilityLevel
+
+
+# Canonical volatility percentile boundaries (Phase 1 baseline). Overridable
+# ONLY via environment for controlled Phase 2C sensitivity experiments;
+# production defaults are unchanged when the variables are unset.
+CANONICAL_VOL_LOW_MAX = 20.0
+CANONICAL_VOL_HIGH_MIN = 80.0
+CANONICAL_VOL_EXTREME_MIN = 95.0
+
+
+def get_volatility_boundaries() -> Tuple[float, float, float]:
+    """Returns (low_max, high_min, extreme_min) percentile boundaries."""
+    return (
+        float(os.environ.get("PHASE2_VOL_LOW_MAX", str(CANONICAL_VOL_LOW_MAX))),
+        float(os.environ.get("PHASE2_VOL_HIGH_MIN", str(CANONICAL_VOL_HIGH_MIN))),
+        float(os.environ.get("PHASE2_VOL_EXTREME_MIN", str(CANONICAL_VOL_EXTREME_MIN))),
+    )
 
 
 class VolatilityEngine:
@@ -69,11 +87,12 @@ class VolatilityEngine:
         # Calculate percentile rank
         percentile = float(np.sum(window_norm_atr <= current_norm) / len(window_norm_atr) * 100.0)
 
-        if percentile < 20.0:
+        low_max, high_min, extreme_min = get_volatility_boundaries()
+        if percentile < low_max:
             level = VolatilityLevel.LOW
-        elif percentile < 80.0:
+        elif percentile < high_min:
             level = VolatilityLevel.NORMAL
-        elif percentile < 95.0:
+        elif percentile < extreme_min:
             level = VolatilityLevel.HIGH
         else:
             level = VolatilityLevel.EXTREME

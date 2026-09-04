@@ -1,8 +1,4 @@
-"""Optional advisory AI analyst.
-
-The AI layer explains already-computed market evidence. It has no execution
-method and cannot bypass deterministic strategy, risk or kill-switch decisions.
-"""
+"""Optional OpenAI advisory analyst with a deliberately non-executable schema."""
 
 from __future__ import annotations
 
@@ -10,169 +6,122 @@ import json
 from typing import Any, Dict, Optional
 
 import requests
-from loguru import logger
 
 
-class AIAnalyst:
-    API_URL = "https://api.openai.com/v1/responses"
+class AIAnalystError(RuntimeError):
+    def __init__(self, category: str):
+        self.category = category
+        super().__init__(category)
 
-    def __init__(
-        self,
-        api_key: Optional[str],
-        model: str,
-        enabled: bool = False,
-        timeout: int = 20,
-        provider: str = "openai",
-    ):
-        self.api_key = api_key or None
+
+class AIAnalystV2:
+    ENDPOINT = "https://api.openai.com/v1/responses"
+    SCHEMA = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["market_view", "best_setup", "conflicts", "risk_notes", "decision_explanation", "confidence", "execution_authority"],
+        "properties": {
+            "market_view": {"type": "string"},
+            "best_setup": {"type": "string"},
+            "conflicts": {"type": "array", "items": {"type": "string"}},
+            "risk_notes": {"type": "array", "items": {"type": "string"}},
+            "decision_explanation": {"type": "string"},
+            "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+            "execution_authority": {"type": "boolean", "const": False},
+        },
+    }
+
+    def __init__(self, api_key: Optional[str], model: str = "gpt-5", enabled: bool = False, timeout: int = 20):
+        self._api_key = (api_key or "").strip() or None
         self.model = model
         self.enabled = bool(enabled)
         self.timeout = timeout
-        self.provider = (provider or "openai").lower()
+        self._last_result: Optional[Dict[str, Any]] = None
 
     @property
     def configured(self) -> bool:
-        return bool(self.enabled and self.api_key and self.model and self.provider == "openai")
+        return bool(self.enabled and self._api_key)
 
-    def status(self) -> Dict[str, Any]:
+    def safe_status(self) -> Dict[str, Any]:
         return {
             "enabled": self.enabled,
             "configured": self.configured,
-            "provider": self.provider,
-            "model": self.model if self.enabled else None,
+            "status": "AVAILABLE" if self._last_result else "READY" if self.configured else "UNAVAILABLE",
+            "advisory_only": True,
+            "execution_authority": False,
+            "model": self.model if self.configured else None,
+        }
+
+    @staticmethod
+    def unavailable(category: str = "AI_UNAVAILABLE") -> Dict[str, Any]:
+        return {
+            "status": "UNAVAILABLE",
+            "error_category": category,
+            "market_view": "",
+            "best_setup": "",
+            "conflicts": [],
+            "risk_notes": [],
+            "decision_explanation": "",
+            "confidence": 0,
             "execution_authority": False,
         }
 
     @staticmethod
-    def _safe_context(snapshot: Dict[str, Any]) -> Dict[str, Any]:
-        decision = snapshot.get("decision") or {}
-        market = snapshot.get("market") or {}
-        chart = snapshot.get("chart_reading") or {}
-        news = snapshot.get("news") or {}
-        account = snapshot.get("account") or {}
-        sources = snapshot.get("sources") or {}
-
-        return {
-            "symbol": "BTCUSDT",
-            "market": {
-                "price": market.get("price"),
-                "mark_price": market.get("mark_price"),
-                "change_24h_pct": market.get("change_24h_pct"),
-                "funding_rate": market.get("funding_rate"),
-                "open_interest_btc": market.get("open_interest_btc"),
-                "long_short_ratio": market.get("long_short_ratio"),
-                "taker_buy_sell_ratio": market.get("taker_buy_sell_ratio"),
-            },
-            "decision_engine": {
-                "regime": decision.get("regime"),
-                "regime_score": decision.get("regime_score"),
-                "confidence": decision.get("confidence"),
-                "volatility": decision.get("volatility"),
-                "structure_4h": decision.get("structure_4h"),
-                "structure_1h": decision.get("structure_1h"),
-                "location": decision.get("location"),
-                "setup": decision.get("setup"),
-                "trigger_state": decision.get("trigger_state"),
-                "derivatives": decision.get("derivatives"),
-                "risk_status": decision.get("risk_status"),
-                "final_decision": decision.get("final_decision"),
-                "reason": decision.get("reason"),
-                "trade_plan": decision.get("trade_plan"),
-            },
-            "chart_reading": chart,
-            "news": {
-                "risk": news.get("risk"),
-                "sentiment": news.get("sentiment"),
-                "headlines": [
-                    {
-                        "title": item.get("title"),
-                        "risk_score": item.get("risk_score"),
-                        "sentiment": item.get("sentiment"),
-                    }
-                    for item in (news.get("items") or [])[:8]
-                ],
-            },
-            "demo_account": {
-                "connected": account.get("connected"),
-                "environment": account.get("environment"),
-                "wallet_balance_usdt": account.get("wallet_balance_usdt"),
-                "available_balance_usdt": account.get("available_balance_usdt"),
-                "unrealized_pnl_usdt": account.get("unrealized_pnl_usdt"),
-                "open_position_count": account.get("open_position_count"),
-            },
-            "data_sources": {
-                name: value.get("status") if isinstance(value, dict) else None
-                for name, value in sources.items()
-            },
-        }
-
-    @staticmethod
-    def _extract_text(payload: Dict[str, Any]) -> Optional[str]:
+    def _extract_text(payload: Dict[str, Any]) -> str:
         if isinstance(payload.get("output_text"), str):
-            return payload["output_text"].strip()
-        chunks = []
-        for item in payload.get("output") or []:
-            if not isinstance(item, dict) or item.get("type") != "message":
-                continue
-            for content in item.get("content") or []:
-                if isinstance(content, dict) and content.get("type") == "output_text":
-                    text = content.get("text")
-                    if text:
-                        chunks.append(str(text))
-        return "\n".join(chunks).strip() or None
+            return payload["output_text"]
+        for item in payload.get("output", []):
+            for content in item.get("content", []):
+                if content.get("type") == "output_text" and isinstance(content.get("text"), str):
+                    return content["text"]
+        raise AIAnalystError("AI_RESPONSE_INVALID")
 
-    def analyze(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    def analyze(self, context: Dict[str, Any]) -> Dict[str, Any]:
         if not self.configured:
-            return {
-                "status": "UNAVAILABLE",
-                "configured": False,
-                "execution_authority": False,
-                "analysis": None,
-            }
-
-        context = self._safe_context(snapshot)
-        instructions = (
-            "You are the advisory analyst for a deterministic BTC futures system. "
-            "Never invent market data. Never claim certainty. Do not tell the execution "
-            "engine to bypass risk, kill-switch, setup or trigger rules. The deterministic "
-            "final_decision remains authoritative. Explain conflicts and missing data. "
-            "Return concise Turkish text with exactly these headings: Piyasa, Kanıt, "
-            "Çatışmalar, Karar Yorumu, Güven. If deterministic final_decision is NO_TRADE "
-            "or WAIT, do not recommend overriding it."
+            return self.unavailable()
+        prompt = (
+            "You are a read-only BTC market analyst. Explain the supplied deterministic decision. "
+            "Never change setup, direction, entry, stop, targets, size, risk result, or kill-switch result. "
+            "A risk rejection is always NO TRADE. Return only the required JSON.\n\n"
+            + json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         )
-        body = {
+        payload = {
             "model": self.model,
-            "instructions": instructions,
-            "input": json.dumps(context, ensure_ascii=False, separators=(",", ":")),
             "store": False,
-        }
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
+            "input": prompt,
+            "text": {"format": {"type": "json_schema", "name": "btc_advisory", "strict": True, "schema": self.SCHEMA}},
+            "max_output_tokens": 900,
         }
         try:
-            resp = requests.post(self.API_URL, headers=headers, json=body, timeout=self.timeout)
-            resp.raise_for_status()
-            payload = resp.json()
-            text = self._extract_text(payload)
-            return {
-                "status": "HEALTHY" if text else "DEGRADED",
-                "configured": True,
-                "provider": self.provider,
-                "model": payload.get("model") or self.model,
+            response = requests.post(
+                self.ENDPOINT,
+                headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=self.timeout,
+            )
+            if response.status_code in (401, 403):
+                raise AIAnalystError("AI_AUTH_ERROR")
+            if response.status_code == 429:
+                raise AIAnalystError("AI_RATE_LIMIT")
+            if response.status_code >= 400:
+                raise AIAnalystError("AI_API_ERROR")
+            parsed = json.loads(self._extract_text(response.json()))
+            result = {
+                "status": "AVAILABLE",
+                "error_category": None,
+                "market_view": str(parsed.get("market_view", "")),
+                "best_setup": str(parsed.get("best_setup", "")),
+                "conflicts": [str(value) for value in parsed.get("conflicts", [])],
+                "risk_notes": [str(value) for value in parsed.get("risk_notes", [])],
+                "decision_explanation": str(parsed.get("decision_explanation", "")),
+                "confidence": max(0, min(100, int(parsed.get("confidence", 0)))),
                 "execution_authority": False,
-                "analysis": text,
-                "response_id": payload.get("id"),
             }
-        except Exception as exc:
-            # Do not log request headers/body because the header contains the API key.
-            logger.warning(f"AI analyst unavailable: {type(exc).__name__}")
-            return {
-                "status": "ERROR",
-                "configured": True,
-                "provider": self.provider,
-                "model": self.model,
-                "execution_authority": False,
-                "analysis": None,
-                "error": type(exc).__name__,
-            }
+            self._last_result = result
+            return result
+        except AIAnalystError:
+            raise
+        except requests.RequestException:
+            raise AIAnalystError("AI_NETWORK_ERROR") from None
+        except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+            raise AIAnalystError("AI_RESPONSE_INVALID") from None

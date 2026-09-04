@@ -1,566 +1,566 @@
 [
   {
-    "timestamp": 1788525522421,
+    "timestamp": 1788530256201,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525531238,
+    "timestamp": 1788530264954,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525562352,
+    "timestamp": 1788530296962,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525594057,
+    "timestamp": 1788530329113,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525612627,
+    "timestamp": 1788530348418,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525667074,
+    "timestamp": 1788530403806,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525691881,
+    "timestamp": 1788530429148,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525696510,
+    "timestamp": 1788530433846,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525711791,
+    "timestamp": 1788530448850,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525717889,
+    "timestamp": 1788530455109,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525730978,
+    "timestamp": 1788530468597,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525734171,
+    "timestamp": 1788530471890,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525734948,
+    "timestamp": 1788530472761,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525737602,
+    "timestamp": 1788530475590,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525750365,
+    "timestamp": 1788530488290,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525757289,
+    "timestamp": 1788530495354,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525759368,
+    "timestamp": 1788530497409,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525769708,
+    "timestamp": 1788530507787,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525774873,
+    "timestamp": 1788530512924,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525791358,
+    "timestamp": 1788530529291,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525794803,
+    "timestamp": 1788530532965,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525802956,
+    "timestamp": 1788530541573,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525811137,
+    "timestamp": 1788530550393,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525814300,
+    "timestamp": 1788530553452,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525836029,
+    "timestamp": 1788530575366,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525837458,
+    "timestamp": 1788530576837,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525843909,
+    "timestamp": 1788530583369,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525849230,
+    "timestamp": 1788530588828,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525865626,
+    "timestamp": 1788530605039,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525871287,
+    "timestamp": 1788530611125,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525877174,
+    "timestamp": 1788530617989,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525897318,
+    "timestamp": 1788530641518,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525899629,
+    "timestamp": 1788530644012,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525929075,
+    "timestamp": 1788530673941,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525939416,
+    "timestamp": 1788530684909,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788525983893,
+    "timestamp": 1788530727996,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526014487,
+    "timestamp": 1788530758267,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526030951,
+    "timestamp": 1788530773512,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526038647,
+    "timestamp": 1788530780879,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526052266,
+    "timestamp": 1788530794332,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526071107,
+    "timestamp": 1788530812595,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526074459,
+    "timestamp": 1788530815966,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526086886,
+    "timestamp": 1788530828149,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526088317,
+    "timestamp": 1788530829531,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526092999,
+    "timestamp": 1788530835020,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526108502,
+    "timestamp": 1788530851602,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526114825,
+    "timestamp": 1788530857829,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526123952,
+    "timestamp": 1788530869887,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526125604,
+    "timestamp": 1788530871961,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526127217,
+    "timestamp": 1788530874308,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526138464,
+    "timestamp": 1788530886615,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526141875,
+    "timestamp": 1788530889946,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526147750,
+    "timestamp": 1788530896533,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526150199,
+    "timestamp": 1788530899176,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526162421,
+    "timestamp": 1788530911170,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526163823,
+    "timestamp": 1788530912555,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526193012,
+    "timestamp": 1788530940419,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526194599,
+    "timestamp": 1788530941727,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526202246,
+    "timestamp": 1788530947939,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526212089,
+    "timestamp": 1788530955452,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526213593,
+    "timestamp": 1788530956747,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526217060,
+    "timestamp": 1788530959406,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526223463,
+    "timestamp": 1788530964308,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526226115,
+    "timestamp": 1788530966254,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526230473,
+    "timestamp": 1788530969587,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526232543,
+    "timestamp": 1788530971205,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526265500,
+    "timestamp": 1788530996876,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526306375,
+    "timestamp": 1788531026674,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526314609,
+    "timestamp": 1788531032642,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526323100,
+    "timestamp": 1788531038982,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526328168,
+    "timestamp": 1788531043259,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526338764,
+    "timestamp": 1788531051202,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526364300,
+    "timestamp": 1788531069967,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526371040,
+    "timestamp": 1788531074945,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526399208,
+    "timestamp": 1788531095658,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526408519,
+    "timestamp": 1788531102372,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526430077,
+    "timestamp": 1788531117513,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526479937,
+    "timestamp": 1788531153552,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526495047,
+    "timestamp": 1788531164577,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526506623,
+    "timestamp": 1788531172401,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526528681,
+    "timestamp": 1788531188014,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526538609,
+    "timestamp": 1788531195236,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526546309,
+    "timestamp": 1788531200588,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526561502,
+    "timestamp": 1788531212126,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526613347,
+    "timestamp": 1788531248806,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526615450,
+    "timestamp": 1788531250190,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526621735,
+    "timestamp": 1788531253973,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526639834,
+    "timestamp": 1788531269912,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526641439,
+    "timestamp": 1788531271435,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526691396,
+    "timestamp": 1788531306880,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526697604,
+    "timestamp": 1788531311163,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526709828,
+    "timestamp": 1788531319989,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526726829,
+    "timestamp": 1788531332331,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526749401,
+    "timestamp": 1788531347836,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526762308,
+    "timestamp": 1788531356733,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526769433,
+    "timestamp": 1788531361543,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526804569,
+    "timestamp": 1788531386302,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526841415,
+    "timestamp": 1788531411355,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526845221,
+    "timestamp": 1788531414134,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526861166,
+    "timestamp": 1788531425267,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526899739,
+    "timestamp": 1788531452646,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526905560,
+    "timestamp": 1788531456665,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526909871,
+    "timestamp": 1788531459771,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526913534,
+    "timestamp": 1788531462586,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526924103,
+    "timestamp": 1788531470221,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788526948263,
+    "timestamp": 1788531486547,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788527002125,
+    "timestamp": 1788531524891,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788527034198,
+    "timestamp": 1788531547545,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788527043004,
+    "timestamp": 1788531553456,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788527048127,
+    "timestamp": 1788531557598,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788527059288,
+    "timestamp": 1788531565524,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788527085525,
+    "timestamp": 1788531585704,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   },
   {
-    "timestamp": 1788527113875,
+    "timestamp": 1788531607079,
     "guard_type": "CONSECUTIVE_LOSS_GUARD",
     "reason": "Consecutive loss cooldown: 3 >= 3"
   }

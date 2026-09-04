@@ -129,17 +129,21 @@ def run_backtest_command(use_synthetic: bool = False, num_bars: int = 1500):
 
 
 def run_shadow_command(poll_interval_sec: int = 15, max_iterations: int = 3):
-    """Runs real-time shadow forward testing on Binance live data."""
-    print_banner()
-    settings = get_settings()
-    client = BinanceFuturesClient()
-    journaler = Journaler(settings.JOURNAL_DIR)
-    pipeline = MasterPipeline(settings, journaler)
-    executor = ShadowExecutor(pipeline.exit_engine, journaler)
-    state = BotState(account_balance_usdt=settings.INITIAL_CAPITAL_USDT)
+    """Run the complete intelligence stack with virtual positions only."""
+    from dashboard_server import DashboardRuntime
+    from core.models import DecisionReport
 
-    console.print("[bold green]Starting Live Shadow Mode (Section 49)...[/bold green]")
-    console.print("[italic yellow]Listening to Binance Futures public market feeds with virtual fills.[/italic yellow]\n")
+    print_banner()
+    runtime = DashboardRuntime()
+    executor = ShadowExecutor(
+        runtime.pipeline.exit_engine,
+        runtime.pipeline.journaler,
+        event_notifier=runtime.telegram_notifier,
+    )
+    state = runtime.state
+
+    console.print("[bold green]Starting DEMO Intelligence Shadow Mode...[/bold green]")
+    console.print("[italic yellow]Chart, strategy, news, derivatives, risk, AI advisory and Telegram are active; orders are disabled.[/italic yellow]\n")
 
     iteration = 0
     try:
@@ -147,45 +151,25 @@ def run_shadow_command(poll_interval_sec: int = 15, max_iterations: int = 3):
             iteration += 1
             console.print(f"[bold cyan]--- Cycle {iteration} @ {time.strftime('%Y-%m-%d %H:%M:%S')} ---[/bold cyan]")
 
-            # Fetch live closed klines
-            candles_4h = client.get_klines("BTCUSDT", "4h", limit=100)
-            candles_1h = client.get_klines("BTCUSDT", "1h", limit=100)
-            candles_15m = client.get_klines("BTCUSDT", "15m", limit=100)
-            candles_5m = client.get_klines("BTCUSDT", "5m", limit=100)
-
-            candles_dict = {
-                "4h": candles_4h,
-                "1h": candles_1h,
-                "15m": candles_15m,
-                "5m": candles_5m,
-            }
-
-            # Fetch live derivatives context
-            try:
-                oi = client.get_open_interest("BTCUSDT")
-                funding = client.get_funding_rate("BTCUSDT")
-                ls_ratio = client.get_long_short_ratio("BTCUSDT", "5m", 1)
-                taker_ratio = client.get_taker_volume_ratio("BTCUSDT", "5m", 1)
-                deriv_input = {
-                    "open_interest": oi,
-                    "oi_change_pct": 0.001,
-                    "funding_rate": funding,
-                    "long_short_ratio": ls_ratio,
-                    "taker_buy_ratio": taker_ratio,
-                }
-            except Exception as e:
-                logger.warning(f"Failed to fetch live derivatives: {e}")
-                deriv_input = {}
-
-            # Evaluate active shadow position
-            if state.active_position is not None and candles_5m:
-                executor.update_position_candle(state, candles_5m[-1])
-
-            # Run cycle
-            report = pipeline.run_cycle(candles_dict, state, deriv_input)
+            snapshot = runtime.snapshot(force=True)
+            report = DecisionReport.model_validate(snapshot["decision"])
+            latest = snapshot.get("candles", {}).get("5m", [])[-1]
+            latest_candle = Candle(
+                timestamp=int(latest["time"] * 1000),
+                open=latest["open"], high=latest["high"], low=latest["low"],
+                close=latest["close"], volume=latest["volume"], is_closed=True,
+            )
+            if state.active_position is not None:
+                executor.update_position_candle(state, latest_candle)
             display_decision_panel(report)
+            console.print(
+                f"[cyan]MTF:[/cyan] {snapshot['mtf_interpretation']['overall_bias']} | "
+                f"[cyan]News:[/cyan] {snapshot['news']['news_risk']} | "
+                f"[cyan]AI:[/cyan] {snapshot['ai_analyst']['status']} | "
+                f"[bold yellow]ORDER SUBMISSION: DISABLED[/bold yellow]"
+            )
 
-            # Process order
+            # Virtual fill tracking only; this executor has no exchange client.
             executor.process_decision(report, state)
 
             if iteration < max_iterations:

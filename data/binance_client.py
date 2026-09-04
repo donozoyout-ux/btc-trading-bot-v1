@@ -1,23 +1,42 @@
-"""Binance Futures USDT-M REST client for public data and guarded account access."""
+"""Binance USD-M Futures REST clients.
 
-import hashlib
-import hmac
+The public client is used for credential-free production market data.  The
+account client is a separate, TESTNET-only, read-only surface.  Keeping these
+clients separate prevents dashboard code from accidentally inheriting order
+submission capabilities.
+"""
+
 import time
-from typing import Any, Dict, List, Optional
+import hmac
+import hashlib
+from typing import List, Dict, Any, Optional
 from urllib.parse import urlencode
-
 import requests
 from loguru import logger
 
 from core.models import Candle
 
 
-class BinanceFuturesClient:
-    """Direct REST client for Binance USD-M Futures.
+class BinanceAccountError(RuntimeError):
+    """A sanitized Binance account error safe to return through the API."""
 
-    `read_only=True` hard-blocks order submission. This is used by the demo
-    dashboard account connector so signed account reads can never become an
-    accidental execution path.
+    def __init__(self, category: str):
+        super().__init__(category)
+        self.category = category
+
+
+class AccountConnectionBlocked(BinanceAccountError):
+    """Raised when signed account access is attempted outside testnet."""
+
+    def __init__(self):
+        super().__init__("ACCOUNT_CONNECTION_BLOCKED")
+
+
+class BinanceFuturesClient:
+    """
+    Direct REST client for Binance Futures (USDT-M).
+    Handles market data (OHLCV, Open Interest, Funding, Taker Ratio)
+    and order management on Live / Testnet endpoints.
     """
 
     PROD_URL = "https://fapi.binance.com"
@@ -29,75 +48,29 @@ class BinanceFuturesClient:
         api_secret: Optional[str] = None,
         testnet: bool = False,
         timeout: int = 5,
-        read_only: bool = False,
-        recv_window_ms: int = 5000,
     ):
-        self.api_key = api_key or None
-        self.api_secret = api_secret or None
-        self.testnet = bool(testnet)
-        self.read_only = bool(read_only)
-        self.base_url = self.TESTNET_URL if self.testnet else self.PROD_URL
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.testnet = testnet
+        self.base_url = self.TESTNET_URL if testnet else self.PROD_URL
         self.timeout = timeout
-        self.recv_window_ms = max(1000, min(int(recv_window_ms), 60000))
         self.session = requests.Session()
-        self._server_time_offset_ms = 0
-        self._last_time_sync_monotonic = 0.0
-        if self.api_key:
-            self.session.headers.update({"X-MBX-APIKEY": self.api_key})
+        if api_key:
+            self.session.headers.update({"X-MBX-APIKEY": api_key})
 
-    @property
-    def account_configured(self) -> bool:
-        return bool(self.api_key and self.api_secret)
-
-    def _require_credentials(self) -> None:
-        if not self.api_key or not self.api_secret:
-            raise RuntimeError("Binance account credentials are not configured")
-
-    def get_server_time(self) -> int:
-        """Return Binance server time in milliseconds."""
-        url = f"{self.base_url}/fapi/v1/time"
-        resp = self.session.get(url, timeout=self.timeout)
-        resp.raise_for_status()
-        return int(resp.json()["serverTime"])
-
-    def sync_server_time(self, force: bool = False) -> int:
-        """Synchronize local signed-request clock with Binance server time."""
-        now_mono = time.monotonic()
-        if not force and (now_mono - self._last_time_sync_monotonic) < 60:
-            return self._server_time_offset_ms
-        local_before = int(time.time() * 1000)
-        server_ms = self.get_server_time()
-        local_after = int(time.time() * 1000)
-        midpoint = (local_before + local_after) // 2
-        self._server_time_offset_ms = server_ms - midpoint
-        self._last_time_sync_monotonic = now_mono
-        return self._server_time_offset_ms
-
-    def _sign(self, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Return signed params without ever logging the signature/query string."""
-        self._require_credentials()
-        self.sync_server_time()
-        signed = dict(params or {})
-        signed["timestamp"] = int(time.time() * 1000) + self._server_time_offset_ms
-        signed["recvWindow"] = self.recv_window_ms
-        query_string = urlencode(signed)
-        signed["signature"] = hmac.new(
+    def _sign(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Adds timestamp and HMAC-SHA256 signature to parameters."""
+        if not self.api_secret:
+            raise ValueError("API secret is required for signed endpoints")
+        params["timestamp"] = int(time.time() * 1000)
+        query_string = urlencode(params)
+        signature = hmac.new(
             self.api_secret.encode("utf-8"),
             query_string.encode("utf-8"),
-            hashlib.sha256,
+            hashlib.sha256
         ).hexdigest()
-        return signed
-
-    def _signed_get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
-        url = f"{self.base_url}{path}"
-        signed = self._sign(params)
-        resp = self.session.get(url, params=signed, timeout=self.timeout)
-        if resp.status_code == 400 and "timestamp" in resp.text.lower():
-            self.sync_server_time(force=True)
-            signed = self._sign(params)
-            resp = self.session.get(url, params=signed, timeout=self.timeout)
-        resp.raise_for_status()
-        return resp.json()
+        params["signature"] = signature
+        return params
 
     def get_klines(
         self,
@@ -107,27 +80,38 @@ class BinanceFuturesClient:
         start_time: Optional[int] = None,
         end_time: Optional[int] = None,
     ) -> List[Candle]:
-        """Fetch historical klines and return strictly closed candles only."""
+        """
+        Fetches historical klines and returns closed candles only.
+        The very last candle from Binance is typically still open/forming,
+        so it is filtered out unless explicitly past its close time.
+        """
         url = f"{self.base_url}/fapi/v1/klines"
         params: Dict[str, Any] = {
             "symbol": symbol,
             "interval": interval,
             "limit": min(limit, 1000),
         }
-        if start_time is not None:
+        if start_time:
             params["startTime"] = start_time
-        if end_time is not None:
+        if end_time:
             params["endTime"] = end_time
 
         resp = self.session.get(url, params=params, timeout=self.timeout)
         resp.raise_for_status()
         data = resp.json()
-        now_ms = int(time.time() * 1000)
+
         candles: List[Candle] = []
+        now_ms = int(time.time() * 1000)
+
         for item in data:
+            # item format:
+            # 0: open time, 1: open, 2: high, 3: low, 4: close, 5: volume, 6: close time, ...
             open_time = int(item[0])
             close_time = int(item[6])
+
+            # A candle is strictly closed only if current time > close_time
             is_closed = now_ms > close_time
+
             candle = Candle(
                 timestamp=open_time,
                 open=float(item[1]),
@@ -137,197 +121,85 @@ class BinanceFuturesClient:
                 volume=float(item[5]),
                 is_closed=is_closed,
             )
+            # Guarantee: only include closed candles
             if is_closed:
                 candles.append(candle)
+
         return candles
 
     def get_ticker_price(self, symbol: str = "BTCUSDT") -> float:
+        """Fetches current mark/last price."""
         url = f"{self.base_url}/fapi/v1/ticker/price"
         resp = self.session.get(url, params={"symbol": symbol}, timeout=self.timeout)
         resp.raise_for_status()
         return float(resp.json()["price"])
 
     def get_mark_price(self, symbol: str = "BTCUSDT") -> float:
+        """Fetches mark price and funding rate info."""
         url = f"{self.base_url}/fapi/v1/premiumIndex"
         resp = self.session.get(url, params={"symbol": symbol}, timeout=self.timeout)
         resp.raise_for_status()
         return float(resp.json()["markPrice"])
 
     def get_open_interest(self, symbol: str = "BTCUSDT") -> float:
+        """Fetches current Open Interest in BTC contracts."""
         url = f"{self.base_url}/fapi/v1/openInterest"
         resp = self.session.get(url, params={"symbol": symbol}, timeout=self.timeout)
         resp.raise_for_status()
         return float(resp.json()["openInterest"])
 
     def get_funding_rate(self, symbol: str = "BTCUSDT") -> float:
+        """Fetches latest funding rate."""
         url = f"{self.base_url}/fapi/v1/premiumIndex"
         resp = self.session.get(url, params={"symbol": symbol}, timeout=self.timeout)
         resp.raise_for_status()
         return float(resp.json()["lastFundingRate"])
 
-    def get_long_short_ratio(
-        self, symbol: str = "BTCUSDT", period: str = "5m", limit: int = 1
-    ) -> Optional[float]:
+    def get_long_short_ratio(self, symbol: str = "BTCUSDT", period: str = "5m", limit: int = 1) -> float:
+        """Fetches Global Long/Short Account Ratio."""
         url = f"{self.base_url}/futures/data/globalLongShortAccountRatio"
         try:
-            resp = self.session.get(
-                url,
-                params={"symbol": symbol, "period": period, "limit": limit},
-                timeout=self.timeout,
-            )
+            resp = self.session.get(url, params={"symbol": symbol, "period": period, "limit": limit}, timeout=self.timeout)
             resp.raise_for_status()
             data = resp.json()
-            if data:
+            if data and len(data) > 0:
                 return float(data[-1]["longShortRatio"])
-        except Exception as exc:
-            logger.warning(f"Binance long/short ratio unavailable: {type(exc).__name__}")
-        return None
+        except Exception as e:
+            logger.warning(f"Error fetching long/short ratio from Binance: {e}")
+        return 1.0
 
-    def get_taker_volume_ratio(
-        self, symbol: str = "BTCUSDT", period: str = "5m", limit: int = 1
-    ) -> Optional[float]:
+    def get_taker_volume_ratio(self, symbol: str = "BTCUSDT", period: str = "5m", limit: int = 1) -> float:
+        """Fetches Taker Buy / Sell Volume Ratio."""
         url = f"{self.base_url}/futures/data/takerlongshortRatio"
         try:
-            resp = self.session.get(
-                url,
-                params={"symbol": symbol, "period": period, "limit": limit},
-                timeout=self.timeout,
-            )
+            resp = self.session.get(url, params={"symbol": symbol, "period": period, "limit": limit}, timeout=self.timeout)
             resp.raise_for_status()
             data = resp.json()
-            if data:
+            if data and len(data) > 0:
                 return float(data[-1]["buySellRatio"])
-        except Exception as exc:
-            logger.warning(f"Binance taker ratio unavailable: {type(exc).__name__}")
-        return None
+        except Exception as e:
+            logger.warning(f"Error fetching taker ratio: {e}")
+        return 1.0
 
-    # ------------------------------------------------------------------
-    # Signed account reads
-    # ------------------------------------------------------------------
-    def get_account_information(self) -> Dict[str, Any]:
-        return self._signed_get("/fapi/v2/account")
+    def get_account_balance(self) -> Optional[float]:
+        """Fetches USDT wallet balance without inventing a fallback value.
 
-    def get_position_risk(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
-        params = {"symbol": symbol} if symbol else None
-        data = self._signed_get("/fapi/v2/positionRisk", params)
-        return data if isinstance(data, list) else []
+        This legacy method remains for the explicit execution runtime.  The
+        dashboard uses :class:`BinanceFuturesAccountClient` instead.
+        """
+        if not self.api_key or not self.api_secret:
+            return None
 
-    def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
-        params = {"symbol": symbol} if symbol else None
-        data = self._signed_get("/fapi/v1/openOrders", params)
-        return data if isinstance(data, list) else []
-
-    def get_account_balance(self) -> float:
-        """Fetch real USDT Futures wallet balance; never synthesize a fallback."""
-        data = self.get_account_information()
+        url = f"{self.base_url}/fapi/v2/account"
+        params = self._sign({})
+        resp = self.session.get(url, params=params, timeout=self.timeout)
+        resp.raise_for_status()
+        data = resp.json()
         for asset in data.get("assets", []):
             if asset.get("asset") == "USDT":
                 return float(asset.get("walletBalance", 0.0))
-        raise RuntimeError("USDT balance not present in Binance Futures account response")
+        return None
 
-    @staticmethod
-    def _float(value: Any) -> Optional[float]:
-        if value in (None, ""):
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    def get_account_summary(self) -> Dict[str, Any]:
-        """Return a sanitized account snapshot suitable for a dashboard API."""
-        account = self.get_account_information()
-        position_rows = self.get_position_risk()
-        order_rows = self.get_open_orders()
-
-        usdt = next((a for a in account.get("assets", []) if a.get("asset") == "USDT"), {})
-        positions: List[Dict[str, Any]] = []
-        for row in position_rows:
-            amount = self._float(row.get("positionAmt")) or 0.0
-            if abs(amount) <= 0.0:
-                continue
-            position_side = row.get("positionSide")
-            if position_side in (None, "", "BOTH"):
-                side = "LONG" if amount > 0 else "SHORT"
-            else:
-                side = str(position_side)
-            positions.append(
-                {
-                    "symbol": row.get("symbol"),
-                    "side": side,
-                    "position_amount": amount,
-                    "entry_price": self._float(row.get("entryPrice")),
-                    "break_even_price": self._float(row.get("breakEvenPrice")),
-                    "mark_price": self._float(row.get("markPrice")),
-                    "notional": self._float(row.get("notional")),
-                    "leverage": self._float(row.get("leverage")),
-                    "margin_type": row.get("marginType"),
-                    "unrealized_pnl": self._float(row.get("unRealizedProfit")),
-                    "liquidation_price": self._float(row.get("liquidationPrice")),
-                    "isolated_wallet": self._float(row.get("isolatedWallet")),
-                    "update_time": row.get("updateTime"),
-                }
-            )
-
-        orders: List[Dict[str, Any]] = []
-        for row in order_rows:
-            orders.append(
-                {
-                    "symbol": row.get("symbol"),
-                    "side": row.get("side"),
-                    "type": row.get("type"),
-                    "quantity": self._float(row.get("origQty")),
-                    "executed_quantity": self._float(row.get("executedQty")),
-                    "price": self._float(row.get("price")),
-                    "stop_price": self._float(row.get("stopPrice")),
-                    "status": row.get("status"),
-                    "reduce_only": bool(row.get("reduceOnly", False)),
-                    "order_id": row.get("orderId"),
-                    "update_time": row.get("updateTime") or row.get("time"),
-                }
-            )
-
-        wallet = self._float(usdt.get("walletBalance"))
-        available = self._float(usdt.get("availableBalance"))
-        unrealized = self._float(usdt.get("unrealizedProfit"))
-        margin_balance = self._float(usdt.get("marginBalance"))
-
-        # V2 account response also exposes aggregate values at the top-level.
-        if wallet is None:
-            wallet = self._float(account.get("totalWalletBalance"))
-        if available is None:
-            available = self._float(account.get("availableBalance"))
-        if unrealized is None:
-            unrealized = self._float(account.get("totalUnrealizedProfit"))
-        if margin_balance is None:
-            margin_balance = self._float(account.get("totalMarginBalance"))
-
-        return {
-            "environment": "TESTNET" if self.testnet else "PRODUCTION",
-            "connected": True,
-            "read_only": self.read_only,
-            "orders_enabled": not self.read_only,
-            "asset": "USDT",
-            "wallet_balance_usdt": wallet,
-            "available_balance_usdt": available,
-            "margin_balance_usdt": margin_balance,
-            "unrealized_pnl_usdt": unrealized,
-            "total_initial_margin": self._float(account.get("totalInitialMargin")),
-            "total_maint_margin": self._float(account.get("totalMaintMargin")),
-            "total_position_initial_margin": self._float(account.get("totalPositionInitialMargin")),
-            "total_open_order_initial_margin": self._float(account.get("totalOpenOrderInitialMargin")),
-            "cross_wallet_balance": self._float(usdt.get("crossWalletBalance")),
-            "cross_unrealized_pnl": self._float(usdt.get("crossUnPnl")),
-            "positions": positions,
-            "open_orders": orders,
-            "open_position_count": len(positions),
-            "open_order_count": len(orders),
-            "update_time": account.get("updateTime"),
-        }
-
-    # ------------------------------------------------------------------
-    # Execution. Dashboard/account clients use read_only=True and cannot call.
-    # ------------------------------------------------------------------
     def place_order(
         self,
         symbol: str = "BTCUSDT",
@@ -338,23 +210,235 @@ class BinanceFuturesClient:
         stop_price: Optional[float] = None,
         reduce_only: bool = False,
     ) -> Dict[str, Any]:
-        if self.read_only:
-            raise PermissionError("Order submission is disabled for this read-only Binance client")
-        url = f"{self.base_url}/fapi/v1/order"
-        params: Dict[str, Any] = {
-            "symbol": symbol,
-            "side": side.upper(),
-            "type": order_type.upper(),
-            "quantity": f"{quantity:.3f}",
+        """Order submission is deliberately unavailable in the demo phase."""
+        raise RuntimeError("ORDER_SUBMISSION_DISABLED")
+
+
+class BinanceFuturesAccountClient:
+    """TESTNET-only, signed USER_DATA reader with no order methods."""
+
+    TESTNET_URL = BinanceFuturesClient.TESTNET_URL
+
+    def __init__(
+        self,
+        api_key: Optional[str],
+        api_secret: Optional[str],
+        testnet: bool = True,
+        timeout: int = 5,
+        recv_window: int = 5000,
+    ):
+        self.api_key = (api_key or "").strip() or None
+        self.api_secret = (api_secret or "").strip() or None
+        self.testnet = bool(testnet)
+        self.base_url = self.TESTNET_URL
+        self.timeout = timeout
+        self.recv_window = max(1000, min(int(recv_window), 60000))
+        self.session = requests.Session()
+        if self.api_key:
+            self.session.headers.update({"X-MBX-APIKEY": self.api_key})
+        self._server_time_offset_ms: Optional[int] = None
+        self._time_synced_at_monotonic = 0.0
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.api_key and self.api_secret)
+
+    def _assert_access_allowed(self) -> None:
+        if not self.testnet:
+            raise AccountConnectionBlocked()
+        if not self.configured:
+            raise BinanceAccountError("ACCOUNT_UNAVAILABLE")
+
+    def get_server_time(self) -> int:
+        """Read Binance testnet server time in milliseconds."""
+        if not self.testnet:
+            raise AccountConnectionBlocked()
+        try:
+            response = self.session.get(
+                f"{self.TESTNET_URL}/fapi/v1/time", timeout=self.timeout
+            )
+            response.raise_for_status()
+            return int(response.json()["serverTime"])
+        except BinanceAccountError:
+            raise
+        except requests.RequestException:
+            raise BinanceAccountError("NETWORK_ERROR") from None
+        except (KeyError, TypeError, ValueError):
+            raise BinanceAccountError("ACCOUNT_UNAVAILABLE") from None
+
+    def sync_server_time(self, force: bool = False) -> int:
+        """Calculate a midpoint-adjusted offset to Binance server time."""
+        now_mono = time.monotonic()
+        if (
+            not force
+            and self._server_time_offset_ms is not None
+            and now_mono - self._time_synced_at_monotonic < 1800
+        ):
+            return self._server_time_offset_ms
+
+        before = int(time.time() * 1000)
+        server_time = self.get_server_time()
+        after = int(time.time() * 1000)
+        local_midpoint = (before + after) // 2
+        self._server_time_offset_ms = server_time - local_midpoint
+        self._time_synced_at_monotonic = now_mono
+        return self._server_time_offset_ms
+
+    def _signed_params(self, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Return signed parameters using synchronized server time.
+
+        Callers must never log the returned mapping because it contains a
+        signature.  This method deliberately works on a copy.
+        """
+        self._assert_access_allowed()
+        offset = self.sync_server_time()
+        signed: Dict[str, Any] = dict(params or {})
+        signed["recvWindow"] = self.recv_window
+        signed["timestamp"] = int(time.time() * 1000) + offset
+        query_string = urlencode(signed)
+        signed["signature"] = hmac.new(
+            self.api_secret.encode("utf-8"),
+            query_string.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        return signed
+
+    @staticmethod
+    def _error_category(response: requests.Response) -> str:
+        try:
+            code = int(response.json().get("code"))
+        except (AttributeError, TypeError, ValueError):
+            code = None
+        return {
+            -2014: "INVALID_API_KEY",
+            -2015: "INVALID_API_KEY",
+            -1022: "INVALID_SIGNATURE",
+            -1021: "TIMESTAMP_ERROR",
+        }.get(code, "ACCOUNT_UNAVAILABLE")
+
+    def _signed_get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        """Call one signed USER_DATA endpoint without logging query data."""
+        try:
+            for attempt in range(2):
+                response = self.session.get(
+                    f"{self.TESTNET_URL}{path}",
+                    params=self._signed_params(params),
+                    timeout=self.timeout,
+                )
+                if response.status_code < 400:
+                    return response.json()
+                category = self._error_category(response)
+                if category == "TIMESTAMP_ERROR" and attempt == 0:
+                    self.sync_server_time(force=True)
+                    continue
+                raise BinanceAccountError(category)
+            raise BinanceAccountError("TIMESTAMP_ERROR")
+        except BinanceAccountError:
+            raise
+        except requests.RequestException:
+            raise BinanceAccountError("NETWORK_ERROR") from None
+        except (TypeError, ValueError):
+            raise BinanceAccountError("ACCOUNT_UNAVAILABLE") from None
+
+    @staticmethod
+    def _number(value: Any) -> Optional[float]:
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def get_account_balances(self, account: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Map every collateral asset returned by the account endpoint."""
+        payload = account if account is not None else self._signed_get("/fapi/v2/account")
+        balances = []
+        for asset in payload.get("assets", []):
+            balances.append(
+                {
+                    "asset": asset.get("asset"),
+                    "wallet_balance": self._number(asset.get("walletBalance")),
+                    "available_balance": self._number(asset.get("availableBalance")),
+                    "cross_wallet_balance": self._number(asset.get("crossWalletBalance")),
+                    "cross_unrealized_pnl": self._number(asset.get("crossUnPnl")),
+                    "margin_balance": self._number(asset.get("marginBalance")),
+                }
+            )
+        return balances
+
+    def get_open_positions(self) -> List[Dict[str, Any]]:
+        """Return only positions whose signed position amount is non-zero."""
+        payload = self._signed_get("/fapi/v2/positionRisk")
+        positions = []
+        for item in payload:
+            amount = self._number(item.get("positionAmt"))
+            if amount is None or amount == 0:
+                continue
+            positions.append(
+                {
+                    "symbol": item.get("symbol"),
+                    "side": "LONG" if amount > 0 else "SHORT",
+                    "position_amount": amount,
+                    "size": abs(amount),
+                    "entry_price": self._number(item.get("entryPrice")),
+                    "mark_price": self._number(item.get("markPrice")),
+                    "notional": self._number(item.get("notional")),
+                    "leverage": self._number(item.get("leverage")),
+                    "margin_type": item.get("marginType"),
+                    "unrealized_pnl": self._number(item.get("unRealizedProfit")),
+                    "liquidation_price": self._number(item.get("liquidationPrice")),
+                    "isolated_wallet": self._number(item.get("isolatedWallet")),
+                    "break_even_price": self._number(item.get("breakEvenPrice")),
+                }
+            )
+        return positions
+
+    def get_open_orders(self) -> List[Dict[str, Any]]:
+        """Read existing open orders; this client has no create/cancel surface."""
+        payload = self._signed_get("/fapi/v1/openOrders")
+        return [
+            {
+                "symbol": item.get("symbol"),
+                "side": item.get("side"),
+                "type": item.get("type"),
+                "quantity": self._number(item.get("origQty")),
+                "price": self._number(item.get("price")),
+                "stop_price": self._number(item.get("stopPrice")),
+                "status": item.get("status"),
+                "reduce_only": bool(item.get("reduceOnly", False)),
+                "order_id": item.get("orderId"),
+                "update_time": item.get("updateTime") or item.get("time"),
+            }
+            for item in payload
+        ]
+
+    def get_account_summary(self) -> Dict[str, Any]:
+        """Return the complete read-only USD-M testnet account snapshot."""
+        self._assert_access_allowed()
+        account = self._signed_get("/fapi/v2/account")
+        balances = self.get_account_balances(account)
+        usdt = next((item for item in balances if item.get("asset") == "USDT"), {})
+        positions = self.get_open_positions()
+        orders = self.get_open_orders()
+        return {
+            "account_type": "USD-M FUTURES",
+            "environment": "TESTNET",
+            "connected": True,
+            "status": "CONNECTED",
+            "error_category": None,
+            "asset": "USDT",
+            "wallet_balance": usdt.get("wallet_balance"),
+            "available_balance": usdt.get("available_balance"),
+            "margin_balance": usdt.get("margin_balance")
+            if usdt.get("margin_balance") is not None
+            else self._number(account.get("totalMarginBalance")),
+            "unrealized_pnl": self._number(account.get("totalUnrealizedProfit")),
+            "total_initial_margin": self._number(account.get("totalInitialMargin")),
+            "total_maint_margin": self._number(account.get("totalMaintMargin")),
+            "total_position_initial_margin": self._number(account.get("totalPositionInitialMargin")),
+            "total_open_order_initial_margin": self._number(account.get("totalOpenOrderInitialMargin")),
+            "update_time": account.get("updateTime"),
+            "balances": balances,
+            "positions": positions,
+            "open_orders": orders,
         }
-        if price is not None:
-            params["price"] = f"{price:.2f}"
-            params["timeInForce"] = "GTC"
-        if stop_price is not None:
-            params["stopPrice"] = f"{stop_price:.2f}"
-        if reduce_only:
-            params["reduceOnly"] = "true"
-        signed_params = self._sign(params)
-        resp = self.session.post(url, params=signed_params, timeout=self.timeout)
-        resp.raise_for_status()
-        return resp.json()

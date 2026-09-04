@@ -139,6 +139,7 @@ def test_conditional_funnel_monotonic():
     f.record_pass("DERIVATIVES_ACCEPTABLE", 45)
     f.record_pass("TRADE_PLAN_CREATED", 40)
     f.record_pass("RISK_PASS", 35)
+    f.record_pass("EXECUTABLE_CANDIDATES", 33)
     f.record_pass("TRADES_OPENED", 30)
     out = f.get_funnel()
     counts = [out[s]["count"] for s in SignalFunnel.STAGES]

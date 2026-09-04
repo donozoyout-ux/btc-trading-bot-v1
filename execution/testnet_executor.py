@@ -23,8 +23,18 @@ class TestnetExecutor(BaseExecutor):
         self.client = client
         self.journaler = journaler
 
+    @property
+    def orders_enabled(self) -> bool:
+        return False
+
     def process_decision(self, report: DecisionReport, state: BotState) -> Optional[TradeRecord]:
         """Places entry and conditional bracket orders on Testnet."""
+        # This repository phase is observation-only. Enabling Testnet order
+        # execution requires a separate implementation task and cannot be
+        # toggled through configuration or environment variables here.
+        if not self.orders_enabled:
+            logger.warning("[TESTNET] Order submission disabled: SHADOW/READ-ONLY phase")
+            return None
         if state.active_position is not None:
             return None
 

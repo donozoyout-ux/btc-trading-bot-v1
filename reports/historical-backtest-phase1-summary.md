@@ -1,6 +1,6 @@
 # Historical Backtest Phase 1 — Summary Report
 
-**Generated:** 2026-09-04T13:05:21Z
+**Generated:** 2026-09-04T14:20:11Z
 **Symbol:** BTC/USDT (Binance USDT-M Futures)
 **Backtest Mode:** Technical Baseline — Derivatives UNAVAILABLE
 **Period:** 2023-09-04 to 2026-09-04
@@ -93,34 +93,26 @@ Rejected evaluations appear once, at their first failure stage.
 | TOTAL_EVALUATIONS | 313,411 | 0.0% | 100.0% |
 | DATA_HEALTH_PASS | 313,411 | 100.0% | 100.0% |
 | REGIME_ELIGIBLE | 313,411 | 100.0% | 100.0% |
-| KILL_SWITCH_PASS | 298,436 | 95.2% | 95.2% |
+| KILL_SWITCH_PASS | 298,549 | 95.3% | 95.3% |
 | ↳ rejected: Kill Switch latched: Kill Switch Activated: Consecutive loss cooldown: 3 >= 3 | 14,862 | — | — |
-| ↳ rejected: Kill Switch latched: No active setup detected across current market state | 48 | — | — |
-| ↳ rejected: Kill Switch latched: BREAKOUT_RETEST setup detected; waiting 5M trigger (Setup BREAKOUT_RETEST active; waiting for 5M candle trigger confirmation) | 37 | — | — |
-| ↳ rejected: Kill Switch latched: TREND_PULLBACK setup detected; waiting 5M trigger (Setup TREND_PULLBACK active; waiting for 5M candle trigger confirmation) | 6 | — | — |
-| ↳ rejected: Kill Switch latched: Bad trade location filtered | 4 | — | — |
-| ↳ rejected: Kill Switch latched: All conditions met for LONG via BREAKOUT_RETEST: Bullish Engulfing + Volume Expansion | 2 | — | — |
-| ↳ rejected: Kill Switch latched: All conditions met for LONG via BREAKOUT_RETEST: Wick Rejection (54%) + Volume Expansion | 1 | — | — |
-| ↳ rejected: Kill Switch latched: All conditions met for LONG via BREAKOUT_RETEST: Strong Bullish Body (71%) + Volume Expansion | 1 | — | — |
-| ↳ rejected: Kill Switch latched: BREAKOUT_RETEST setup detected; waiting 5M trigger (5M Entry trigger confirmed: Strong Bullish Body (92%) + Micro BOS High Break + Volume Expansion) | 1 | — | — |
-| ↳ rejected: Kill Switch latched: BREAKOUT_RETEST setup detected; waiting 5M trigger (5M Entry trigger confirmed: Bullish Engulfing + Strong Bullish Body (94%) + Micro BOS High Break + Volume Expansion) | 1 | — | — |
-| STRUCTURE_ELIGIBLE | 247,846 | 83.0% | 79.1% |
-| ↳ rejected: 4H and 1H structure both MIXED | 50,590 | — | — |
-| GOOD_TRADE_LOCATION | 217,193 | 87.6% | 69.3% |
-| ↳ rejected: Location BAD_LOCATION | 19,332 | — | — |
-| ↳ rejected: Location NEUTRAL | 11,321 | — | — |
-| SETUP_DETECTED | 83,681 | 38.5% | 26.7% |
-| ↳ rejected: No setup detected | 133,512 | — | — |
-| ENTRY_TRIGGER_DETECTED | 2,407 | 2.9% | 0.8% |
+| STRUCTURE_ELIGIBLE | 247,942 | 83.0% | 79.1% |
+| ↳ rejected: 4H and 1H structure both MIXED | 50,607 | — | — |
+| GOOD_TRADE_LOCATION | 217,277 | 87.6% | 69.3% |
+| ↳ rejected: Location BAD_LOCATION | 19,336 | — | — |
+| ↳ rejected: Location NEUTRAL | 11,329 | — | — |
+| SETUP_DETECTED | 83,728 | 38.5% | 26.7% |
+| ↳ rejected: No setup detected | 133,549 | — | — |
+| ENTRY_TRIGGER_DETECTED | 2,419 | 2.9% | 0.8% |
 | ↳ rejected: Trigger IN_POSITION | 71,033 | — | — |
-| ↳ rejected: Trigger WAITING_TRIGGER | 10,241 | — | — |
-| MOMENTUM_PASS | 2,407 | 100.0% | 0.8% |
-| DERIVATIVES_ACCEPTABLE | 2,407 | 100.0% | 0.8% |
-| TRADE_PLAN_CREATED | 2,407 | 100.0% | 0.8% |
-| RISK_PASS | 550 | 22.9% | 0.2% |
-| ↳ rejected: BAD_RISK_REWARD | 1,770 | — | — |
+| ↳ rejected: Trigger WAITING_TRIGGER | 10,276 | — | — |
+| MOMENTUM_PASS | 2,419 | 100.0% | 0.8% |
+| DERIVATIVES_ACCEPTABLE | 2,419 | 100.0% | 0.8% |
+| TRADE_PLAN_CREATED | 2,419 | 100.0% | 0.8% |
+| RISK_PASS | 558 | 23.1% | 0.2% |
+| ↳ rejected: BAD_RISK_REWARD | 1,774 | — | — |
 | ↳ rejected: CONSECUTIVE_LOSS_GUARD | 87 | — | — |
-| TRADES_OPENED | 550 | 100.0% | 0.2% |
+| EXECUTABLE_CANDIDATES | 558 | 100.0% | 0.2% |
+| TRADES_OPENED | 558 | 100.0% | 0.2% |
 
 ---
 
@@ -128,7 +120,7 @@ Rejected evaluations appear once, at their first failure stage.
 
 | Rejection Bucket | Count |
 |---|---|
-| BAD_RISK_REWARD | 1,770 |
+| BAD_RISK_REWARD | 1,774 |
 | CONSECUTIVE_LOSS_GUARD | 87 |
 
 

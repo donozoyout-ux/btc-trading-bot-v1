@@ -1,0 +1,55 @@
+{
+  "method": "Joined trade_trace evaluation_ids (v4 run) to journaled DecisionReports (latest EV-00000001-anchored journal block). Classified each trade-opening evaluation by the first funnel gate it would hit under current rules.",
+  "journal_evaluations_parsed": 313411,
+  "ev_sequence_contiguous": true,
+  "trade_evaluations_missing_journal": 0,
+  "trade_opening_evaluations_by_gate": {
+    "EXECUTED-clean": 558,
+    "STRUCTURE_ELIGIBLE": 81,
+    "GOOD_TRADE_LOCATION": 42
+  },
+  "examples_per_divergent_gate": {
+    "STRUCTURE_ELIGIBLE": {
+      "evaluation_id": "EV-00004892",
+      "trade_id": "PH1-d668c92f",
+      "report": {
+        "evaluation_id": "EV-00004892",
+        "timestamp": 1695958200000,
+        "reason": "All conditions met for LONG via BREAKOUT_RETEST: Bullish Engulfing + Strong Bullish Body (83%) + Micro BOS High Break",
+        "structure_4h": "MIXED",
+        "structure_1h": "MIXED",
+        "location": "STRONG_LONG_LOCATION",
+        "setup": "BREAKOUT_RETEST",
+        "trigger_state": "ENTRY_READY",
+        "derivatives": "UNAVAILABLE",
+        "final_decision": "LONG_ENTRY",
+        "kill_switch_active": false,
+        "risk_decision": "ACCEPT_TRADE",
+        "risk_reason_code": "OTHER",
+        "risk_rejection_reason": "",
+        "has_risk": true
+      }
+    },
+    "GOOD_TRADE_LOCATION": {
+      "evaluation_id": "EV-00005977",
+      "trade_id": "PH1-8008e69b",
+      "report": {
+        "evaluation_id": "EV-00005977",
+        "timestamp": 1696283700000,
+        "reason": "All conditions met for LONG via BREAKOUT_RETEST: Strong Bullish Body (70%) + Volume Expansion",
+        "structure_4h": "BULLISH",
+        "structure_1h": "BULLISH",
+        "location": "NEUTRAL",
+        "setup": "BREAKOUT_RETEST",
+        "trigger_state": "ENTRY_READY",
+        "derivatives": "UNAVAILABLE",
+        "final_decision": "LONG_ENTRY",
+        "kill_switch_active": false,
+        "risk_decision": "ACCEPT_TRADE",
+        "risk_reason_code": "OTHER",
+        "risk_rejection_reason": "",
+        "has_risk": true
+      }
+    }
+  }
+}

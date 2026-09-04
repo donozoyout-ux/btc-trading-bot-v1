@@ -20,9 +20,18 @@ class ShadowExecutor(BaseExecutor):
     - Logs realized virtual PnL, MFE, MAE to journal/trades.jsonl.
     """
 
-    def __init__(self, exit_engine: ExitEngine, journaler: Journaler):
+    def __init__(self, exit_engine: ExitEngine, journaler: Journaler, event_notifier=None):
         self.exit_engine = exit_engine
         self.journaler = journaler
+        self.event_notifier = event_notifier
+
+    def _notify(self, event: str, payload: dict, key: str) -> None:
+        if self.event_notifier is None:
+            return
+        try:
+            self.event_notifier.notify(event, payload, dedupe_key=key)
+        except Exception:
+            logger.warning("[SHADOW] Telegram event unavailable")
 
     def process_decision(self, report: DecisionReport, state: BotState) -> Optional[TradeRecord]:
         """Opens a virtual trade if report indicates entry and risk is accepted."""
@@ -58,6 +67,11 @@ class ShadowExecutor(BaseExecutor):
             f"[SHADOW ENTRY] {direction.value} {trade.size_btc} BTC @ {trade.entry_price:.2f} | "
             f"SL: {trade.stop_loss:.2f} | TP1: {trade.tp1:.2f} | R:R: {risk.risk_reward:.2f}"
         )
+        self._notify(
+            "POSITION_OPENED",
+            {"message": f"{direction.value} {trade.size_btc} BTC @ {trade.entry_price:.2f}"},
+            f"POSITION_OPENED:{trade.trade_id}",
+        )
         return trade
 
     def update_position_candle(self, state: BotState, candle: Candle) -> Optional[TradeRecord]:
@@ -76,6 +90,12 @@ class ShadowExecutor(BaseExecutor):
                 f"[SHADOW EXIT] {finalized.trade_id} {reason} @ {exit_price:.2f} | "
                 f"PnL: ${finalized.pnl_usdt:+.2f} ({finalized.pnl_pct:+.2f}%) | "
                 f"R: {finalized.r_multiple:+.2f}R | MFE: {finalized.mfe*100:.2f}% | MAE: {finalized.mae*100:.2f}%"
+            )
+            close_event = "TP2" if reason == "TAKE_PROFIT_2" else "TP1" if reason == "TAKE_PROFIT_1" else "STOP_LOSS" if reason == "STOP_LOSS" else "POSITION_CLOSED"
+            self._notify(
+                close_event,
+                {"message": f"{finalized.trade_id} {reason} @ {exit_price:.2f}; PnL {finalized.pnl_usdt:+.2f} USDT"},
+                f"{close_event}:{finalized.trade_id}",
             )
             return finalized
 

@@ -1,12 +1,29 @@
 """Market Regime Engine evaluating 4H macro regime, indicators, scoring, range override, and stability."""
 
+import os
 import numpy as np
 from typing import List, Tuple, Dict, Any, Optional
-from loguru import logger
 
 from core.models import Candle, MarketStructure, RegimeResult
 from config.constants import MarketRegime, StructureType, VolatilityLevel
 from engines.volatility_engine import VolatilityEngine
+
+
+# Canonical overextended thresholds (Phase 1 baseline). Overridable ONLY via
+# environment for controlled Phase 2C sensitivity experiments; production
+# defaults are unchanged when the variables are unset.
+CANONICAL_OE_ATR_MULT = 2.0
+CANONICAL_OE_RSI_HIGH = 75.0
+CANONICAL_OE_RSI_LOW = 25.0
+
+
+def get_overextended_params() -> Tuple[float, float, float]:
+    """Returns (atr_mult, rsi_high, rsi_low) with canonical defaults."""
+    return (
+        float(os.environ.get("PHASE2_OE_ATR_MULT", str(CANONICAL_OE_ATR_MULT))),
+        float(os.environ.get("PHASE2_OE_RSI_HIGH", str(CANONICAL_OE_RSI_HIGH))),
+        float(os.environ.get("PHASE2_OE_RSI_LOW", str(CANONICAL_OE_RSI_LOW))),
+    )
 
 
 class MarketRegimeEngine:
@@ -178,7 +195,7 @@ class MarketRegimeEngine:
         current_rsi = rsi_series[-1]
 
         # Volatility Percentile
-        vol_level, _, _ = self.vol_engine.evaluate_volatility(candles_4h)
+        vol_level, _, vol_percentile = self.vol_engine.evaluate_volatility(candles_4h)
 
         # 1. Structure Score (+30, 0, -30)
         structure_score = 0
@@ -267,9 +284,11 @@ class MarketRegimeEngine:
                 tentative_regime = MarketRegime.RANGE
                 range_override_triggered = True
 
-        # Section 17: Overextended Check
-        overextended_up = bool((price - current_ema20 > 2.0 * current_atr) or (current_rsi > 75.0))
-        overextended_down = bool((current_ema20 - price > 2.0 * current_atr) or (current_rsi < 25.0))
+        # Section 17: Overextended Check (thresholds overridable for Phase 2C only)
+        oe_atr_mult, oe_rsi_high, oe_rsi_low = get_overextended_params()
+        atr_distance_atrs = float((price - current_ema20) / current_atr) if current_atr else 0.0
+        overextended_up = bool((price - current_ema20 > oe_atr_mult * current_atr) or (current_rsi > oe_rsi_high))
+        overextended_down = bool((current_ema20 - price > oe_atr_mult * current_atr) or (current_rsi < oe_rsi_low))
 
         # Section 18: Regime Stability Filter
         # Requires 2 consecutive closed 4H candles to switch, unless emergency flip (opposite BOS + |score| >= 70)
@@ -317,6 +336,11 @@ class MarketRegimeEngine:
             "current_rsi": round(current_rsi, 2),
             "current_atr": round(current_atr, 2),
             "range_override": range_override_triggered,
+            "vol_percentile": round(float(vol_percentile), 2),
+            "atr_distance_atrs": round(atr_distance_atrs, 4),
+            "oe_atr_mult": oe_atr_mult,
+            "oe_rsi_high": oe_rsi_high,
+            "oe_rsi_low": oe_rsi_low,
         }
 
         return RegimeResult(

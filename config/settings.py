@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 from typing import Optional, List
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from config.hypotheses import INITIAL_HYPOTHESES
@@ -19,7 +19,6 @@ class BotSettings(BaseSettings):
     APP_NAME: str = "BTC-Trading-Bot-V2"
     ENV: str = "development"  # development, testnet, production
     LOG_LEVEL: str = "INFO"
-    DASHBOARD_ADMIN_TOKEN: Optional[str] = None
 
     # Asset & Exchange
     SYMBOL: str = "BTC/USDT"
@@ -30,31 +29,32 @@ class BotSettings(BaseSettings):
     BINANCE_API_KEY: Optional[str] = None
     BINANCE_API_SECRET: Optional[str] = None
     BINANCE_TESTNET: bool = True
-    BINANCE_RECV_WINDOW_MS: int = 5000
+    BINANCE_RECV_WINDOW: int = Field(default=5000, ge=1000, le=60000)
     ACCOUNT_READ_ONLY: bool = True
 
     # External APIs (Context only)
     COINGLASS_API_KEY: Optional[str] = None
     COINMARKETCAP_API_KEY: Optional[str] = None
 
-    # Telegram notifications
+    # Telegram notifications (backend-only, no trading commands)
     TELEGRAM_ENABLED: bool = False
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHAT_ID: Optional[str] = None
-    TELEGRAM_NOTIFY_WAIT: bool = False
+    TELEGRAM_DEDUPE_TTL_SECONDS: int = Field(default=3600, ge=60, le=86400)
 
-    # Optional AI analyst. Advisory/explanation only; never execution authority.
-    AI_ENABLED: bool = False
-    AI_PROVIDER: str = "openai"
-    OPENAI_API_KEY: Optional[str] = None
-    OPENAI_MODEL: str = "gpt-5-mini"
-    AI_TIMEOUT_SEC: int = 20
-
-    # News engine. Can be replaced with comma-separated URLs in NEWS_RSS_URLS.
+    # Context-only intelligence integrations
     NEWS_ENABLED: bool = True
-    NEWS_MAX_ITEMS: int = 20
-    NEWS_LOOKBACK_HOURS: int = 24
-    NEWS_RSS_URLS: str = "https://www.coindesk.com/arc/outboundfeeds/rss/,https://cointelegraph.com/rss,https://decrypt.co/feed"
+    NEWS_RSS_URLS: str = "https://www.coindesk.com/arc/outboundfeeds/rss/,https://cointelegraph.com/rss"
+    NEWS_CACHE_SECONDS: int = Field(default=300, ge=60, le=3600)
+    AI_ENABLED: bool = False
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-5"
+
+    # Dashboard/private helper protection. Blank means local demo endpoints are unprotected.
+    DASHBOARD_ADMIN_TOKEN: Optional[str] = None
+
+    # This phase is observation-only. Order submission is intentionally not configurable.
+    SHADOW_MODE: bool = True
 
     # Database Configuration
     DB_URL: str = "sqlite:///trading_bot.db"
@@ -67,7 +67,7 @@ class BotSettings(BaseSettings):
     TREND_RISK_PCT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["trend_risk_per_trade_pct"])
     COUNTER_TREND_RISK_PCT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["counter_trend_risk_pct"])
     MIN_RISK_REWARD: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["min_risk_reward_ratio"])
-
+    
     WICK_REJECTION_RATIO: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["wick_rejection_ratio"])
     DIRECTIONAL_BODY_RATIO: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["directional_body_ratio"])
     VOLUME_RVOL_THRESHOLD: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["volume_rvol_threshold"])
@@ -98,9 +98,12 @@ class BotSettings(BaseSettings):
     # Storage Paths
     JOURNAL_DIR: str = "journal_logs"
 
-    @property
-    def news_rss_urls(self) -> List[str]:
-        return [url.strip() for url in self.NEWS_RSS_URLS.split(",") if url.strip()]
+    @model_validator(mode="after")
+    def enforce_demo_observation_mode(self):
+        """Environment values cannot disable the safety locks in this phase."""
+        self.ACCOUNT_READ_ONLY = True
+        self.SHADOW_MODE = True
+        return self
 
 
 @lru_cache

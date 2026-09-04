@@ -6,49 +6,51 @@
   <meta name="theme-color" content="#07111f" />
   <title>BTC Intelligence Console</title>
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/account.css" />
 </head>
 <body>
   <div class="ambient ambient-a"></div>
   <div class="ambient ambient-b"></div>
-
-  <div id="authGate" class="auth-gate hidden">
-    <div class="auth-card glass">
-      <div class="logo-orbit"><span>₿</span></div>
-      <div class="eyebrow">PRIVATE DEMO CONSOLE</div>
-      <h2>Dashboard erişim anahtarı</h2>
-      <p>Railway Variables içindeki <b>DASHBOARD_ADMIN_TOKEN</b> değerini gir. Anahtar sadece bu tarayıcı oturumunda tutulur.</p>
-      <input id="authTokenInput" type="password" autocomplete="off" placeholder="Dashboard token" />
-      <button id="authSubmit" class="action-btn primary">Konsola bağlan</button>
-      <small id="authError" class="error-text"></small>
-    </div>
-  </div>
-
   <main class="shell">
     <header class="topbar glass">
-      <div class="brand-wrap">
-        <div class="logo-orbit"><span>₿</span></div>
-        <div><div class="eyebrow">BTC TRADING BOT</div><h1>Intelligence Console</h1></div>
-      </div>
-      <div class="top-actions">
-        <div class="mode-pill"><span class="pulse-dot"></span> DEMO · TESTNET · READ ONLY</div>
-        <div id="connectionPill" class="connection-pill warning">Bağlanıyor…</div>
-        <button id="authBtn" class="small-btn" title="Dashboard token">AUTH</button>
-        <button id="refreshBtn" class="icon-btn" title="Veriyi yenile">↻</button>
-      </div>
+      <div class="brand-wrap"><div class="logo-orbit"><span>₿</span></div><div><div class="eyebrow">BTC TRADING BOT</div><h1>Intelligence Console</h1></div></div>
+      <div class="top-actions"><div class="mode-pill"><span class="pulse-dot"></span> DEMO · READ ONLY</div><div id="connectionPill" class="connection-pill warning">Bağlanıyor…</div><button id="refreshBtn" class="icon-btn" title="Veriyi yenile">↻</button></div>
     </header>
 
     <section class="hero-grid">
       <article class="hero-card glass">
-        <div class="hero-top">
-          <div><div class="muted">BTCUSDT · Binance Futures Public Market</div><div class="price-line"><span id="price">—</span><span id="change24h" class="change neutral">—</span></div></div>
-          <div class="decision-core" id="decisionCore"><div class="decision-orb"></div><div><div class="muted tiny">DETERMINISTIC DECISION</div><strong id="finalDecision">WAIT</strong></div></div>
-        </div>
+        <div class="hero-top"><div><div class="muted">BTCUSDT · Binance Futures</div><div class="price-line"><span id="price">—</span><span id="change24h" class="change neutral">—</span></div></div><div class="decision-core" id="decisionCore"><div class="decision-orb"></div><div><div class="muted tiny">FINAL DECISION</div><strong id="finalDecision">WAIT</strong></div></div></div>
         <div class="mini-strip"><div><span>Mark</span><strong id="markPrice">—</strong></div><div><span>Regime</span><strong id="regime">—</strong></div><div><span>Confidence</span><strong id="confidence">—</strong></div><div><span>Volatility</span><strong id="volatility">—</strong></div></div>
       </article>
-      <article class="glass risk-card">
-        <div class="section-head"><span>Risk Core</span><span id="killSwitchBadge" class="badge good">SAFE</span></div>
-        <div class="risk-ring-wrap"><div class="risk-ring" id="riskRing"><span id="riskRR">—</span><small>R:R</small></div><div class="risk-meta"><div><span>Trend Risk</span><strong id="trendRisk">—</strong></div><div><span>Counter Risk</span><strong id="counterRisk">—</strong></div><div><span>Daily Limit</span><strong id="dailyLimit">—</strong></div></div></div>
-      </article>
+      <article class="glass risk-card"><div class="section-head"><span>Risk Core</span><span id="killSwitchBadge" class="badge good">SAFE</span></div><div class="risk-ring-wrap"><div class="risk-ring" id="riskRing"><span id="riskRR">—</span><small>R:R</small></div><div class="risk-meta"><div><span>Trend Risk</span><strong id="trendRisk">—</strong></div><div><span>Counter Risk</span><strong id="counterRisk">—</strong></div><div><span>Daily Limit</span><strong id="dailyLimit">—</strong></div></div></div></article>
+    </section>
+
+    <section class="account-console glass">
+      <div class="account-head">
+        <div><div class="eyebrow">SECURED USER_DATA CHANNEL</div><h2>Binance Demo Account</h2></div>
+        <div class="account-badges"><span class="badge testnet">TESTNET</span><span id="accountStatus" class="badge warning">CONNECTING</span></div>
+      </div>
+      <div id="accountMessage" class="account-message">Demo account not connected</div>
+      <div class="account-balance-row">
+        <div class="wallet-balance"><span>WALLET BALANCE</span><strong id="walletBalance">—</strong><small>USDT</small></div>
+        <div class="account-stat"><span>AVAILABLE</span><strong id="availableBalance">—</strong><small>USDT</small></div>
+        <div class="account-stat"><span>UNREALIZED PNL</span><strong id="accountPnl">—</strong><small>USDT</small></div>
+        <div class="account-stat"><span>MARGIN USED</span><strong id="marginUsed">—</strong><small>USDT</small></div>
+        <div class="account-stat"><span>MARGIN BALANCE</span><strong id="marginBalance">—</strong><small>USDT</small></div>
+        <div class="account-stat"><span>MAINT. MARGIN</span><strong id="maintMargin">—</strong><small>USDT</small></div>
+        <div class="account-stat"><span>POSITION MARGIN</span><strong id="positionMargin">—</strong><small>USDT</small></div>
+        <div class="account-stat"><span>ORDER MARGIN</span><strong id="orderMargin">—</strong><small>USDT</small></div>
+        <div class="account-stat"><span>POSITIONS</span><strong id="positionCount">—</strong><small>OPEN</small></div>
+        <div class="account-stat"><span>ORDERS</span><strong id="orderCount">—</strong><small>OPEN</small></div>
+      </div>
+      <div class="account-table-wrap">
+        <div class="account-table-title"><span>LIVE POSITIONS</span><small>USDⓈ-M FUTURES TESTNET · READ ONLY</small></div>
+        <table class="account-table"><thead><tr><th>SYMBOL</th><th>SIDE</th><th>SIZE</th><th>ENTRY</th><th>BREAK-EVEN</th><th>MARK</th><th>LEV.</th><th>MARGIN TYPE</th><th>NOTIONAL</th><th>UPNL</th><th>LIQUIDATION</th></tr></thead><tbody id="positionsBody"><tr><td colspan="11" class="empty-cell">Waiting for testnet account data</td></tr></tbody></table>
+      </div>
+      <div class="account-table-wrap orders-table-wrap">
+        <div class="account-table-title"><span>OPEN ORDERS</span><small>NO CANCEL OR TRADE ACTIONS</small></div>
+        <table class="account-table"><thead><tr><th>SYMBOL</th><th>SIDE</th><th>TYPE</th><th>QUANTITY</th><th>PRICE</th><th>STOP</th><th>STATUS</th><th>REDUCE ONLY</th><th>ORDER ID</th></tr></thead><tbody id="ordersBody"><tr><td colspan="9" class="empty-cell">Waiting for testnet account data</td></tr></tbody></table>
+      </div>
     </section>
 
     <section class="metrics-grid">
@@ -58,20 +60,6 @@
       <article class="metric glass"><span>Taker Flow</span><strong id="takerRatio">—</strong><small>Buy / Sell ratio</small></article>
       <article class="metric glass"><span>RSI 14</span><strong id="rsiValue">—</strong><small id="rsiTone">Momentum</small></article>
       <article class="metric glass"><span>ADX 14</span><strong id="adxValue">—</strong><small id="adxTone">Trend strength</small></article>
-    </section>
-
-    <section class="glass account-panel">
-      <div class="section-head"><span>Binance Futures Demo Account</span><span id="accountStatus" class="badge neutral">CONNECTING</span></div>
-      <div class="account-grid">
-        <div class="account-stat"><span>Wallet Balance</span><strong id="walletBalance">—</strong><small>USDT TESTNET</small></div>
-        <div class="account-stat"><span>Available</span><strong id="availableBalance">—</strong><small>Free margin</small></div>
-        <div class="account-stat"><span>Unrealized PnL</span><strong id="accountUpnl">—</strong><small>Open positions</small></div>
-        <div class="account-stat"><span>Margin Balance</span><strong id="marginBalance">—</strong><small>Account margin</small></div>
-        <div class="account-stat"><span>Positions</span><strong id="openPositionsCount">—</strong><small>Non-zero only</small></div>
-        <div class="account-stat"><span>Open Orders</span><strong id="openOrdersCount">—</strong><small>Read only</small></div>
-      </div>
-      <div id="accountError" class="account-message hidden"></div>
-      <div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>Mark</th><th>Lev.</th><th>uPnL</th><th>Liq.</th></tr></thead><tbody id="positionsTable"><tr><td colspan="8" class="muted">Pozisyon bekleniyor…</td></tr></tbody></table></div>
     </section>
 
     <section class="workbench glass">
@@ -86,42 +74,29 @@
       <article class="glass panel"><div class="section-head"><span>Signal Intelligence</span><span id="setupBadge" class="badge neutral">NO SETUP</span></div><div class="intelligence-grid"><div><span>4H Structure</span><strong id="structure4h">—</strong></div><div><span>1H Structure</span><strong id="structure1h">—</strong></div><div><span>Location</span><strong id="location">—</strong></div><div><span>Setup</span><strong id="setup">—</strong></div><div><span>Trigger</span><strong id="trigger">—</strong></div><div><span>Derivatives</span><strong id="derivatives">—</strong></div><div><span>Overextended Up</span><strong id="oeUp">—</strong></div><div><span>Overextended Down</span><strong id="oeDown">—</strong></div></div><div class="reason-box"><span>Neden?</span><p id="decisionReason">Veri bekleniyor…</p></div></article>
     </section>
 
-    <section class="dual-grid">
-      <article class="glass panel">
-        <div class="section-head"><span>Chart Reading Engine V2</span><span id="chartBiasBadge" class="badge neutral">—</span></div>
-        <div class="chart-intel-hero"><div><span>Overall Bias</span><strong id="chartOverallBias">—</strong></div><div><span>Score</span><strong id="chartScore">—</strong></div><div><span>MTF Alignment</span><strong id="chartAlignment">—</strong></div></div>
-        <div id="chartTfGrid" class="tf-intel-grid"></div>
-        <div id="chartAlerts" class="chip-row"></div>
-      </article>
-      <article class="glass panel">
-        <div class="section-head"><span>News Intelligence</span><span id="newsRiskBadge" class="badge neutral">—</span></div>
-        <div class="news-head"><div><span>Sentiment</span><strong id="newsSentiment">—</strong></div><div><span>Sources</span><strong id="newsCount">—</strong></div></div>
-        <div id="newsList" class="news-list"><div class="muted">Haber bekleniyor…</div></div>
-      </article>
+    <section class="glass panel intelligence-console">
+      <div class="section-head"><span>Chart Reading V3</span><span id="mtfBias" class="badge info">CALCULATING</span></div>
+      <div class="tf-intelligence" id="tfIntelligence"></div>
+      <div class="reason-box"><span>MTF Interpretation</span><p id="mtfState">Closed OHLCV candles are being evaluated…</p><small id="mtfConflicts" class="muted">—</small></div>
     </section>
 
     <section class="dual-grid">
-      <article class="glass panel ai-panel">
-        <div class="section-head"><span>AI Analyst</span><span id="aiStatus" class="badge neutral">DISABLED</span></div>
-        <p class="panel-copy">AI yalnızca mevcut veriyi açıklar. Strateji, risk motoru ve kill-switch kararını değiştiremez.</p>
-        <div class="action-row"><button id="aiAnalyzeBtn" class="action-btn primary">AI analizi çalıştır</button><span id="aiModel" class="muted tiny">—</span></div>
-        <div id="aiOutput" class="analysis-box">AI analizi henüz çalıştırılmadı.</div>
-      </article>
-      <article class="glass panel">
-        <div class="section-head"><span>Telegram</span><span id="telegramStatus" class="badge neutral">DISABLED</span></div>
-        <p class="panel-copy">Setup, entry, risk ve sistem olaylarını Telegram'a gönderen bildirim katmanı.</p>
-        <div class="action-row"><button id="telegramTestBtn" class="action-btn">Test mesajı</button><button id="telegramDecisionBtn" class="action-btn">Mevcut kararı gönder</button></div>
-        <div id="telegramResult" class="analysis-box compact">Telegram işlemi bekleniyor.</div>
-      </article>
+      <article class="glass panel"><div class="section-head"><span>Strategy Orchestrator</span><span id="strategyEligible" class="badge neutral">NOT ELIGIBLE</span></div><div class="intelligence-grid"><div><span>Setup</span><strong id="strategySetup">—</strong></div><div><span>Direction</span><strong id="strategyDirection">—</strong></div><div><span>Score</span><strong id="strategyScore">—</strong></div><div><span>Trigger</span><strong id="strategyTrigger">—</strong></div></div><div class="reason-box"><span>Blocking Reasons</span><p id="strategyBlockers">—</p></div></article>
+      <article class="glass panel"><div class="section-head"><span>System State</span><span class="badge testnet">SHADOW</span></div><div class="intelligence-grid"><div><span>Kill Switch</span><strong id="systemKill">—</strong></div><div><span>Daily Loss Guard</span><strong id="dailyGuard">—</strong></div><div><span>Loss Streak Guard</span><strong id="streakGuard">—</strong></div><div><span>Active Position</span><strong id="activePosition">—</strong></div><div><span>Final Decision</span><strong id="systemDecision">—</strong></div><div><span>Orders</span><strong>DISABLED</strong></div></div></article>
+    </section>
+
+    <section class="dual-grid">
+      <article class="glass panel"><div class="section-head"><span>News Intelligence</span><span id="newsRisk" class="badge neutral">UNAVAILABLE</span></div><div class="intelligence-grid"><div><span>Status</span><strong id="newsStatus">—</strong></div><div><span>Sentiment</span><strong id="newsSentiment">—</strong></div></div><div id="newsEvents" class="event-log compact-events"><div class="event muted">No normalized events yet</div></div></article>
+      <article class="glass panel"><div class="section-head"><span>AI Analyst</span><span class="badge warning">ADVISORY ONLY</span></div><div class="intelligence-grid"><div><span>Status</span><strong id="aiStatus">—</strong></div><div><span>Confidence</span><strong id="aiConfidence">—</strong></div></div><div class="reason-box"><span>Market View</span><p id="aiView">AI is optional; deterministic logic remains active.</p></div><div class="reason-box"><span>Risk Notes</span><p id="aiRiskNotes">—</p></div></article>
     </section>
 
     <section class="dual-grid">
       <article class="glass panel"><div class="section-head"><span>Trade Plan</span><span class="badge neutral">PRE-TRADE</span></div><div class="trade-plan"><div><span>Entry</span><strong id="entryPrice">—</strong></div><div><span>Stop</span><strong id="stopLoss">—</strong></div><div><span>TP1</span><strong id="tp1">—</strong></div><div><span>TP2</span><strong id="tp2">—</strong></div><div><span>Position</span><strong id="positionSize">—</strong></div><div><span>Risk $</span><strong id="riskAmount">—</strong></div></div></article>
-      <article class="glass panel"><div class="section-head"><span>Data Sources</span><span class="badge info">PROVENANCE</span></div><div class="sources"><div class="source-row"><div><b>Binance Market</b><small>Price · OI · Funding · L/S · Taker</small></div><span id="binanceStatus" class="source-status">—</span></div><div class="source-row"><div><b>Binance Testnet Account</b><small>Wallet · positions · open orders</small></div><span id="binanceAccountStatus" class="source-status">—</span></div><div class="source-row"><div><b>CoinGlass</b><small>Liquidations · Aggregate OI</small></div><span id="coinglassStatus" class="source-status">—</span></div><div class="source-row"><div><b>CoinMarketCap</b><small>Dominance · Market Cap · Volume</small></div><span id="cmcStatus" class="source-status">—</span></div><div class="source-row"><div><b>News Engine</b><small>RSS · risk · sentiment</small></div><span id="newsStatus" class="source-status">—</span></div></div></article>
+      <article class="glass panel"><div class="section-head"><span>Data Sources</span><span class="badge info">PROVENANCE</span></div><div class="sources"><div class="source-row"><div><b>Binance Market Data</b><small>Price · OI · Funding · L/S · Taker</small></div><span id="binanceStatus" class="source-status">—</span></div><div class="source-row"><div><b>Binance Testnet Account</b><small>Signed USER_DATA · Read only</small></div><span id="binanceAccountStatus" class="source-status">—</span></div><div class="source-row"><div><b>CoinGlass</b><small>Liquidations · Aggregate OI</small></div><span id="coinglassStatus" class="source-status">—</span></div><div class="source-row"><div><b>CoinMarketCap</b><small>Dominance · Market Cap · Volume</small></div><span id="cmcStatus" class="source-status">—</span></div><div class="source-row"><div><b>News RSS</b><small>Context and risk filter only</small></div><span id="newsSourceStatus" class="source-status">—</span></div><div class="source-row"><div><b>Telegram</b><small>Outbound events · deduplicated</small></div><span id="telegramStatus" class="source-status">—</span></div><div class="source-row"><div><b>OpenAI Analyst</b><small>Advisory only · no execution authority</small></div><span id="aiSourceStatus" class="source-status">—</span></div></div></article>
     </section>
 
     <section class="glass panel event-panel"><div class="section-head"><span>System Events</span><span id="lastUpdate" class="muted tiny">—</span></div><div id="eventLog" class="event-log"></div></section>
-    <footer><span>Demo account read-only · Dashboard order routes disabled</span><span>Predict less. Filter better. Risk less. Measure everything.</span></footer>
+    <footer><span>Read-only demo · Testnet USER_DATA only · Order submission disabled</span><span>Predict less. Filter better. Risk less. Measure everything.</span></footer>
   </main>
   <script src="/app.js" defer></script>
 </body>

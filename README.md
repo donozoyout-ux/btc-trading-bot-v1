@@ -100,6 +100,40 @@ python main.py shadow --poll 15 --cycles 10
 pytest tests -v
 ```
 
+### Run the Read-Only Demo Account Dashboard
+```powershell
+# Validates the safety lock, public market feed, and optional testnet auth
+python dashboard_server.py --self-test
+
+# Opens the local BTC Intelligence Console at http://127.0.0.1:8080
+python dashboard_server.py
+
+# Verifies the Telegram bot identity and sends one read-only connection message
+python dashboard_server.py --telegram-test
+```
+
+The dashboard runs the complete observation chain: closed-candle Chart Reading
+V3, deterministic MTF interpretation, Setup A/B/C orchestration, RSS news risk,
+optional advisory AI, deduplicated Telegram events, and enriched Shadow journal
+records. It reads real public Binance Futures market data and, when a local
+`.env` contains `BINANCE_TESTNET=true` plus testnet credentials, signed demo
+account data. Account values are never simulated, and the dashboard exposes no
+order submission or cancellation endpoint.
+
+Telegram integration is outbound-only. Set `TELEGRAM_ENABLED=true`,
+`TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID` in the local `.env`; the token and
+chat identifier are never included in browser payloads.
+
+Optional AI analysis uses the OpenAI Responses API only when `AI_ENABLED=true`
+and `OPENAI_API_KEY` is set. Its schema always returns
+`execution_authority=false`; it cannot alter deterministic setup, direction,
+trade plan, sizing, kill switch, or risk rejection.
+
+Set `DASHBOARD_ADMIN_TOKEN` to protect account/AI/Telegram private endpoints.
+Mutation-style Telegram/AI helpers are disabled entirely when that token is not
+configured. Shadow decisions are stored in
+`journal_logs/shadow_decisions.jsonl`; `SHADOW_MODE=true` never enables orders.
+
 ---
 
 ## 6. Directory Layout
@@ -110,6 +144,8 @@ bitcoinalimsatim4/
 ├── core/                # Data models (Candle, SwingPoint, Regime, Risk, Trade)
 ├── data/                # Binance Futures, CoinGlass, CMC, and CandleManager
 ├── engines/             # 10 Decoupled Strategy Engines
+├── integrations/        # RSS News V2 and optional advisory AI
+├── notifications/       # Telegram client and deduplicated event notifier
 ├── execution/           # Shadow, Testnet, and Live Executors
 ├── journal/             # Decision Logger (JSONL) & Metrics Calculator
 ├── backtest/            # Backtest Simulator & Historical Data Loader
