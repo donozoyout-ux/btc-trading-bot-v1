@@ -185,7 +185,9 @@ class RenderResilientBinanceFuturesMarketClient:
             name: None for name in self.OPTIONAL_METHODS
         }
         self._fallback_derivatives: Dict[str, Dict[str, Any]] = {}
-        self._spot_proxy_last_error: Optional[str] = None
+        # A Spot source must successfully serve a real market call before it can
+        # grant forward-test authority. Derivatives failure alone cannot do so.
+        self._spot_proxy_last_error: Optional[str] = "NOT_VALIDATED"
 
     @property
     def market_data_trading_safe(self) -> bool:
@@ -308,7 +310,7 @@ class RenderResilientBinanceFuturesMarketClient:
                 self._testnet_display_call(method, *args, **kwargs)
             except self.EXPECTED_ERRORS:
                 pass
-            # Restore the real price source label if the spot proxy is healthy.
+            # Restore the real price source label only after Spot was validated.
             if self._spot_proxy_last_error is None:
                 self.active_environment = "BINANCE_SPOT_PUBLIC_PROXY"
                 self.fallback_active = True
@@ -356,6 +358,13 @@ class RenderResilientBinanceFuturesMarketClient:
             else:
                 derivatives_status = "UNAVAILABLE"
 
+        if self._spot_proxy_last_error is None:
+            spot_status = "AVAILABLE"
+        elif self._spot_proxy_last_error == "NOT_VALIDATED":
+            spot_status = "NOT_VALIDATED"
+        else:
+            spot_status = "UNAVAILABLE"
+
         retry_after = max(0, int(self._production_blocked_until - self._clock()))
         return {
             "market_data_source": self.active_environment,
@@ -364,8 +373,8 @@ class RenderResilientBinanceFuturesMarketClient:
             "production_public_status": self.production_public_status,
             "production_public_retry_after_seconds": retry_after,
             "fallback_active": self.fallback_active,
-            "spot_proxy_status": "AVAILABLE" if self._spot_proxy_last_error is None else "UNAVAILABLE",
-            "spot_proxy_error": self._spot_proxy_last_error,
+            "spot_proxy_status": spot_status,
+            "spot_proxy_error": None if self._spot_proxy_last_error in {None, "NOT_VALIDATED"} else self._spot_proxy_last_error,
             "derivatives_status": derivatives_status,
         }
 
