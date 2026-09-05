@@ -6,7 +6,8 @@ token browser wiring for protected private endpoints, and a background snapshot
 warm-up so a cold Render instance does not look like an empty dashboard while
 market data is loading.
 
-No order/execution capability is added here.
+Automatic execution remains opt-in and starts only when the core settings pass
+the strict TESTNET-only execution boundary.
 """
 
 from __future__ import annotations
@@ -33,15 +34,18 @@ def bootstrap_payload() -> dict:
     Only configuration presence is exposed. Secret values are never returned.
     """
 
+    runtime = getattr(base, "RUNTIME", None)
+    settings = runtime.settings if runtime is not None else base.get_settings()
+    execution_enabled = settings.testnet_execution_enabled
     return {
         "ok": True,
         "runtime": "RENDER" if os.environ.get("RENDER") else "CLOUD",
         "service": "BTC Intelligence Console",
         "ui": "READY",
-        "orders_enabled": False,
-        "shadow_mode": True,
-        "account_read_only": True,
-        "binance_testnet": os.environ.get("BINANCE_TESTNET", "true").lower() == "true",
+        "orders_enabled": execution_enabled,
+        "shadow_mode": settings.SHADOW_MODE,
+        "account_read_only": settings.ACCOUNT_READ_ONLY,
+        "binance_testnet": settings.BINANCE_TESTNET,
         "binance_credentials_configured": bool(
             os.environ.get("BINANCE_API_KEY") and os.environ.get("BINANCE_API_SECRET")
         ),
@@ -126,6 +130,24 @@ def _warm_snapshot() -> None:
         logger.warning("Render snapshot warm-up degraded: {}", type(exc).__name__)
 
 
+def _run_testnet_execution() -> None:
+    """Run the existing execution runtime without ever invoking smoke mode."""
+
+    from data.binance_execution_client import ExecutionError
+    from execution.testnet_runtime import TestnetExecutionRuntime
+
+    try:
+        runtime = TestnetExecutionRuntime(
+            settings=base.RUNTIME.settings,
+            dashboard_runtime=base.RUNTIME,
+        )
+        runtime.run_loop()
+    except ExecutionError as exc:
+        logger.error("Render TESTNET execution stopped: {}", exc.category)
+    except Exception as exc:
+        logger.error("Render TESTNET execution stopped: {}", type(exc).__name__)
+
+
 def main() -> None:
     host = "0.0.0.0"
     try:
@@ -138,11 +160,22 @@ def main() -> None:
     base.RUNTIME = base.DashboardRuntime()
     threading.Thread(target=_warm_snapshot, name="render-snapshot-warmup", daemon=True).start()
 
+    execution_enabled = base.RUNTIME.settings.testnet_execution_enabled
+    if execution_enabled:
+        threading.Thread(
+            target=_run_testnet_execution,
+            name="render-testnet-execution",
+            daemon=True,
+        ).start()
+
     logger.info("RENDER WEB UI: READY")
     logger.info("BINANCE ACCOUNT MODE: TESTNET")
-    logger.info("ACCOUNT ACCESS: READ ONLY")
-    logger.info("SHADOW MODE: ENABLED")
-    logger.info("ORDER SUBMISSION: DISABLED")
+    logger.info("ACCOUNT ACCESS: {}", "EXECUTION" if execution_enabled else "READ ONLY")
+    logger.info("SHADOW MODE: {}", "DISABLED" if execution_enabled else "ENABLED")
+    logger.info(
+        "ORDER SUBMISSION: {}",
+        "ENABLED - TESTNET ONLY" if execution_enabled else "DISABLED",
+    )
 
     server = ThreadingHTTPServer((host, port), RenderDashboardHandler)
     logger.info("BTC Intelligence Console listening on 0.0.0.0:{}", port)

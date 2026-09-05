@@ -46,11 +46,15 @@
       setText('renderUiState', data.ui || 'READY');
       setText(
         'renderAccountState',
-        data.binance_credentials_configured ? 'CONFIGURED' : 'NOT CONFIGURED'
+        data.orders_enabled
+          ? 'TESTNET AUTO'
+          : data.binance_credentials_configured ? 'READ ONLY' : 'NOT CONFIGURED'
       );
       badge('ONLINE', 'good');
-      const account = data.binance_credentials_configured
-        ? 'Testnet credentials bulundu; signed account doğrulaması dashboard tarafından yapılacak.'
+      const account = data.orders_enabled
+        ? 'Testnet execution bayrakları doğrulandı; otomatik döngü aktif.'
+        : data.binance_credentials_configured
+        ? 'Testnet credentials bulundu; yürütme bayrakları kapalı olduğu için signed erişim salt okunur.'
         : 'Testnet credentials yok; public piyasa ekranı çalışır, hesap alanları UNAVAILABLE kalır.';
       setMessage(`Render backend online. ${account}`);
     } catch (_) {

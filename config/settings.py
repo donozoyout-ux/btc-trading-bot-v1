@@ -31,6 +31,12 @@ class BotSettings(BaseSettings):
     BINANCE_TESTNET: bool = True
     BINANCE_RECV_WINDOW: int = Field(default=5000, ge=1000, le=60000)
     ACCOUNT_READ_ONLY: bool = True
+    ORDER_SUBMISSION_ENABLED: bool = False
+    RUN_EXECUTION_SMOKE_TEST: bool = False
+    TEST_ORDER_NOTIONAL_USDT: float = Field(default=10.0, gt=0, le=100.0)
+    TEST_ORDER_MAX_NOTIONAL_USDT: float = Field(default=100.0, ge=50.0, le=250.0)
+    MAX_OPEN_POSITIONS: int = Field(default=1, ge=1, le=1)
+    EXECUTION_POLL_SECONDS: int = Field(default=15, ge=5, le=300)
 
     # External APIs (Context only)
     COINGLASS_API_KEY: Optional[str] = None
@@ -53,7 +59,7 @@ class BotSettings(BaseSettings):
     # Dashboard/private helper protection. Blank means local demo endpoints are unprotected.
     DASHBOARD_ADMIN_TOKEN: Optional[str] = None
 
-    # This phase is observation-only. Order submission is intentionally not configurable.
+    # Defaults remain observation-only; explicit TESTNET execution flags may unlock orders.
     SHADOW_MODE: bool = True
 
     # Database Configuration
@@ -100,10 +106,28 @@ class BotSettings(BaseSettings):
 
     @model_validator(mode="after")
     def enforce_demo_observation_mode(self):
-        """Environment values cannot disable the safety locks in this phase."""
-        self.ACCOUNT_READ_ONLY = True
-        self.SHADOW_MODE = True
+        """Only an explicit TESTNET-only configuration may unlock execution."""
+        execution_boundary = self.BINANCE_TESTNET and self.ENV.strip().lower() == "testnet"
+        if not execution_boundary or not self.ORDER_SUBMISSION_ENABLED:
+            self.ORDER_SUBMISSION_ENABLED = False
+            self.RUN_EXECUTION_SMOKE_TEST = False
+            self.ACCOUNT_READ_ONLY = True
+            self.SHADOW_MODE = True
+        elif self.ACCOUNT_READ_ONLY or self.SHADOW_MODE:
+            # Conflicting flags fail closed instead of being silently relaxed.
+            self.ORDER_SUBMISSION_ENABLED = False
+            self.RUN_EXECUTION_SMOKE_TEST = False
         return self
+
+    @property
+    def testnet_execution_enabled(self) -> bool:
+        return bool(
+            self.BINANCE_TESTNET
+            and self.ENV.strip().lower() == "testnet"
+            and self.ORDER_SUBMISSION_ENABLED
+            and not self.ACCOUNT_READ_ONLY
+            and not self.SHADOW_MODE
+        )
 
 
 @lru_cache

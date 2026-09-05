@@ -7,11 +7,13 @@ snapshot warm-up instead of appearing empty during cold starts.
 
 import os
 
+from config.settings import get_settings
 from render_server import main
 
 
 def _safe_startup_status() -> None:
     """Log configuration presence only; never log credentials."""
+    settings = get_settings()
     print("BTC Intelligence Console cloud startup")
     print(f"RENDER runtime: {'YES' if os.environ.get('RENDER') else 'NO'}")
     print(f"BINANCE_TESTNET: {os.environ.get('BINANCE_TESTNET', 'true').lower()}")
@@ -21,7 +23,10 @@ def _safe_startup_status() -> None:
     print(f"TELEGRAM_BOT_TOKEN configured: {'YES' if os.environ.get('TELEGRAM_BOT_TOKEN') else 'NO'}")
     print(f"TELEGRAM_CHAT_ID configured: {'YES' if os.environ.get('TELEGRAM_CHAT_ID') else 'NO'}")
     print(f"AI_ENABLED: {os.environ.get('AI_ENABLED', 'false').lower()}")
-    print("ORDER SUBMISSION: DISABLED")
+    print(
+        "ORDER SUBMISSION: "
+        + ("ENABLED - TESTNET ONLY" if settings.testnet_execution_enabled else "DISABLED")
+    )
 
 
 if __name__ == "__main__":

@@ -38,6 +38,7 @@ from engines.volatility_engine import VolatilityEngine
 from integrations.ai_analyst import AIAnalystError, AIAnalystV2
 from integrations.news_engine import NewsEngineV2
 from journal.shadow_journal import ShadowDecisionJournal
+from journal.execution_journal import ExecutionJournal
 from notifications.telegram_client import TelegramClient, TelegramError
 from notifications.telegram_notifier import TelegramEventNotifier
 from runner import MasterPipeline
@@ -263,6 +264,7 @@ class DashboardRuntime:
         self.mtf_interpreter = MultiTimeframeInterpreter()
         self.strategy_orchestrator = StrategyOrchestrator()
         self.shadow_journal = shadow_journal or ShadowDecisionJournal(self.settings.JOURNAL_DIR)
+        self.execution_journal = ExecutionJournal(self.settings.JOURNAL_DIR)
         self.pipeline = MasterPipeline(self.settings)
         self.state = BotState(
             account_balance_usdt=self.settings.INITIAL_CAPITAL_USDT,
@@ -288,6 +290,10 @@ class DashboardRuntime:
             and self.account_client is not None
             and self.account_client.configured
         )
+
+    @property
+    def execution_enabled(self) -> bool:
+        return self.settings.testnet_execution_enabled
 
     def account(self, force: bool = False) -> Dict[str, Any]:
         """Read the signed demo account independently from public analytics."""
@@ -317,8 +323,8 @@ class DashboardRuntime:
                     "status": "CONNECTED",
                     "error_category": None,
                     "message": None,
-                    "orders_enabled": False,
-                    "account_read_only": True,
+                    "orders_enabled": self.execution_enabled,
+                    "account_read_only": self.settings.ACCOUNT_READ_ONLY,
                     "asset": "USDT",
                     "wallet_balance_usdt": raw.get("wallet_balance"),
                     "available_balance_usdt": raw.get("available_balance"),
@@ -474,16 +480,32 @@ class DashboardRuntime:
                     "open_position_count": None, "open_order_count": None,
                 }
 
+            execution_state = {
+                "environment": "TESTNET",
+                "real_money": "DISABLED",
+                "execution_enabled": self.execution_enabled,
+                "position": {"side": "FLAT", "position_amt": 0.0},
+                "last_binance_order": None,
+                "last_telegram_event": None,
+                "smoke_test": "NOT_RUN",
+            }
+            execution_state.update(self.execution_journal.read_state())
+            # Persisted metadata must never override the current fail-closed
+            # configuration or the permanent real-money boundary.
+            execution_state["environment"] = "TESTNET"
+            execution_state["real_money"] = "DISABLED"
+            execution_state["execution_enabled"] = self.execution_enabled
+
             snapshot = {
                 "decision_id": decision_id,
                 "final_decision": self.strategy_orchestrator.final_decision(report),
                 "meta": {
-                    "mode": "DEMO / SHADOW / READ ONLY",
+                    "mode": "TESTNET AUTO EXECUTION" if self.execution_enabled else "DEMO / SHADOW / READ ONLY",
                     "symbol": "BTCUSDT",
                     "generated_at": int(time.time() * 1000),
                     "refresh_seconds": CACHE_TTL_SECONDS,
-                    "orders_enabled": False,
-                    "shadow_mode": True,
+                    "orders_enabled": self.execution_enabled,
+                    "shadow_mode": self.settings.SHADOW_MODE,
                     "signed_endpoints_enabled": self.account_configured,
                 },
                 "market": {
@@ -526,6 +548,7 @@ class DashboardRuntime:
                     "active_position": _jsonable(self.state.active_position),
                 },
                 "account": account_summary,
+                "execution": execution_state,
                 "sources": {
                     "binance": {
                         "status": "HEALTHY" if not any([mark_err, oi_err, funding_err, ls_err, taker_err]) else "DEGRADED",
@@ -576,10 +599,10 @@ class DashboardRuntime:
         account = self.account()
         return {
             "ok": True,
-            "mode": "DEMO / SHADOW / READ ONLY",
-            "orders_enabled": False,
-            "shadow_mode": True,
-            "account_read_only": True,
+            "mode": "TESTNET AUTO EXECUTION" if self.execution_enabled else "DEMO / SHADOW / READ ONLY",
+            "orders_enabled": self.execution_enabled,
+            "shadow_mode": self.settings.SHADOW_MODE,
+            "account_read_only": self.settings.ACCOUNT_READ_ONLY,
             "testnet_account_configured": self.account_configured,
             "testnet_account_authenticated": account["connected"],
             "account_status": account["status"],

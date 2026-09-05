@@ -494,6 +494,28 @@ class BinanceFuturesAccountClient:
             for item in payload
         ]
 
+    def get_open_algo_orders(self) -> List[Dict[str, Any]]:
+        """Read current exchange-side TP/SL orders from the USD-M algo API."""
+        payload = self._signed_get(
+            "/fapi/v1/openAlgoOrders", {"algoType": "CONDITIONAL"}
+        )
+        return [
+            {
+                "symbol": item.get("symbol"),
+                "side": item.get("side"),
+                "type": item.get("orderType"),
+                "quantity": self._number(item.get("quantity")),
+                "price": self._number(item.get("price")),
+                "stop_price": self._number(item.get("triggerPrice")),
+                "status": item.get("algoStatus"),
+                "reduce_only": bool(item.get("reduceOnly", False)),
+                "order_id": item.get("algoId"),
+                "update_time": item.get("updateTime") or item.get("createTime"),
+                "order_surface": "ALGO",
+            }
+            for item in payload
+        ]
+
     def get_account_summary(self) -> Dict[str, Any]:
         """Return the complete read-only USD-M testnet account snapshot."""
         self._assert_access_allowed()
@@ -501,7 +523,7 @@ class BinanceFuturesAccountClient:
         balances = self.get_account_balances(account)
         usdt = next((item for item in balances if item.get("asset") == "USDT"), {})
         positions = self.get_open_positions()
-        orders = self.get_open_orders()
+        orders = self.get_open_orders() + self.get_open_algo_orders()
         return {
             "account_type": "USD-M FUTURES",
             "environment": "TESTNET",

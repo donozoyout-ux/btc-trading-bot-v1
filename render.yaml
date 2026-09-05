@@ -21,7 +21,15 @@ services:
       - key: BINANCE_TESTNET
         value: "true"
       - key: ACCOUNT_READ_ONLY
-        value: "true"
+        sync: false
+      - key: ORDER_SUBMISSION_ENABLED
+        sync: false
+      - key: SHADOW_MODE
+        sync: false
+      - key: RUN_EXECUTION_SMOKE_TEST
+        value: "false"
+      - key: MAX_OPEN_POSITIONS
+        value: "1"
       - key: NEWS_ENABLED
         value: "true"
       - key: AI_ENABLED

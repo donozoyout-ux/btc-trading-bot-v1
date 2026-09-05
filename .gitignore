@@ -25,9 +25,11 @@ __pycache__/
 Thumbs.db
 
 # Logs with potential sensitive data
+journal_logs/
 journal_logs/*.jsonl
 journal_logs/decisions.jsonl
 journal_logs/trades.jsonl
+reports/*.log
 
 # Virtual environments
 venv/

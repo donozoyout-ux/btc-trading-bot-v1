@@ -179,6 +179,50 @@ def run_shadow_command(poll_interval_sec: int = 15, max_iterations: int = 3):
         console.print("\n[bold red]Shadow mode stopped by user.[/bold red]")
 
 
+def print_execution_doctor() -> None:
+    """Print configuration presence only; never print credential values."""
+    from execution.testnet_runtime import TestnetExecutionRuntime
+
+    d = TestnetExecutionRuntime.doctor()
+    yn = lambda value: "YES" if value else "NO"
+    tf = lambda value: "TRUE" if value else "FALSE"
+    console.print(f"BINANCE_API_KEY configured: {yn(d['binance_api_key_configured'])}")
+    console.print(f"BINANCE_API_SECRET configured: {yn(d['binance_api_secret_configured'])}")
+    console.print(f"BINANCE_TESTNET: {tf(d['binance_testnet'])}")
+    console.print(f"ENV: {d['env']}")
+    console.print(f"ORDER_SUBMISSION_ENABLED: {tf(d['order_submission_enabled'])}")
+    console.print(f"ACCOUNT_READ_ONLY: {tf(d['account_read_only'])}")
+    console.print(f"SHADOW_MODE: {tf(d['shadow_mode'])}")
+    console.print(f"TELEGRAM_ENABLED: {tf(d['telegram_enabled'])}")
+    console.print(f"TELEGRAM_BOT_TOKEN configured: {yn(d['telegram_bot_token_configured'])}")
+    console.print(f"TELEGRAM_CHAT_ID configured: {yn(d['telegram_chat_id_configured'])}")
+
+
+def run_execution_smoke() -> None:
+    from data.binance_execution_client import ExecutionError
+    from execution.testnet_runtime import TestnetExecutionRuntime
+
+    print_execution_doctor()
+    try:
+        result = TestnetExecutionRuntime().run_smoke_test()
+        console.print(result)
+    except ExecutionError as exc:
+        console.print(f"[bold red]EXECUTION SMOKE TEST FAIL: {exc.category}[/bold red]")
+        raise SystemExit(2)
+
+
+def run_testnet_auto(cycles: int | None = None) -> None:
+    from data.binance_execution_client import ExecutionError
+    from execution.testnet_runtime import TestnetExecutionRuntime
+
+    print_execution_doctor()
+    try:
+        TestnetExecutionRuntime().run_loop(max_cycles=cycles)
+    except ExecutionError as exc:
+        console.print(f"[bold red]TESTNET EXECUTION STOPPED: {exc.category}[/bold red]")
+        raise SystemExit(2)
+
+
 def main():
     parser = argparse.ArgumentParser(description="BTC Trading Bot — Master Specification V1")
     subparsers = parser.add_subparsers(dest="command", help="Operational mode")
@@ -193,12 +237,23 @@ def main():
     shadow_parser.add_argument("--poll", type=int, default=10, help="Polling interval in seconds")
     shadow_parser.add_argument("--cycles", type=int, default=3, help="Max test cycles")
 
+    subparsers.add_parser("execution-doctor", help="Show TESTNET execution configuration without secrets")
+    subparsers.add_parser("execution-smoke", help="Run the explicitly enabled one-time TESTNET open/close smoke test")
+    auto_parser = subparsers.add_parser("testnet-auto", help="Run automatic TESTNET-only execution on closed 5M candles")
+    auto_parser.add_argument("--cycles", type=int, default=None, help="Optional cycle limit")
+
     args = parser.parse_args()
 
     if args.command == "backtest":
         run_backtest_command(use_synthetic=args.synthetic, num_bars=args.bars)
     elif args.command == "shadow":
         run_shadow_command(poll_interval_sec=args.poll, max_iterations=args.cycles)
+    elif args.command == "execution-doctor":
+        print_execution_doctor()
+    elif args.command == "execution-smoke":
+        run_execution_smoke()
+    elif args.command == "testnet-auto":
+        run_testnet_auto(cycles=args.cycles)
     else:
         # Default run backtest with synthetic data for instant verification
         run_backtest_command(use_synthetic=True, num_bars=1200)

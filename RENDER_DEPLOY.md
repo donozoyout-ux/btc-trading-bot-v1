@@ -21,7 +21,10 @@ Set these in Render > Environment. Never commit their values to Git.
 BINANCE_API_KEY=<Futures Testnet key>
 BINANCE_API_SECRET=<Futures Testnet secret>
 BINANCE_TESTNET=true
-ACCOUNT_READ_ONLY=true
+ACCOUNT_READ_ONLY=false
+ORDER_SUBMISSION_ENABLED=true
+SHADOW_MODE=false
+RUN_EXECUTION_SMOKE_TEST=false
 ```
 
 Optional integrations:
@@ -37,7 +40,16 @@ OPENAI_API_KEY=<secret, only when AI_ENABLED=true>
 DASHBOARD_ADMIN_TOKEN=<strong random secret>
 ```
 
-The default `render.yaml` deliberately keeps signed account access read-only. Order execution is not enabled by this deployment file.
+The default application settings remain read-only. Render starts the automatic
+execution loop only when all explicit TESTNET flags above are configured. The
+cloud wrapper never invokes the one-time smoke test, so a service restart cannot
+repeat the controlled BUY/close validation. If any execution flag is missing or
+conflicting, the deployment remains dashboard-only and order submission is
+disabled.
+
+Run a single Render instance for testnet automation. Before enabling it, clear
+unrelated open BTCUSDT orders; a flat account with existing orders activates the
+kill switch and blocks new entries.
 
 ## Render plan note
 

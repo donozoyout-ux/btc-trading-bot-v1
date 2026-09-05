@@ -15,7 +15,7 @@
   <main class="shell">
     <header class="topbar glass">
       <div class="brand-wrap"><div class="logo-orbit"><span>₿</span></div><div><div class="eyebrow">BTC TRADING BOT</div><h1>Intelligence Console</h1></div></div>
-      <div class="top-actions"><div class="mode-pill"><span class="pulse-dot"></span> DEMO · READ ONLY</div><div id="connectionPill" class="connection-pill warning">Bağlanıyor…</div><button id="refreshBtn" class="icon-btn" title="Veriyi yenile">↻</button></div>
+      <div class="top-actions"><div id="modePill" class="mode-pill"><span class="pulse-dot"></span> DEMO · READ ONLY</div><div id="connectionPill" class="connection-pill warning">Bağlanıyor…</div><button id="refreshBtn" class="icon-btn" title="Veriyi yenile">↻</button></div>
     </header>
 
     <section class="hero-grid">
@@ -54,6 +54,21 @@
       </div>
     </section>
 
+    <section class="account-console glass">
+      <div class="account-head"><div><div class="eyebrow">TESTNET EXECUTION CONTROL</div><h2>Automatic Execution</h2></div><div class="account-badges"><span class="badge bad">REAL MONEY: DISABLED</span><span id="executionStatus" class="badge neutral">DISABLED</span></div></div>
+      <div class="account-balance-row">
+        <div class="account-stat"><span>POSITION</span><strong id="executionPosition">NONE</strong><small>BINANCE SOURCE OF TRUTH</small></div>
+        <div class="account-stat"><span>ENTRY</span><strong id="executionEntry">—</strong><small>USDT</small></div>
+        <div class="account-stat"><span>MARK</span><strong id="executionMark">—</strong><small>USDT</small></div>
+        <div class="account-stat"><span>SIZE</span><strong id="executionSize">—</strong><small>BTC</small></div>
+        <div class="account-stat"><span>LEVERAGE</span><strong id="executionLeverage">—</strong><small>TESTNET</small></div>
+        <div class="account-stat"><span>UPNL</span><strong id="executionPnl">—</strong><small>USDT</small></div>
+        <div class="account-stat"><span>SMOKE TEST</span><strong id="smokeTestStatus">NOT RUN</strong><small>OPEN → CLOSE</small></div>
+        <div class="account-stat"><span>LAST ORDER</span><strong id="lastOrderStatus">—</strong><small id="lastOrderDetail">NONE</small></div>
+        <div class="account-stat"><span>LAST TELEGRAM</span><strong id="lastTelegramStatus">—</strong><small>DEDUPLICATED</small></div>
+      </div>
+    </section>
+
     <section class="metrics-grid">
       <article class="metric glass"><span>Open Interest</span><strong id="openInterest">—</strong><small>Binance</small></article>
       <article class="metric glass"><span>Funding</span><strong id="funding">—</strong><small id="fundingTone">8h rate</small></article>
@@ -83,7 +98,7 @@
 
     <section class="dual-grid">
       <article class="glass panel"><div class="section-head"><span>Strategy Orchestrator</span><span id="strategyEligible" class="badge neutral">NOT ELIGIBLE</span></div><div class="intelligence-grid"><div><span>Setup</span><strong id="strategySetup">—</strong></div><div><span>Direction</span><strong id="strategyDirection">—</strong></div><div><span>Score</span><strong id="strategyScore">—</strong></div><div><span>Trigger</span><strong id="strategyTrigger">—</strong></div></div><div class="reason-box"><span>Blocking Reasons</span><p id="strategyBlockers">—</p></div></article>
-      <article class="glass panel"><div class="section-head"><span>System State</span><span class="badge testnet">SHADOW</span></div><div class="intelligence-grid"><div><span>Kill Switch</span><strong id="systemKill">—</strong></div><div><span>Daily Loss Guard</span><strong id="dailyGuard">—</strong></div><div><span>Loss Streak Guard</span><strong id="streakGuard">—</strong></div><div><span>Active Position</span><strong id="activePosition">—</strong></div><div><span>Final Decision</span><strong id="systemDecision">—</strong></div><div><span>Orders</span><strong>DISABLED</strong></div></div></article>
+      <article class="glass panel"><div class="section-head"><span>System State</span><span id="systemMode" class="badge testnet">SHADOW</span></div><div class="intelligence-grid"><div><span>Kill Switch</span><strong id="systemKill">—</strong></div><div><span>Daily Loss Guard</span><strong id="dailyGuard">—</strong></div><div><span>Loss Streak Guard</span><strong id="streakGuard">—</strong></div><div><span>Active Position</span><strong id="activePosition">—</strong></div><div><span>Final Decision</span><strong id="systemDecision">—</strong></div><div><span>Orders</span><strong id="systemOrders">DISABLED</strong></div></div></article>
     </section>
 
     <section class="dual-grid">
@@ -97,7 +112,7 @@
     </section>
 
     <section class="glass panel event-panel"><div class="section-head"><span>System Events</span><span id="lastUpdate" class="muted tiny">—</span></div><div id="eventLog" class="event-log"></div></section>
-    <footer><span>Read-only demo · Testnet USER_DATA only · Order submission disabled</span><span>Predict less. Filter better. Risk less. Measure everything.</span></footer>
+    <footer><span>Binance Futures TESTNET only · REAL MONEY DISABLED</span><span>Predict less. Filter better. Risk less. Measure everything.</span></footer>
   </main>
   <script src="/app.js" defer></script>
   <script src="/chart-intelligence.js" defer></script>

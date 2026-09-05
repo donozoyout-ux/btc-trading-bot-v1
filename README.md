@@ -134,6 +134,33 @@ Mutation-style Telegram/AI helpers are disabled entirely when that token is not
 configured. Shadow decisions are stored in
 `journal_logs/shadow_decisions.jsonl`; `SHADOW_MODE=true` never enables orders.
 
+### Automated Binance Futures TESTNET execution
+
+Execution is fail-closed and available only when all of these settings are
+explicit: `ENV=testnet`, `BINANCE_TESTNET=true`,
+`ORDER_SUBMISSION_ENABLED=true`, `ACCOUNT_READ_ONLY=false`, and
+`SHADOW_MODE=false`. The execution client contains only the Binance Futures
+Testnet base URL; production signed trading is not implemented.
+
+```powershell
+# Prints only configuration presence, never secret values
+python main.py execution-doctor
+
+# One-time TESTNET BUY → verify → reduce-only close → verify flat
+# Also requires RUN_EXECUTION_SMOKE_TEST=true
+python main.py execution-smoke
+
+# After a successful smoke test, set RUN_EXECUTION_SMOKE_TEST=false
+python main.py testnet-auto
+```
+
+`TEST_ORDER_NOTIONAL_USDT=10` is a target. Binance exchange filters remain
+authoritative; BTCUSDT may require a larger Testnet-only minimum notional. The
+normalized smoke notional is refused if it exceeds
+`TEST_ORDER_MAX_NOTIONAL_USDT`. Execution events are written without secrets to
+`journal_logs/execution_events.jsonl`, and restart state is recovered from
+Binance before new entries are considered.
+
 ---
 
 ## 6. Directory Layout
