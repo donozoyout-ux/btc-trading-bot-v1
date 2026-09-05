@@ -50,5 +50,3 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-      - key: DASHBOARD_ADMIN_TOKEN
-        sync: false
