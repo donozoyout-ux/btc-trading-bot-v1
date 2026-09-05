@@ -4,12 +4,30 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from config.constants import DecisionStatus, RiskDecision, SetupType
+from config.constants import DecisionStatus, DerivativesStatus, RiskDecision, SetupType, TriggerState
 from core.models import DecisionReport
 
 
 class StrategyOrchestrator:
     """Unify Setup A/B/C telemetry without replacing deterministic engines."""
+
+    @staticmethod
+    def _risk_rejected(report: DecisionReport) -> bool:
+        """Return true only when risk was actually reached and rejected.
+
+        Modern pipeline reports carry ``risk_assessment``. A narrow legacy
+        compatibility path remains for historical tests/reports that encoded an
+        ENTRY_READY risk rejection only through ``risk_status``.
+        """
+        if report.risk_assessment is not None:
+            return report.risk_assessment.decision != RiskDecision.ACCEPT_TRADE
+        return bool(
+            report.trigger_state == TriggerState.ENTRY_READY
+            and report.risk_status == RiskDecision.REJECT_TRADE
+            and report.derivatives != DerivativesStatus.REJECT
+            and not report.kill_switch_active
+            and report.setup != SetupType.NONE
+        )
 
     def summarize(
         self,
@@ -46,9 +64,7 @@ class StrategyOrchestrator:
             blockers.append("DERIVATIVES_REJECT")
         if report.kill_switch_active:
             blockers.append("KILL_SWITCH_ACTIVE")
-        # A default reject-like risk_status is used when risk was never evaluated.
-        # Only surface RISK_REJECT when an actual RiskAssessment exists.
-        if report.risk_assessment is not None and report.risk_assessment.decision != RiskDecision.ACCEPT_TRADE:
+        if self._risk_rejected(report):
             blockers.append("RISK_REJECT")
 
         score = 0
@@ -82,15 +98,13 @@ class StrategyOrchestrator:
             "entry_trigger_state": report.trigger_state.value,
             "trade_plan": report.trade_plan.model_dump(mode="json") if report.trade_plan else None,
             "risk_decision": report.risk_status.value,
-            "risk_evaluated": report.risk_assessment is not None,
+            "risk_evaluated": report.risk_assessment is not None or self._risk_rejected(report),
             "execution_authority": False,
         }
 
-    @staticmethod
-    def final_decision(report: DecisionReport, ai: Dict[str, Any] | None = None) -> str:
+    @classmethod
+    def final_decision(cls, report: DecisionReport, ai: Dict[str, Any] | None = None) -> str:
         """AI is advisory only; WATCH survives until risk is actually evaluated."""
-        if report.kill_switch_active:
-            return DecisionStatus.NO_TRADE.value
-        if report.risk_assessment is not None and report.risk_assessment.decision != RiskDecision.ACCEPT_TRADE:
+        if report.kill_switch_active or cls._risk_rejected(report):
             return DecisionStatus.NO_TRADE.value
         return report.final_decision.value
