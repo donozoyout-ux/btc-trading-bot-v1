@@ -132,6 +132,7 @@ class TelegramCommandService:
             f"Smoke test: {self._text(status.get('smoke_test'), 'NOT_RUN')}",
             f"Hata: {self._text(status.get('execution_error'), 'YOK')}",
             f"Market data: {self._text(market.get('market_data_source'), 'UNKNOWN')}",
+            f"Trading-safe market: {'YES' if market.get('market_data_trading_safe') else 'NO'}",
             f"Production public: {self._text(market.get('production_public_status'), 'UNKNOWN')}",
             "",
             "🧪 BINANCE FUTURES TESTNET",
@@ -283,8 +284,9 @@ class TelegramCommandService:
         ai = snapshot.get("ai_analyst") or {}
         derivatives = snapshot.get("derivatives") or {}
         sources = snapshot.get("sources") or {}
-        derivatives_status = derivatives.get("status") or market.get("derivatives_status") or "UNKNOWN"
+        derivatives_status = derivatives.get("display_status") or derivatives.get("status") or market.get("derivatives_status") or "UNKNOWN"
         binance_status = "FALLBACK" if market.get("fallback_active") or "FALLBACK" in str(market.get("market_data_source", "")) else "CONNECTED"
+        trading_safe = bool(market.get("market_data_trading_safe", (sources.get("binance") or {}).get("market_data_trading_safe", False)))
         cmc_status = (sources.get("coinmarketcap") or {}).get("status") or "UNAVAILABLE"
         if cmc_status == "HEALTHY":
             cmc_status = "CONNECTED"
@@ -292,6 +294,7 @@ class TelegramCommandService:
             "📡 VERİ KAYNAKLARI",
             "",
             f"Binance: {binance_status}",
+            f"Trading-safe market data: {'YES' if trading_safe else 'NO'}",
             f"CoinGlass: {self._text((sources.get('coinglass') or {}).get('status'), 'UNAVAILABLE')}",
             f"CoinMarketCap: {self._text(cmc_status, 'UNAVAILABLE')}",
             f"Derivatives: {self._text(derivatives_status, 'UNKNOWN')}",
@@ -312,14 +315,23 @@ class TelegramCommandService:
         def market_num(raw, digits=2):
             return "Unavailable" if raw is None else self._num(raw, digits)
         oi_value = value("open_interest")
-        oi_text = f"${market_num(oi_value, 0)}" if source("open_interest") == "COINGLASS" else f"{market_num(oi_value, 2)} BTC"
+        oi_source = source("open_interest")
+        if oi_source == "COINGLASS":
+            oi_text = f"${market_num(oi_value, 0)} [COINGLASS]"
+        elif oi_source == "BINANCE_TESTNET_FALLBACK":
+            oi_text = f"{market_num(oi_value, 2)} BTC [TESTNET FALLBACK · DISPLAY ONLY]"
+        else:
+            oi_text = f"{market_num(oi_value, 2)} BTC"
+        funding_text = market_num(value("funding_rate"), 6)
+        if source("funding_rate") == "BINANCE_TESTNET_FALLBACK":
+            funding_text += " [TESTNET FALLBACK · DISPLAY ONLY]"
         return "\n".join([
             "🌍 MARKET CONTEXT", "",
             f"BTC Dominance: {market_num(macro.get('btc_dominance'))}%",
             f"Total Market Cap: ${market_num(macro.get('total_market_cap_usd'), 0)}",
             f"24h Volume: ${market_num(macro.get('total_volume_24h_usd'), 0)}",
             f"Open Interest: {oi_text}",
-            f"Funding: {market_num(value('funding_rate'), 6)}",
+            f"Funding: {funding_text}",
             f"Long/Short: {market_num(value('long_short_ratio'), 3)}",
             f"Taker Buy/Sell: {market_num(value('taker_buy_ratio'), 3)}",
             f"CoinGlass Liquidations: ${market_num(value('liquidations_24h'), 0)}",
