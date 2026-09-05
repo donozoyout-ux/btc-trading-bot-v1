@@ -1,16 +1,16 @@
 """Render-specific wrapper for the BTC Intelligence Console.
 
-The core dashboard remains in :mod:`dashboard_server`.  This wrapper adds a
-lightweight bootstrap endpoint, an always-visible Render status panel, and a
-background snapshot warm-up so a cold Render instance does not look like an
-empty dashboard while market data is loading.
+The core dashboard remains in :mod:`dashboard_server`. This wrapper adds a
+lightweight bootstrap endpoint, an always-visible Render status panel, admin-
+token browser wiring for protected private endpoints, and a background snapshot
+warm-up so a cold Render instance does not look like an empty dashboard while
+market data is loading.
 
 No order/execution capability is added here.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import threading
 import time
@@ -45,6 +45,7 @@ def bootstrap_payload() -> dict:
         "binance_credentials_configured": bool(
             os.environ.get("BINANCE_API_KEY") and os.environ.get("BINANCE_API_SECRET")
         ),
+        "dashboard_admin_token_configured": bool(os.environ.get("DASHBOARD_ADMIN_TOKEN")),
         "telegram_enabled": os.environ.get("TELEGRAM_ENABLED", "false").lower() == "true",
         "telegram_configured": bool(
             os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID")
@@ -57,11 +58,7 @@ def bootstrap_payload() -> dict:
 
 
 def _render_index_html() -> bytes:
-    """Inject a server-rendered runtime panel into the existing dashboard.
-
-    The panel is visible even if JavaScript or external APIs fail.  The normal
-    dashboard markup is otherwise left unchanged.
-    """
+    """Inject Render runtime/auth helpers into the existing dashboard."""
 
     html = (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8")
     panel = """
@@ -83,6 +80,13 @@ def _render_index_html() -> bytes:
     </section>
     """
     html = html.replace('<main class="shell">', '<main class="shell">' + panel, 1)
+    # Auth bridge must execute before app.js so it can attach the admin token to
+    # protected /api/account requests without ever hard-coding the secret.
+    html = html.replace(
+        '<script src="/app.js" defer></script>',
+        '<script src="/render-auth.js" defer></script>\n  <script src="/app.js" defer></script>',
+        1,
+    )
     html = html.replace('</body>', '  <script src="/render-bridge.js" defer></script>\n</body>', 1)
     return html.encode("utf-8")
 
