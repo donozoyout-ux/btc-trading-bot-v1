@@ -27,3 +27,12 @@ def test_dashboard_does_not_ship_secrets_to_browser():
     browser_source = (ROOT / "dashboard" / "app.js").read_text(encoding="utf-8").lower()
     forbidden = ("binance_api_key", "binance_api_secret", "coinglass_api_key", "coinmarketcap_api_key", "authorization")
     assert not any(token in browser_source for token in forbidden)
+
+
+def test_dashboard_reload_restores_the_last_view_without_forcing_a_new_cycle():
+    browser_source = (ROOT / "dashboard" / "app.js").read_text(encoding="utf-8")
+
+    assert "sessionStorage" in browser_source
+    assert "restoreSession();refresh(false)" in browser_source
+    assert "window.addEventListener('pagehide',saveUiState)" in browser_source
+    assert "restoreSession();refresh(true)" not in browser_source
