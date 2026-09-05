@@ -294,6 +294,70 @@ class BinanceFuturesClient:
         raise RuntimeError("ORDER_SUBMISSION_DISABLED")
 
 
+class ResilientBinanceFuturesMarketClient:
+    """Credential-free market client with a TESTNET public-data fallback.
+
+    Production public data remains primary. Some cloud regions receive an HTTP
+    restriction from ``fapi.binance.com``; in that case the same public USD-M
+    endpoints on Futures Testnet keep the demo dashboard and TESTNET strategy
+    loop operational. This wrapper exposes no signed execution methods.
+    """
+
+    def __init__(self, primary=None, fallback=None):
+        self.api_key = None
+        self.api_secret = None
+        self.testnet = False
+        self.primary = primary or BinanceFuturesClient(
+            api_key=None, api_secret=None, testnet=False
+        )
+        self.fallback = fallback or BinanceFuturesClient(
+            api_key=None, api_secret=None, testnet=True
+        )
+        self.active_environment = "PRODUCTION_PUBLIC"
+        self.fallback_active = False
+
+    def begin_cycle(self) -> None:
+        self.active_environment = "PRODUCTION_PUBLIC"
+        self.fallback_active = False
+
+    def _call(self, method: str, *args, **kwargs):
+        try:
+            result = getattr(self.primary, method)(*args, **kwargs)
+            if not self.fallback_active:
+                self.active_environment = "PRODUCTION_PUBLIC"
+            return result
+        except (requests.RequestException, KeyError, TypeError, ValueError, IndexError) as exc:
+            logger.warning(
+                "Binance production public market data unavailable; using TESTNET public fallback: {}",
+                type(exc).__name__,
+            )
+            result = getattr(self.fallback, method)(*args, **kwargs)
+            self.active_environment = "TESTNET_PUBLIC_FALLBACK"
+            self.fallback_active = True
+            return result
+
+    def get_klines(self, *args, **kwargs):
+        return self._call("get_klines", *args, **kwargs)
+
+    def get_ticker_price(self, *args, **kwargs):
+        return self._call("get_ticker_price", *args, **kwargs)
+
+    def get_mark_price(self, *args, **kwargs):
+        return self._call("get_mark_price", *args, **kwargs)
+
+    def get_open_interest(self, *args, **kwargs):
+        return self._call("get_open_interest", *args, **kwargs)
+
+    def get_funding_rate(self, *args, **kwargs):
+        return self._call("get_funding_rate", *args, **kwargs)
+
+    def get_long_short_ratio(self, *args, **kwargs):
+        return self._call("get_long_short_ratio", *args, **kwargs)
+
+    def get_taker_volume_ratio(self, *args, **kwargs):
+        return self._call("get_taker_volume_ratio", *args, **kwargs)
+
+
 class BinanceFuturesAccountClient:
     """TESTNET-only, signed USER_DATA reader with no order methods."""
 

@@ -13,11 +13,28 @@ from data.binance_client import (
     BinanceAccountError,
     BinanceFuturesAccountClient,
     BinanceFuturesClient,
+    ResilientBinanceFuturesMarketClient,
 )
 from notifications.telegram_client import TelegramClient, TelegramError
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_public_market_client_falls_back_to_testnet_when_cloud_blocks_production():
+    class Primary:
+        def get_mark_price(self, symbol):
+            raise binance_module.requests.HTTPError("restricted")
+
+    class Fallback:
+        def get_mark_price(self, symbol):
+            return 79_500.0
+
+    client = ResilientBinanceFuturesMarketClient(Primary(), Fallback())
+    client.begin_cycle()
+    assert client.get_mark_price("BTCUSDT") == 79_500.0
+    assert client.fallback_active is True
+    assert client.active_environment == "TESTNET_PUBLIC_FALLBACK"
 
 
 def settings(**overrides):

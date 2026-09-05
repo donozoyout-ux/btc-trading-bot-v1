@@ -28,7 +28,12 @@ from config.settings import get_settings
 from core.security import SecurityManager
 from core.models import Candle
 from core.state import BotState
-from data.binance_client import BinanceAccountError, BinanceFuturesAccountClient, BinanceFuturesClient
+from data.binance_client import (
+    BinanceAccountError,
+    BinanceFuturesAccountClient,
+    BinanceFuturesClient,
+    ResilientBinanceFuturesMarketClient,
+)
 from data.coinglass_client import CoinGlassClient
 from data.cmc_client import CoinMarketCapClient
 from engines.regime_engine import MarketRegimeEngine
@@ -225,7 +230,10 @@ class DashboardRuntime:
             SecurityManager.register_secret(secret)
         # Real production PUBLIC market data, but no credentials are passed. This
         # dashboard runtime therefore cannot submit signed Binance orders.
-        self.binance = market_client or BinanceFuturesClient(api_key=None, api_secret=None, testnet=False)
+        self.binance = market_client or ResilientBinanceFuturesMarketClient(
+            primary=BinanceFuturesClient(api_key=None, api_secret=None, testnet=False),
+            fallback=BinanceFuturesClient(api_key=None, api_secret=None, testnet=True),
+        )
         self.account_client = account_client
         if self.account_client is None and self.settings.BINANCE_TESTNET:
             self.account_client = BinanceFuturesAccountClient(
@@ -351,6 +359,9 @@ class DashboardRuntime:
                 return _empty_account(status="DEGRADED")
 
     def _fetch_candles(self) -> Dict[str, List[Candle]]:
+        begin_cycle = getattr(self.binance, "begin_cycle", None)
+        if callable(begin_cycle):
+            begin_cycle()
         limits = {"4h": 320, "1h": 420, "15m": 500, "5m": 600}
         return {tf: self.binance.get_klines("BTCUSDT", tf, limits[tf]) for tf in limits}
 
@@ -552,6 +563,8 @@ class DashboardRuntime:
                 "sources": {
                     "binance": {
                         "status": "HEALTHY" if not any([mark_err, oi_err, funding_err, ls_err, taker_err]) else "DEGRADED",
+                        "environment": getattr(self.binance, "active_environment", "CUSTOM_PUBLIC"),
+                        "fallback_active": bool(getattr(self.binance, "fallback_active", False)),
                         "errors": [e for e in [mark_err, oi_err, funding_err, ls_err, taker_err] if e],
                     },
                     "coinglass": {

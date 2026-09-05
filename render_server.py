@@ -124,7 +124,7 @@ def _warm_snapshot() -> None:
 
 
 def _run_testnet_execution() -> None:
-    """Optionally smoke-test TESTNET execution, then run the automatic loop."""
+    """Run TESTNET automation; never repeat one-time smoke on cloud restart."""
 
     from data.binance_execution_client import ExecutionError
     from execution.testnet_runtime import TestnetExecutionRuntime
@@ -134,19 +134,6 @@ def _run_testnet_execution() -> None:
             settings=base.RUNTIME.settings,
             dashboard_runtime=base.RUNTIME,
         )
-
-        if runtime.settings.RUN_EXECUTION_SMOKE_TEST:
-            logger.warning("TESTNET SMOKE TEST: ENABLED — controlled open/close will run once on this startup")
-            result = runtime.run_smoke_test()
-            logger.info(
-                "TESTNET SMOKE TEST: {} | BUY: {} | CLOSE: {} | FINAL: {}",
-                result.get("status"),
-                result.get("test_buy"),
-                result.get("test_close"),
-                result.get("final_position"),
-            )
-            if result.get("status") != "PASS" or result.get("final_position") != "FLAT":
-                raise ExecutionError("SMOKE_TEST_NOT_SAFE_TO_CONTINUE")
 
         runtime.run_loop()
     except ExecutionError as exc:
@@ -186,7 +173,7 @@ def main() -> None:
     )
     logger.info(
         "EXECUTION SMOKE TEST: {}",
-        "ENABLED" if base.RUNTIME.settings.RUN_EXECUTION_SMOKE_TEST else "DISABLED",
+        "IGNORED ON CLOUD" if base.RUNTIME.settings.RUN_EXECUTION_SMOKE_TEST else "DISABLED",
     )
 
     server = ThreadingHTTPServer((host, port), RenderDashboardHandler)
