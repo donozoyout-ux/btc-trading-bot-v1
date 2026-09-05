@@ -6,9 +6,11 @@ snapshot warm-up instead of appearing empty during cold starts.
 """
 
 import os
+import threading
 
 from config.settings import get_settings
-from render_server import main
+import render_server
+from notifications.telegram_commands import TelegramCommandService
 
 
 def _safe_startup_status() -> None:
@@ -29,6 +31,22 @@ def _safe_startup_status() -> None:
     )
 
 
+def _start_telegram_commands() -> None:
+    """Start one authenticated, read-only Telegram command poller."""
+    settings = get_settings()
+    service = TelegramCommandService(
+        settings,
+        dashboard_provider=lambda: getattr(render_server.base, "RUNTIME", None),
+        execution_status_provider=render_server.execution_status,
+    )
+    threading.Thread(
+        target=service.serve_forever,
+        name="telegram-command-listener",
+        daemon=True,
+    ).start()
+
+
 if __name__ == "__main__":
     _safe_startup_status()
-    main()
+    _start_telegram_commands()
+    render_server.main()
