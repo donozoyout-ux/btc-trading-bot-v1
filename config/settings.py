@@ -56,7 +56,8 @@ class BotSettings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-5"
 
-    # Dashboard/private helper protection. Blank means local demo endpoints are unprotected.
+    # Kept only for backwards-compatible env parsing. Interactive dashboard auth
+    # is intentionally disabled for the unattended 24/7 TESTNET runtime.
     DASHBOARD_ADMIN_TOKEN: Optional[str] = None
 
     # Defaults remain observation-only; explicit TESTNET execution flags may unlock orders.
@@ -117,6 +118,10 @@ class BotSettings(BaseSettings):
             # Conflicting flags fail closed instead of being silently relaxed.
             self.ORDER_SUBMISSION_ENABLED = False
             self.RUN_EXECUTION_SMOKE_TEST = False
+
+        # Unattended 24/7 dashboard: no interactive admin-token wall.
+        # This also keeps helper POST endpoints disabled because no admin token exists.
+        self.DASHBOARD_ADMIN_TOKEN = None
         return self
 
     @property
