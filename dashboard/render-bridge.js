@@ -13,8 +13,15 @@
     el.className = `badge ${tone}`;
   };
   const setMessage = text => setText('renderRuntimeMessage', text);
+  let marketTradingSafe = null;
 
   function statusFromConnection() {
+    if (marketTradingSafe === false) {
+      setText('renderMarketState', 'TESTNET FALLBACK');
+      badge('ENTRY BLOCKED', 'warning');
+      setMessage('Market data TESTNET fallback üzerinden geliyor. Dashboard çalışır; mevcut pozisyon yönetimi devam eder fakat yeni girişler MARKET_DATA_NOT_TRADING_SAFE nedeniyle bloklanır.');
+      return;
+    }
     const pill = byId('connectionPill');
     if (!pill) return;
     const text = String(pill.textContent || '').toUpperCase();
@@ -42,6 +49,7 @@
       const response = await fetch('/api/bootstrap', { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error('BOOTSTRAP_FAILED');
+      marketTradingSafe = data.market_data_trading_safe !== false;
       setText('renderBackendState', 'ONLINE');
       setText('renderUiState', data.ui || 'READY');
       setText(
@@ -50,6 +58,12 @@
           ? 'TESTNET AUTO'
           : data.binance_credentials_configured ? 'READ ONLY' : 'NOT CONFIGURED'
       );
+      if (!marketTradingSafe) {
+        setText('renderMarketState', 'TESTNET FALLBACK');
+        badge('ENTRY BLOCKED', 'warning');
+        setMessage('Market data TESTNET fallback. Yeni girişler bloklu; mevcut TESTNET pozisyon yönetimi ve dashboard aktif.');
+        return;
+      }
       badge('ONLINE', 'good');
       const account = data.orders_enabled
         ? 'Testnet execution bayrakları doğrulandı; otomatik döngü aktif.'
