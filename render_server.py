@@ -23,9 +23,11 @@ from loguru import logger
 
 import dashboard_server as base
 from data.render_market_client import (
+    BinanceSpotPublicMarketClient,
     RenderResilientBinanceFuturesMarketClient,
     StrictPublicBinanceFuturesClient,
 )
+from engines.mistake_learning_engine import MistakeLearningEngine
 
 
 ROOT = Path(__file__).resolve().parent
@@ -42,7 +44,7 @@ _EXECUTION_STATUS = {
 
 
 class RenderDashboardRuntime(base.DashboardRuntime):
-    """Dashboard runtime with a Render-aware public Binance market client."""
+    """Dashboard runtime with Render-safe real market-data fallback."""
 
     def __init__(self) -> None:
         market_client = RenderResilientBinanceFuturesMarketClient(
@@ -51,6 +53,7 @@ class RenderDashboardRuntime(base.DashboardRuntime):
                 api_secret=None,
                 testnet=False,
             ),
+            spot_proxy=BinanceSpotPublicMarketClient(),
             fallback=StrictPublicBinanceFuturesClient(
                 api_key=None,
                 api_secret=None,
@@ -58,30 +61,36 @@ class RenderDashboardRuntime(base.DashboardRuntime):
             ),
         )
         super().__init__(market_client=market_client)
+        self.learning_engine = MistakeLearningEngine(self.settings.JOURNAL_DIR)
 
     def snapshot(self, force: bool = False) -> dict:
-        """Annotate Render snapshots with explicit trading-authority provenance.
+        """Annotate Render snapshots with source authority and learning state.
 
-        TESTNET public market data may keep the dashboard populated, but it must
-        never authorize a new TESTNET entry. Fallback derivatives values are
-        display-only and are labelled explicitly instead of masquerading as
-        production Binance Futures data.
+        Production Futures data remains preferred. If Render receives HTTP 451,
+        real Binance Spot candles/ticker can drive TESTNET forward-test price
+        decisions as an explicit SPOT proxy. TESTNET public data remains display
+        only and never grants new-entry authority.
         """
         snapshot = super().snapshot(force=force)
         market = self.binance.status()
         source = str(market.get("market_data_source") or "UNKNOWN")
         trading_safe = bool(market.get("market_data_trading_safe", False))
+        market_basis = str(market.get("market_basis") or "UNKNOWN")
 
         meta = snapshot.setdefault("meta", {})
         meta["market_data_source"] = source
         meta["market_data_trading_safe"] = trading_safe
+        meta["market_basis"] = market_basis
+        meta["forward_test_price_proxy"] = source == "BINANCE_SPOT_PUBLIC_PROXY"
 
         binance_source = snapshot.setdefault("sources", {}).setdefault("binance", {})
         binance_source["environment"] = source
         binance_source["fallback_active"] = bool(market.get("fallback_active", False))
         binance_source["market_data_trading_safe"] = trading_safe
+        binance_source["market_basis"] = market_basis
+        binance_source["spot_proxy_status"] = market.get("spot_proxy_status")
         if not trading_safe:
-            # Defense in depth: the executor also has an explicit authority gate.
+            # Defense in depth: the executor also rejects non-healthy source state.
             binance_source["status"] = "DEGRADED"
 
         strategy = snapshot.setdefault("strategy", {})
@@ -95,8 +104,16 @@ class RenderDashboardRuntime(base.DashboardRuntime):
                 snapshot["final_decision"] = "NO_TRADE"
 
         derivatives = snapshot.setdefault("derivatives", {})
-        derivatives["trading_authority"] = "PRODUCTION" if trading_safe else "NONE"
-        if not trading_safe:
+        derivatives["trading_authority"] = (
+            "PRODUCTION_FUTURES"
+            if source == "PRODUCTION_FUTURES_PUBLIC"
+            else "SUPPLEMENTAL_OR_NONE"
+        )
+
+        # When production Futures REST is restricted, the market client may keep
+        # TESTNET derivative values solely for operator visibility. The pipeline
+        # itself received None for these values, so they cannot veto/confirm.
+        if source != "PRODUCTION_FUTURES_PUBLIC":
             telemetry = self.binance.fallback_derivatives_telemetry()
             mapping = {
                 "get_open_interest": "open_interest",
@@ -112,18 +129,24 @@ class RenderDashboardRuntime(base.DashboardRuntime):
                 derivatives[field_name] = dict(field)
                 if field.get("value") is not None:
                     has_display_value = True
-            derivatives["display_status"] = "DEGRADED" if has_display_value else "UNAVAILABLE"
+            if has_display_value:
+                derivatives["display_status"] = "DEGRADED_DISPLAY_ONLY"
 
             market_payload = snapshot.setdefault("market", {})
             oi = telemetry.get("get_open_interest") or {}
             funding = telemetry.get("get_funding_rate") or {}
             ls = telemetry.get("get_long_short_ratio") or {}
             taker = telemetry.get("get_taker_volume_ratio") or {}
-            market_payload["open_interest_btc"] = oi.get("value")
-            market_payload["funding_rate"] = funding.get("value")
-            market_payload["long_short_ratio"] = ls.get("value")
-            market_payload["taker_buy_sell_ratio"] = taker.get("value")
+            if oi:
+                market_payload["open_interest_btc"] = oi.get("value")
+            if funding:
+                market_payload["funding_rate"] = funding.get("value")
+            if ls:
+                market_payload["long_short_ratio"] = ls.get("value")
+            if taker:
+                market_payload["taker_buy_sell_ratio"] = taker.get("value")
 
+        snapshot["learning"] = self.learning_engine.analyze()
         return snapshot
 
 
@@ -179,12 +202,15 @@ def bootstrap_payload() -> dict:
         ),
         "market_data_source": market.get("market_data_source", "UNKNOWN"),
         "market_data_trading_safe": bool(market.get("market_data_trading_safe", False)),
+        "market_basis": market.get("market_basis", "UNKNOWN"),
+        "spot_proxy_status": market.get("spot_proxy_status", "UNKNOWN"),
         "production_public_status": market.get("production_public_status", "UNKNOWN"),
         "production_public_retry_after_seconds": market.get(
             "production_public_retry_after_seconds", 0
         ),
         "market_fallback_active": bool(market.get("fallback_active", False)),
         "derivatives_status": market.get("derivatives_status", "UNKNOWN"),
+        "learning_mode": "ADVISORY_ONLY",
         "dashboard_admin_token_configured": False,
         "telegram_enabled": os.environ.get("TELEGRAM_ENABLED", "false").lower() == "true",
         "telegram_configured": bool(

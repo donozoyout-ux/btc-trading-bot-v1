@@ -124,15 +124,26 @@ def test_testnet_fallback_oi_is_display_only_and_not_authoritative():
     assert client.status()["market_data_trading_safe"] is False
 
 
-def test_production_public_derivative_remains_authoritative():
+def test_production_futures_derivative_remains_authoritative():
     client = RenderResilientBinanceFuturesMarketClient(
         primary=PrimaryOiHealthy(),
         fallback=FallbackOi(),
         restriction_cooldown_seconds=30,
     )
     assert client.get_open_interest("BTCUSDT") == 12345.0
-    assert client.status()["market_data_source"] == "PRODUCTION_PUBLIC"
+    assert client.status()["market_data_source"] == "PRODUCTION_FUTURES_PUBLIC"
     assert client.status()["market_data_trading_safe"] is True
+    assert client.status()["market_basis"] == "FUTURES_NATIVE"
+
+
+class FakeLearning:
+    def analyze(self):
+        return {
+            "status": "WARMUP",
+            "mode": "ADVISORY_ONLY",
+            "samples": 0,
+            "auto_parameter_changes": False,
+        }
 
 
 class FakeFallbackBinance:
@@ -140,6 +151,7 @@ class FakeFallbackBinance:
         return {
             "market_data_source": "TESTNET_PUBLIC_FALLBACK",
             "market_data_trading_safe": False,
+            "market_basis": "TESTNET_FUTURES",
             "fallback_active": True,
         }
 
@@ -163,13 +175,35 @@ class FakeFallbackBinance:
 class FakeProductionBinance:
     def status(self):
         return {
-            "market_data_source": "PRODUCTION_PUBLIC",
+            "market_data_source": "PRODUCTION_FUTURES_PUBLIC",
             "market_data_trading_safe": True,
+            "market_basis": "FUTURES_NATIVE",
             "fallback_active": False,
         }
 
     def fallback_derivatives_telemetry(self):
         return {}
+
+
+class FakeSpotProxyBinance:
+    def status(self):
+        return {
+            "market_data_source": "BINANCE_SPOT_PUBLIC_PROXY",
+            "market_data_trading_safe": True,
+            "market_basis": "SPOT_PROXY",
+            "fallback_active": True,
+            "spot_proxy_status": "AVAILABLE",
+        }
+
+    def fallback_derivatives_telemetry(self):
+        return {
+            "get_open_interest": {
+                "value": 222.0,
+                "source": "BINANCE_TESTNET_FALLBACK",
+                "observed_at": 10,
+                "trading_authority": False,
+            }
+        }
 
 
 def _base_snapshot():
@@ -183,11 +217,17 @@ def _base_snapshot():
     }
 
 
+def _runtime(binance):
+    runtime = object.__new__(RenderDashboardRuntime)
+    runtime.binance = binance
+    runtime.learning_engine = FakeLearning()
+    return runtime
+
+
 def test_render_snapshot_blocks_new_entry_when_market_is_testnet_fallback(monkeypatch):
     payload = _base_snapshot()
     monkeypatch.setattr(base.DashboardRuntime, "snapshot", lambda self, force=False: copy.deepcopy(payload))
-    runtime = object.__new__(RenderDashboardRuntime)
-    runtime.binance = FakeFallbackBinance()
+    runtime = _runtime(FakeFallbackBinance())
 
     snapshot = RenderDashboardRuntime.snapshot(runtime, force=True)
 
@@ -197,18 +237,36 @@ def test_render_snapshot_blocks_new_entry_when_market_is_testnet_fallback(monkey
     assert "MARKET_DATA_NOT_TRADING_SAFE" in snapshot["strategy"]["blocking_reasons"]
     assert snapshot["sources"]["binance"]["status"] == "DEGRADED"
     assert snapshot["derivatives"]["open_interest"]["source"] == "BINANCE_TESTNET_FALLBACK"
-    assert snapshot["derivatives"]["trading_authority"] == "NONE"
+    assert snapshot["derivatives"]["trading_authority"] == "SUPPLEMENTAL_OR_NONE"
+    assert snapshot["learning"]["mode"] == "ADVISORY_ONLY"
 
 
-def test_render_snapshot_keeps_entry_authority_on_production_public(monkeypatch):
+def test_render_snapshot_keeps_entry_authority_on_native_production_futures(monkeypatch):
     payload = _base_snapshot()
     monkeypatch.setattr(base.DashboardRuntime, "snapshot", lambda self, force=False: copy.deepcopy(payload))
-    runtime = object.__new__(RenderDashboardRuntime)
-    runtime.binance = FakeProductionBinance()
+    runtime = _runtime(FakeProductionBinance())
 
     snapshot = RenderDashboardRuntime.snapshot(runtime, force=True)
 
     assert snapshot["meta"]["market_data_trading_safe"] is True
+    assert snapshot["meta"]["market_basis"] == "FUTURES_NATIVE"
     assert snapshot["final_decision"] == "LONG_ENTRY"
     assert snapshot["strategy"]["eligible"] is True
+    assert snapshot["derivatives"]["trading_authority"] == "PRODUCTION_FUTURES"
     assert "MARKET_DATA_NOT_TRADING_SAFE" not in snapshot["strategy"]["blocking_reasons"]
+
+
+def test_render_snapshot_allows_testnet_forward_test_on_real_spot_proxy(monkeypatch):
+    payload = _base_snapshot()
+    monkeypatch.setattr(base.DashboardRuntime, "snapshot", lambda self, force=False: copy.deepcopy(payload))
+    runtime = _runtime(FakeSpotProxyBinance())
+
+    snapshot = RenderDashboardRuntime.snapshot(runtime, force=True)
+
+    assert snapshot["meta"]["market_data_trading_safe"] is True
+    assert snapshot["meta"]["market_basis"] == "SPOT_PROXY"
+    assert snapshot["meta"]["forward_test_price_proxy"] is True
+    assert snapshot["final_decision"] == "LONG_ENTRY"
+    assert snapshot["strategy"]["eligible"] is True
+    assert snapshot["derivatives"]["trading_authority"] == "SUPPLEMENTAL_OR_NONE"
+    assert snapshot["derivatives"]["open_interest"]["source"] == "BINANCE_TESTNET_FALLBACK"

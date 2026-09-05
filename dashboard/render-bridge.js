@@ -14,27 +14,46 @@
   };
   const setMessage = text => setText('renderRuntimeMessage', text);
   let marketTradingSafe = null;
+  let marketSource = 'UNKNOWN';
+  let marketBasis = 'UNKNOWN';
 
-  function statusFromConnection() {
+  function applyMarketAuthority() {
     if (marketTradingSafe === false) {
       setText('renderMarketState', 'TESTNET FALLBACK');
       badge('ENTRY BLOCKED', 'warning');
-      setMessage('Market data TESTNET fallback üzerinden geliyor. Dashboard çalışır; mevcut pozisyon yönetimi devam eder fakat yeni girişler MARKET_DATA_NOT_TRADING_SAFE nedeniyle bloklanır.');
-      return;
+      setMessage('Market data TESTNET fallback üzerinden geliyor. Dashboard ve mevcut pozisyon yönetimi çalışır; yeni girişler MARKET_DATA_NOT_TRADING_SAFE nedeniyle bloklanır.');
+      return true;
     }
+    if (marketSource === 'BINANCE_SPOT_PUBLIC_PROXY') {
+      setText('renderMarketState', 'REAL SPOT PROXY');
+      badge('FORWARD TEST', 'good');
+      setMessage('Binance Futures public REST Render üzerinde kısıtlı. Strateji fiyat/mum verisi gerçek Binance Spot BTCUSDT proxy üzerinden geliyor; execution hâlâ yalnızca Futures TESTNET.');
+      return true;
+    }
+    if (marketSource === 'PRODUCTION_FUTURES_PUBLIC') {
+      setText('renderMarketState', 'FUTURES LIVE');
+      badge('ONLINE', 'good');
+      setMessage('Binance production Futures public market feed aktif. TESTNET otomatik execution canlı strateji verisini kullanabilir.');
+      return true;
+    }
+    return false;
+  }
+
+  function statusFromConnection() {
+    if (applyMarketAuthority()) return;
     const pill = byId('connectionPill');
     if (!pill) return;
     const text = String(pill.textContent || '').toUpperCase();
     if (text.includes('LIVE DATA')) {
       setText('renderMarketState', 'LIVE');
       badge('ONLINE', 'good');
-      setMessage('Render backend ve Binance public market feed aktif. Dashboard canlı veriyi gösteriyor.');
+      setMessage('Render backend ve public market feed aktif. Dashboard canlı veriyi gösteriyor.');
       return;
     }
     if (text.includes('BAĞLANTI HATASI') || text.includes('ERROR')) {
       setText('renderMarketState', 'ERROR');
       badge('DEGRADED', 'bad');
-      setMessage('Web arayüzü çalışıyor fakat canlı snapshot alınamadı. Render loglarında DASHBOARD_UNAVAILABLE / Binance bağlantı hatasını kontrol et.');
+      setMessage('Web arayüzü çalışıyor fakat canlı snapshot alınamadı. Render loglarında market bağlantı hatasını kontrol et.');
       return;
     }
     if (text.includes('DEGRADED')) {
@@ -50,6 +69,8 @@
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error('BOOTSTRAP_FAILED');
       marketTradingSafe = data.market_data_trading_safe !== false;
+      marketSource = String(data.market_data_source || 'UNKNOWN');
+      marketBasis = String(data.market_basis || 'UNKNOWN');
       setText('renderBackendState', 'ONLINE');
       setText('renderUiState', data.ui || 'READY');
       setText(
@@ -58,19 +79,14 @@
           ? 'TESTNET AUTO'
           : data.binance_credentials_configured ? 'READ ONLY' : 'NOT CONFIGURED'
       );
-      if (!marketTradingSafe) {
-        setText('renderMarketState', 'TESTNET FALLBACK');
-        badge('ENTRY BLOCKED', 'warning');
-        setMessage('Market data TESTNET fallback. Yeni girişler bloklu; mevcut TESTNET pozisyon yönetimi ve dashboard aktif.');
-        return;
-      }
+      if (applyMarketAuthority()) return;
       badge('ONLINE', 'good');
       const account = data.orders_enabled
         ? 'Testnet execution bayrakları doğrulandı; otomatik döngü aktif.'
         : data.binance_credentials_configured
         ? 'Testnet credentials bulundu; yürütme bayrakları kapalı olduğu için signed erişim salt okunur.'
         : 'Testnet credentials yok; public piyasa ekranı çalışır, hesap alanları UNAVAILABLE kalır.';
-      setMessage(`Render backend online. ${account}`);
+      setMessage(`Render backend online. ${account} Market basis: ${marketBasis}.`);
     } catch (_) {
       setText('renderBackendState', 'OFFLINE');
       setText('renderMarketState', 'UNKNOWN');
