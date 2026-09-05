@@ -88,6 +88,9 @@ class BotSettings(BaseSettings):
     DERIVATIVES_OI_MATERIAL_CHANGE_PCT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["derivatives_oi_material_change_pct"])
     DERIVATIVES_BEARISH_TAKER_RATIO: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["derivatives_bearish_taker_ratio"])
     DERIVATIVES_BULLISH_TAKER_RATIO: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["derivatives_bullish_taker_ratio"])
+    # New short paths remain experimental until forward-test evidence exists.
+    ENABLE_SETUP_B_SHORT: bool = False
+    ENABLE_SETUP_C_SHORT: bool = False
 
     # Circuit Breakers & Kill Switch Hypotheses
     MAX_DAILY_LOSS_PCT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["max_daily_loss_pct"])

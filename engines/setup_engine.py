@@ -32,6 +32,8 @@ class SetupEngine:
         counter_trend_adx_veto: float = 35.0,
         bollinger_period: int = 20,
         bollinger_std_dev: float = 2.0,
+        enable_setup_b_short: bool = False,
+        enable_setup_c_short: bool = False,
     ):
         self.vol_engine = volume_engine or VolumeEngine()
         self.location_proximity_pct = location_proximity_pct
@@ -40,6 +42,8 @@ class SetupEngine:
         self.counter_trend_adx_veto = counter_trend_adx_veto
         self.bollinger_period = bollinger_period
         self.bollinger_std_dev = bollinger_std_dev
+        self.enable_setup_b_short = enable_setup_b_short
+        self.enable_setup_c_short = enable_setup_c_short
 
     @staticmethod
     def calculate_bollinger_bands(closes: np.ndarray, period: int = 20, std_dev: float = 2.0) -> Tuple[float, float, float]:
@@ -158,7 +162,9 @@ class SetupEngine:
             # Look for a zone that was recently broken to the upside and is currently retested
             for z in zones:
                 # Breakout condition: a candle in last 10 closed above z.price_max
-                broke_above = any(c.close > z.price_max for c in last_10[:-3])
+                # Preserve the established Setup B LONG window. Closed bars are
+                # enforced above, so this restores parity without future bars.
+                broke_above = any(c.close > z.price_max for c in last_10[:-2])
                 # Retest condition: price dipped back to z and held (low <= z.price_max * 1.002 and close >= z.price_min)
                 retested = any(c.low <= z.price_max * 1.002 and c.close >= z.price_min for c in last_10[-3:])
 
@@ -189,6 +195,13 @@ class SetupEngine:
                     for c in last_10[-3:]
                 )
                 if broke_below and retested and current_price < z.price_min:
+                    if not self.enable_setup_b_short:
+                        return SetupSignal(
+                            setup_type=SetupType.NONE,
+                            direction=TradeDirection.WAIT,
+                            detected=False,
+                            reason="EXPERIMENTAL_SETUP_DISABLED: BREAKOUT_RETEST SHORT",
+                        )
                     return SetupSignal(
                         setup_type=SetupType.BREAKOUT_RETEST,
                         direction=TradeDirection.SHORT,
@@ -270,6 +283,14 @@ class SetupEngine:
             is_bb_stretch = current_price >= upper_bb * 0.998
             is_rsi_overbought = rsi_5m > self.counter_trend_rsi_overbought
             if is_bb_stretch and is_rsi_overbought:
+                if not self.enable_setup_c_short:
+                    return SetupSignal(
+                        setup_type=SetupType.NONE,
+                        direction=TradeDirection.WAIT,
+                        detected=False,
+                        timeframe="5m",
+                        reason="EXPERIMENTAL_SETUP_DISABLED: COUNTER_TREND_REACTION SHORT",
+                    )
                 return SetupSignal(
                     setup_type=SetupType.COUNTER_TREND_REACTION,
                     direction=TradeDirection.SHORT,

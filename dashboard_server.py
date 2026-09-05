@@ -285,7 +285,10 @@ class DashboardRuntime:
         self._account_cached_at = 0.0
         # Two timestamped real Binance observations are required before an OI
         # change can exist. Process restarts intentionally reset this history.
-        self._previous_binance_oi: Optional[tuple[int, float]] = None
+        self._binance_oi_observations: List[tuple[int, int, float]] = []
+        self._last_oi_change: Dict[str, Any] = {
+            "value": None, "source": "UNAVAILABLE", "observed_at": None,
+        }
         self._account_snapshot: Optional[Dict[str, Any]] = None
         self._last_ai_decision_id: Optional[str] = None
         self._last_ai_result: Dict[str, Any] = self.ai_analyst.unavailable()
@@ -423,6 +426,31 @@ class DashboardRuntime:
             logger.warning("Telegram notification failed: {}", exc.category)
             return {"sent": False, "deduplicated": False, "error_category": exc.category}
 
+    def _observe_binance_oi(self, candle_timestamp: int, value: Optional[float], observed_at: int) -> Dict[str, Any]:
+        """Return OI change only for two consecutive, closed 5M candle keys.
+
+        Re-fetching during the same candle returns the original observation and
+        delta unchanged. Missing data and process warm-up remain unavailable.
+        """
+        if self._binance_oi_observations and self._binance_oi_observations[-1][0] == candle_timestamp:
+            return dict(self._last_oi_change)
+        if value is None:
+            return {"value": None, "source": "UNAVAILABLE", "observed_at": None}
+
+        previous = self._binance_oi_observations[-1] if self._binance_oi_observations else None
+        self._binance_oi_observations.append((candle_timestamp, observed_at, float(value)))
+        self._binance_oi_observations = self._binance_oi_observations[-2:]
+        if previous is None or candle_timestamp - previous[0] != 5 * 60 * 1000 or previous[2] <= 0:
+            result = {"value": None, "source": "UNAVAILABLE", "observed_at": None}
+        else:
+            result = {
+                "value": (float(value) - previous[2]) / previous[2],
+                "source": "BINANCE",
+                "observed_at": observed_at,
+            }
+        self._last_oi_change = dict(result)
+        return result
+
     def snapshot(self, force: bool = False) -> Dict[str, Any]:
         with self._lock:
             now = time.time()
@@ -445,18 +473,12 @@ class DashboardRuntime:
             news = self.news_engine.evaluate(force=force)
 
             observed_at = int(time.time() * 1000)
-            oi_change_pct = None
-            oi_change_observed_at = None
-            if open_interest is not None:
-                previous_oi = self._previous_binance_oi
-                if previous_oi and previous_oi[0] < observed_at and previous_oi[1] > 0:
-                    oi_change_pct = (open_interest - previous_oi[1]) / previous_oi[1]
-                    oi_change_observed_at = observed_at
-                self._previous_binance_oi = (observed_at, open_interest)
+            closed_5m_timestamp = candles["5m"][-1].timestamp
+            oi_change = self._observe_binance_oi(closed_5m_timestamp, open_interest, observed_at)
             cg_oi_value = cg_oi.get("aggregate_oi_usd") if cg_oi.get("is_available") else None
             derivatives_input = {
                 "open_interest": {"value": cg_oi_value if cg_oi_value is not None else open_interest, "source": "COINGLASS" if cg_oi_value is not None else "BINANCE" if open_interest is not None else "UNAVAILABLE", "observed_at": cg_oi.get("observed_at") if cg_oi_value is not None else observed_at if open_interest is not None else None},
-                "oi_change_pct": {"value": oi_change_pct, "source": "BINANCE" if oi_change_pct is not None else "UNAVAILABLE", "observed_at": oi_change_observed_at},
+                "oi_change_pct": oi_change,
                 "funding_rate": {"value": funding, "source": "BINANCE" if funding is not None else "UNAVAILABLE", "observed_at": observed_at if funding is not None else None},
                 "long_short_ratio": {"value": long_short, "source": "BINANCE" if long_short is not None else "UNAVAILABLE", "observed_at": observed_at if long_short is not None else None},
                 "taker_buy_ratio": {"value": taker_ratio, "source": "BINANCE" if taker_ratio is not None else "UNAVAILABLE", "observed_at": observed_at if taker_ratio is not None else None},
@@ -555,6 +577,10 @@ class DashboardRuntime:
                     "shadow_mode": self.settings.SHADOW_MODE,
                     "signed_endpoints_enabled": self.account_configured,
                     "ready_for_render": readiness,
+                },
+                "experimental_setups": {
+                    "setup_b_short_enabled": self.settings.ENABLE_SETUP_B_SHORT,
+                    "setup_c_short_enabled": self.settings.ENABLE_SETUP_C_SHORT,
                 },
                 "market": {
                     "price": current_price,

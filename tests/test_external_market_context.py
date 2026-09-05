@@ -112,6 +112,9 @@ def test_runtime_contract_preserves_provenance_and_macro_is_advisory_only():
     assert "macro_context" not in executor
     assert "bool(self.settings.COINGLASS_API_KEY)" not in runner
     assert 'source_health.get("coinglass") == "CONNECTED"' in runner
+    assert '"experimental_setups"' in dashboard
+    assert '"setup_b_short_enabled"' in dashboard
+    assert '"setup_c_short_enabled"' in dashboard
 
 
 def test_dashboard_and_logs_never_embed_external_api_keys():

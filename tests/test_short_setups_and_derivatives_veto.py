@@ -7,6 +7,7 @@ from engines.setup_engine import SetupEngine
 from engines.strategy_orchestrator import StrategyOrchestrator
 from core.models import DecisionReport
 from config.constants import DecisionStatus, RiskDecision, StructureType, TriggerState
+from config.settings import BotSettings
 
 
 def candle(i, close, high=None, low=None, closed=True):
@@ -22,6 +23,13 @@ def regime(value, adx=20):
 ZONE = ConfluenceZone(level_type="RESISTANCE", price_min=99, price_max=101, center=100, strength=3)
 
 
+def test_experimental_short_settings_default_disabled():
+    settings = BotSettings(_env_file=None)
+    assert settings.ENABLE_SETUP_B_SHORT is False
+    assert settings.ENABLE_SETUP_C_SHORT is False
+    assert settings.COUNTER_TREND_RSI_OVERSOLD == 32.0
+
+
 def test_setup_b_long_behavior_remains_available():
     rows = [candle(i, 98) for i in range(15)]
     rows[-9] = candle(6, 102)
@@ -32,12 +40,22 @@ def test_setup_b_long_behavior_remains_available():
     assert result.setup_type == SetupType.BREAKOUT_RETEST
 
 
+def test_setup_b_long_preserves_prior_last_10_window_parity():
+    rows = [candle(i, 98) for i in range(15)]
+    rows[-3] = candle(12, 102, high=103, low=100.5)
+    rows[-2] = candle(13, 101, high=102, low=100)
+    rows[-1] = candle(14, 102)
+    result = SetupEngine().detect_setup_b_breakout_retest(regime(MarketRegime.BULL), rows, [ZONE])
+    assert result is not None
+    assert result.direction == TradeDirection.LONG
+
+
 def test_setup_b_short_requires_prior_breakdown_then_closed_retest():
     rows = [candle(i, 102) for i in range(15)]
     rows[-9] = candle(6, 98)
     rows[-2] = candle(13, 98.5, high=100, low=98)
     rows[-1] = candle(14, 98)
-    result = SetupEngine().detect_setup_b_breakout_retest(regime(MarketRegime.BEAR), rows, [ZONE])
+    result = SetupEngine(enable_setup_b_short=True).detect_setup_b_breakout_retest(regime(MarketRegime.BEAR), rows, [ZONE])
     assert result.direction == TradeDirection.SHORT
     assert result.setup_type == SetupType.BREAKOUT_RETEST
     assert "holding as resistance" in result.reason
@@ -59,12 +77,24 @@ def test_setup_b_ignores_open_future_breakdown_bar():
     assert SetupEngine().detect_setup_b_breakout_retest(regime(MarketRegime.BEAR), rows, [ZONE]) is None
 
 
+def test_setup_b_short_is_disabled_by_default_and_explicitly_enabled():
+    rows = [candle(i, 102) for i in range(15)]
+    rows[-9] = candle(6, 98)
+    rows[-2] = candle(13, 98.5, high=100, low=98)
+    rows[-1] = candle(14, 98)
+    blocked = SetupEngine().detect_setup_b_breakout_retest(regime(MarketRegime.BEAR), rows, [ZONE])
+    assert blocked.setup_type == SetupType.NONE
+    assert "EXPERIMENTAL_SETUP_DISABLED" in blocked.reason
+    enabled = SetupEngine(enable_setup_b_short=True).detect_setup_b_breakout_retest(regime(MarketRegime.BEAR), rows, [ZONE])
+    assert enabled.direction == TradeDirection.SHORT
+
+
 @pytest.mark.parametrize("market,direction,price,support,resistance,rsi", [
     (MarketRegime.BEAR, TradeDirection.LONG, 90, ConfluenceZone(level_type="SUPPORT", price_min=89, price_max=91, center=90, strength=2), None, 20),
     (MarketRegime.BULL, TradeDirection.SHORT, 110, None, ConfluenceZone(level_type="RESISTANCE", price_min=109, price_max=111, center=110, strength=2), 80),
 ])
 def test_setup_c_is_symmetric(monkeypatch, market, direction, price, support, resistance, rsi):
-    engine = SetupEngine()
+    engine = SetupEngine(enable_setup_c_short=direction == TradeDirection.SHORT)
     monkeypatch.setattr(engine, "calculate_bollinger_bands", lambda *args: (100, 109, 91))
     monkeypatch.setattr(engine, "calculate_rsi_quick", lambda *args: rsi)
     location = LocationResult(quality=LocationQuality.STRONG_LONG_LOCATION if direction == TradeDirection.LONG else LocationQuality.STRONG_SHORT_LOCATION,
@@ -88,6 +118,33 @@ def test_setup_c_adx_veto_and_weak_zone_block(monkeypatch, market, price, rsi):
     rows = [candle(i, price) for i in range(25)]
     assert engine.detect_setup_c_counter_trend(regime(market, 40), rows, location) is None
     assert engine.detect_setup_c_counter_trend(regime(market, 20), rows, location) is None
+
+
+def test_setup_c_long_preserves_rsi_below_32_behavior(monkeypatch):
+    engine = SetupEngine(counter_trend_rsi_oversold=32.0)
+    monkeypatch.setattr(engine, "calculate_bollinger_bands", lambda *args: (100, 109, 91))
+    monkeypatch.setattr(engine, "calculate_rsi_quick", lambda *args: 31.0)
+    support = ConfluenceZone(level_type="SUPPORT", price_min=89, price_max=91, center=90, strength=2)
+    location = LocationResult(quality=LocationQuality.STRONG_LONG_LOCATION, current_price=90,
+                              nearest_support=support, distance_to_support_pct=0)
+    result = engine.detect_setup_c_counter_trend(regime(MarketRegime.BEAR), [candle(i, 90) for i in range(25)], location)
+    assert result.direction == TradeDirection.LONG
+
+
+def test_setup_c_short_is_disabled_by_default_and_explicitly_enabled(monkeypatch):
+    resistance = ConfluenceZone(level_type="RESISTANCE", price_min=109, price_max=111, center=110, strength=2)
+    location = LocationResult(quality=LocationQuality.STRONG_SHORT_LOCATION, current_price=110,
+                              nearest_resistance=resistance, distance_to_resistance_pct=0)
+    rows = [candle(i, 110) for i in range(25)]
+    def configure(engine):
+        monkeypatch.setattr(engine, "calculate_bollinger_bands", lambda *args: (100, 109, 91))
+        monkeypatch.setattr(engine, "calculate_rsi_quick", lambda *args: 80)
+        return engine
+    blocked = configure(SetupEngine()).detect_setup_c_counter_trend(regime(MarketRegime.BULL), rows, location)
+    assert blocked.setup_type == SetupType.NONE
+    assert "EXPERIMENTAL_SETUP_DISABLED" in blocked.reason
+    enabled = configure(SetupEngine(enable_setup_c_short=True)).detect_setup_c_counter_trend(regime(MarketRegime.BULL), rows, location)
+    assert enabled.direction == TradeDirection.SHORT
 
 
 def dfield(value, source=DataSource.BINANCE):
@@ -143,3 +200,12 @@ def test_strategy_observability_preserves_short_candidate_and_derivatives_blocke
     assert summary["direction"] == "SHORT"
     assert "DERIVATIVES_REJECT" in summary["blocking_reasons"]
     assert summary["trade_plan"] is None
+
+
+def test_stale_oi_change_cannot_create_countertrend_reject():
+    result = DerivativesEngine().evaluate_derivatives(
+        TradeDirection.LONG, SetupType.COUNTER_TREND_REACTION, -0.01,
+        oi_field=dfield(100), oi_change_field=DerivativesField(value=0.02, source=DataSource.BINANCE, observed_at=1, is_stale=True),
+        funding_field=dfield(0), ls_field=dfield(1), taker_field=dfield(0.7),
+    )
+    assert result.status != DerivativesStatus.REJECT

@@ -88,6 +88,8 @@ class MasterPipeline:
             counter_trend_adx_veto=settings.COUNTER_TREND_ADX_VETO,
             bollinger_period=settings.BOLLINGER_BAND_PERIOD,
             bollinger_std_dev=settings.BOLLINGER_BAND_STD_DEV,
+            enable_setup_b_short=settings.ENABLE_SETUP_B_SHORT,
+            enable_setup_c_short=settings.ENABLE_SETUP_C_SHORT,
         )
         self.trigger_engine = EntryTriggerEngine(
             min_wick_ratio=self.settings.WICK_REJECTION_RATIO,

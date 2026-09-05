@@ -21,7 +21,8 @@ INITIAL_HYPOTHESES: Dict[str, Any] = {
     "location_proximity_pct": 0.005,       # Proximity threshold to S/R zone (0.50%)
     
     # Setup C & Momentum hypotheses (Section 24, 25, 26)
-    "counter_trend_rsi_oversold": 30.0,    # 5M RSI threshold for mean-reversion long
+    # Preserve the pre-short-expansion live Setup C LONG behavior (RSI < 32).
+    "counter_trend_rsi_oversold": 32.0,
     "counter_trend_rsi_overbought": 70.0,  # 5M RSI threshold for mean-reversion short
     "counter_trend_adx_veto": 35.0,        # 4H/1H ADX ceiling above which counter-trend is vetoed
     "bollinger_band_period": 20,           # BB period for Setup C

@@ -34,7 +34,10 @@ class StrategyOrchestrator:
         if setup_type != SetupType.NONE.value:
             reasons.append(report.reason)
         else:
-            blockers.append("NO_DETERMINISTIC_SETUP")
+            if "EXPERIMENTAL_SETUP_DISABLED" in report.reason:
+                blockers.append("EXPERIMENTAL_SETUP_DISABLED")
+            else:
+                blockers.append("NO_DETERMINISTIC_SETUP")
         if mtf.get("conflicts"):
             blockers.extend(mtf["conflicts"])
         if news.get("news_risk") in ("HIGH", "EXTREME"):
