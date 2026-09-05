@@ -75,8 +75,22 @@ class MasterPipeline:
         self.sr_engine = SupportResistanceEngine(cluster_tolerance_pct=self.settings.SR_CLUSTERING_TOLERANCE_PCT)
         self.location_engine = TradeLocationEngine(proximity_threshold_pct=self.settings.LOCATION_PROXIMITY_PCT)
         self.volume_engine = VolumeEngine(sma_period=20)
-        self.derivatives_engine = DerivativesEngine()
-        self.setup_engine = SetupEngine(self.volume_engine)
+        self.derivatives_engine = DerivativesEngine(
+            oi_material_change_pct=settings.DERIVATIVES_OI_MATERIAL_CHANGE_PCT,
+            bearish_taker_ratio=settings.DERIVATIVES_BEARISH_TAKER_RATIO,
+            bullish_taker_ratio=settings.DERIVATIVES_BULLISH_TAKER_RATIO,
+        )
+        self.setup_engine = SetupEngine(
+            self.volume_engine,
+            location_proximity_pct=settings.LOCATION_PROXIMITY_PCT,
+            counter_trend_rsi_oversold=settings.COUNTER_TREND_RSI_OVERSOLD,
+            counter_trend_rsi_overbought=settings.COUNTER_TREND_RSI_OVERBOUGHT,
+            counter_trend_adx_veto=settings.COUNTER_TREND_ADX_VETO,
+            bollinger_period=settings.BOLLINGER_BAND_PERIOD,
+            bollinger_std_dev=settings.BOLLINGER_BAND_STD_DEV,
+            enable_setup_b_short=settings.ENABLE_SETUP_B_SHORT,
+            enable_setup_c_short=settings.ENABLE_SETUP_C_SHORT,
+        )
         self.trigger_engine = EntryTriggerEngine(
             min_wick_ratio=self.settings.WICK_REJECTION_RATIO,
             min_body_ratio=self.settings.DIRECTIONAL_BODY_RATIO,
@@ -239,6 +253,7 @@ class MasterPipeline:
             setup_type=setup_signal.setup_type,
             price_change_pct=price_change_pct,
             oi_field=derivative_field("open_interest", DataSource.BINANCE),
+            oi_change_field=derivative_field("oi_change_pct", DataSource.BINANCE),
             funding_field=derivative_field("funding_rate", DataSource.BINANCE),
             ls_field=derivative_field("long_short_ratio", DataSource.BINANCE),
             taker_field=derivative_field("taker_buy_ratio", DataSource.BINANCE),
@@ -325,6 +340,7 @@ class MasterPipeline:
             structure_1h=struct_1h.structure,
             location=location_result.quality,
             setup=setup_signal.setup_type,
+            setup_direction=setup_signal.direction,
             trigger_state=trigger_result.state,
             derivatives=derivatives_state.status,
             overextended_up=regime_result.overextended_up,

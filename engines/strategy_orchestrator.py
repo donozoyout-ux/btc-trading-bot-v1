@@ -22,6 +22,8 @@ class StrategyOrchestrator:
         direction = "WAIT"
         if report.trade_plan:
             direction = report.trade_plan.direction.value
+        elif report.setup != SetupType.NONE:
+            direction = report.setup_direction.value
         elif report.final_decision in (DecisionStatus.LONG_ENTRY, DecisionStatus.LONG_WATCH):
             direction = "LONG"
         elif report.final_decision in (DecisionStatus.SHORT_ENTRY, DecisionStatus.SHORT_WATCH):
@@ -32,7 +34,10 @@ class StrategyOrchestrator:
         if setup_type != SetupType.NONE.value:
             reasons.append(report.reason)
         else:
-            blockers.append("NO_DETERMINISTIC_SETUP")
+            if "EXPERIMENTAL_SETUP_DISABLED" in report.reason:
+                blockers.append("EXPERIMENTAL_SETUP_DISABLED")
+            else:
+                blockers.append("NO_DETERMINISTIC_SETUP")
         if mtf.get("conflicts"):
             blockers.extend(mtf["conflicts"])
         if news.get("news_risk") in ("HIGH", "EXTREME"):

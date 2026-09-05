@@ -139,6 +139,8 @@ class Phase1BacktestRunner:
         self.risk_rejection_breakdown: Dict[str, int] = defaultdict(int)
         self.risk_rejection_raw: Dict[str, int] = defaultdict(int)
         self.setup_detection_counts: Dict[str, int] = defaultdict(int)
+        self.setup_direction_detection_counts: Dict[str, int] = defaultdict(int)
+        self.derivatives_rejected_candidates = 0
         # Guard-specific block counts
         self.daily_loss_blocks = 0
         self.consecutive_loss_blocks = 0
@@ -280,6 +282,15 @@ class Phase1BacktestRunner:
             sorted(self.risk_rejection_raw.items(), key=lambda x: x[1], reverse=True)[:10]
         )
         results["setup_detection_counts"] = dict(self.setup_detection_counts)
+        results["setup_direction_detection_counts"] = dict(self.setup_direction_detection_counts)
+        results["derivatives_rejected_candidates"] = self.derivatives_rejected_candidates
+        results["setup_direction_breakdown"] = {
+            f"{setup.value}_{direction.value}": self.metrics_engine._calculate_combined(
+                [t for t in self.all_trades if t.setup_type == setup and t.direction == direction]
+            )
+            for setup in (SetupType.TREND_PULLBACK, SetupType.BREAKOUT_RETEST, SetupType.COUNTER_TREND_REACTION)
+            for direction in (TradeDirection.LONG, TradeDirection.SHORT)
+        }
         results["candidate_reconciliation"] = reconciliation
         results["trade_trace"] = dict(self.trade_trace)
         funnel_counts = self.funnel.get_funnel()
@@ -462,6 +473,7 @@ class Phase1BacktestRunner:
             return
         f.record_pass("SETUP_DETECTED")
         self.setup_detection_counts[report.setup.value] += 1
+        self.setup_direction_detection_counts[f"{report.setup.value}_{report.setup_direction.value}"] += 1
 
         if report.trigger_state != TriggerState.ENTRY_READY:
             f.record_rejection("ENTRY_TRIGGER_DETECTED", f"Trigger {report.trigger_state.value}")
@@ -470,6 +482,7 @@ class Phase1BacktestRunner:
         f.record_pass("MOMENTUM_PASS")  # Volume/momentum folded into trigger check
 
         if report.derivatives == DerivativesStatus.REJECT:
+            self.derivatives_rejected_candidates += 1
             f.record_rejection("DERIVATIVES_ACCEPTABLE", f"Derivatives veto: {report.reason}")
             return
         f.record_pass("DERIVATIVES_ACCEPTABLE")
@@ -519,6 +532,16 @@ class Phase1BacktestRunner:
         generated["historical-backtest-phase1-trades.csv"] = self._generate_trades_csv(self.all_trades)
         generated["historical-backtest-phase1-signal-funnel.json"] = json.dumps(results.get("signal_funnel", {}), indent=2, default=str)
         generated["historical-backtest-phase1-setup-breakdown.json"] = json.dumps(results.get("setup_breakdown", {}), indent=2, default=str)
+        generated["historical-backtest-phase1-setup-direction-breakdown.json"] = json.dumps({
+            "detection_counts": results.get("setup_direction_detection_counts", {}),
+            "performance": results.get("setup_direction_breakdown", {}),
+            "candidate_count": results.get("candidate_reconciliation", {}).get("total_candidates", 0),
+            "entry_ready_count": results.get("signal_funnel", {}).get("ENTRY_TRIGGER_DETECTED", {}).get("count", 0),
+            "risk_accepted": results.get("signal_funnel", {}).get("RISK_PASS", {}).get("count", 0),
+            "risk_rejected": sum(results.get("risk_rejection_breakdown", {}).values()),
+            "derivatives_rejected": results.get("derivatives_rejected_candidates", 0),
+            "trades_executed": results.get("signal_funnel", {}).get("TRADES_OPENED", {}).get("count", 0),
+        }, indent=2, default=str)
         generated["historical-backtest-phase1-regime-breakdown.json"] = json.dumps(results.get("regime_breakdown", {}), indent=2, default=str)
         generated["historical-backtest-phase1-direction-breakdown.json"] = json.dumps(results.get("direction_breakdown", {}), indent=2, default=str)
         generated["historical-backtest-phase1-volatility-breakdown.json"] = json.dumps(results.get("volatility_breakdown", {}), indent=2, default=str)
@@ -531,6 +554,8 @@ class Phase1BacktestRunner:
             "risk_rejection_breakdown": results.get("risk_rejection_breakdown", {}),
             "risk_rejection_top_raw": results.get("risk_rejection_top_raw", {}),
             "setup_detection_counts": results.get("setup_detection_counts", {}),
+            "setup_direction_detection_counts": results.get("setup_direction_detection_counts", {}),
+            "derivatives_rejected_candidates": results.get("derivatives_rejected_candidates", 0),
             "funnel_type": results.get("funnel_type", ""),
         }, indent=2, default=str)
         generated["historical-backtest-phase1-risk-control-blocks.json"] = json.dumps({

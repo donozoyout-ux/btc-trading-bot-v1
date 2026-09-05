@@ -81,7 +81,16 @@ class BotSettings(BaseSettings):
     SR_CLUSTERING_TOLERANCE_PCT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["sr_clustering_tolerance_pct"])
     LOCATION_PROXIMITY_PCT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["location_proximity_pct"])
     COUNTER_TREND_RSI_OVERSOLD: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["counter_trend_rsi_oversold"])
+    COUNTER_TREND_RSI_OVERBOUGHT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["counter_trend_rsi_overbought"])
     COUNTER_TREND_ADX_VETO: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["counter_trend_adx_veto"])
+    BOLLINGER_BAND_PERIOD: int = Field(default_factory=lambda: INITIAL_HYPOTHESES["bollinger_band_period"])
+    BOLLINGER_BAND_STD_DEV: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["bollinger_band_std_dev"])
+    DERIVATIVES_OI_MATERIAL_CHANGE_PCT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["derivatives_oi_material_change_pct"])
+    DERIVATIVES_BEARISH_TAKER_RATIO: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["derivatives_bearish_taker_ratio"])
+    DERIVATIVES_BULLISH_TAKER_RATIO: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["derivatives_bullish_taker_ratio"])
+    # New short paths remain experimental until forward-test evidence exists.
+    ENABLE_SETUP_B_SHORT: bool = False
+    ENABLE_SETUP_C_SHORT: bool = False
 
     # Circuit Breakers & Kill Switch Hypotheses
     MAX_DAILY_LOSS_PCT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["max_daily_loss_pct"])

@@ -23,8 +23,28 @@ class SetupEngine:
     - Setup C: Counter-Trend Reaction
     """
 
-    def __init__(self, volume_engine: Optional[VolumeEngine] = None):
+    def __init__(
+        self,
+        volume_engine: Optional[VolumeEngine] = None,
+        location_proximity_pct: float = 0.005,
+        counter_trend_rsi_oversold: float = 32.0,
+        counter_trend_rsi_overbought: float = 70.0,
+        counter_trend_adx_veto: float = 35.0,
+        bollinger_period: int = 20,
+        bollinger_std_dev: float = 2.0,
+        enable_setup_b_short: bool = False,
+        enable_setup_c_short: bool = False,
+    ):
         self.vol_engine = volume_engine or VolumeEngine()
+        self.location_proximity_pct = location_proximity_pct
+        self.counter_trend_rsi_oversold = counter_trend_rsi_oversold
+        self.counter_trend_rsi_overbought = counter_trend_rsi_overbought
+        self.counter_trend_adx_veto = counter_trend_adx_veto
+        self.bollinger_period = bollinger_period
+        self.bollinger_std_dev = bollinger_std_dev
+        self.enable_setup_b_short = enable_setup_b_short
+        self.enable_setup_c_short = enable_setup_c_short
+        self.last_experimental_blocker: Optional[str] = None
 
     @staticmethod
     def calculate_bollinger_bands(closes: np.ndarray, period: int = 20, std_dev: float = 2.0) -> Tuple[float, float, float]:
@@ -131,14 +151,20 @@ class SetupEngine:
         if len(candles_15m) < 15:
             return None
 
-        current_price = candles_15m[-1].close
-        last_10 = candles_15m[-10:]
+        # The engine accepts only closed bars. This keeps both the breakout and
+        # retest chronological and prevents an in-progress/future bar leak.
+        last_10 = [c for c in candles_15m if c.is_closed][-10:]
+        if len(last_10) < 10:
+            return None
+        current_price = last_10[-1].close
 
         # For LONG Breakout Retest
         if regime.regime in [MarketRegime.BULL, MarketRegime.STRONG_BULL]:
             # Look for a zone that was recently broken to the upside and is currently retested
             for z in zones:
                 # Breakout condition: a candle in last 10 closed above z.price_max
+                # Preserve the established Setup B LONG window. Closed bars are
+                # enforced above, so this restores parity without future bars.
                 broke_above = any(c.close > z.price_max for c in last_10[:-2])
                 # Retest condition: price dipped back to z and held (low <= z.price_max * 1.002 and close >= z.price_min)
                 retested = any(c.low <= z.price_max * 1.002 and c.close >= z.price_min for c in last_10[-3:])
@@ -156,6 +182,34 @@ class SetupEngine:
                         target_level=target_price,
                         zone=z,
                         reason=f"Setup B: Breakout and retest of level {z.center:.1f} holding as support",
+                    )
+
+        # For SHORT Breakdown Retest. The breakdown is confined to the
+        # historical portion and therefore must precede every retest bar.
+        if regime.regime in [MarketRegime.BEAR, MarketRegime.STRONG_BEAR]:
+            for z in zones:
+                broke_below = any(c.close < z.price_min for c in last_10[:-3])
+                retested = any(
+                    c.high >= z.price_min * 0.998
+                    and c.low <= z.price_max
+                    and c.close < z.price_min
+                    for c in last_10[-3:]
+                )
+                if broke_below and retested and current_price < z.price_min:
+                    if not self.enable_setup_b_short:
+                        # Record telemetry without returning a truthy NONE
+                        # signal that would suppress lower-priority Setup C.
+                        self.last_experimental_blocker = "EXPERIMENTAL_SETUP_DISABLED: BREAKOUT_RETEST SHORT"
+                        return None
+                    return SetupSignal(
+                        setup_type=SetupType.BREAKOUT_RETEST,
+                        direction=TradeDirection.SHORT,
+                        detected=True,
+                        timeframe="15m",
+                        invalidation_level=z.price_max * 1.003,
+                        target_level=current_price * 0.975,
+                        zone=z,
+                        reason=f"Setup B: Breakdown and retest of level {z.center:.1f} holding as resistance",
                     )
 
         return None
@@ -181,21 +235,21 @@ class SetupEngine:
         if regime.regime in [MarketRegime.BEAR, MarketRegime.STRONG_BEAR]:
             # Section 25 filter: If 4H ADX >= 35, reject counter-trend long
             adx_val = regime.details.get("current_adx", 20.0)
-            if adx_val >= 35.0:
+            if adx_val >= self.counter_trend_adx_veto:
                 return None  # Trend too aggressive to counter-trade
 
             # Confluence check: Must be at strong support (strength >= 2)
             sup = location.nearest_support
-            if not sup or sup.strength < 2 or location.distance_to_support_pct > 0.005:
+            if not sup or sup.strength < 2 or location.distance_to_support_pct > self.location_proximity_pct:
                 return None
 
             # Bollinger Bands 5M check (Section 26)
-            mid_bb, _, lower_bb = self.calculate_bollinger_bands(closes_5m, 20, 2.0)
+            mid_bb, _, lower_bb = self.calculate_bollinger_bands(closes_5m, self.bollinger_period, self.bollinger_std_dev)
             rsi_5m = self.calculate_rsi_quick(closes_5m, 14)
 
             # Lower band stretch: price touching or under lower band
             is_bb_stretch = current_price <= lower_bb * 1.002
-            is_rsi_oversold = rsi_5m < 32.0
+            is_rsi_oversold = rsi_5m < self.counter_trend_rsi_oversold
 
             if is_bb_stretch and is_rsi_oversold:
                 inv_price = sup.price_min * 0.997
@@ -212,6 +266,41 @@ class SetupEngine:
                     reason=(
                         f"Setup C: Counter-Trend Reaction at major support ({sup.strength} confluences) "
                         f"with 5M BB lower stretch ({lower_bb:.1f}) & RSI oversold ({rsi_5m:.1f})"
+                    ),
+                )
+
+        # Symmetric counter-trend SHORT at major resistance in a bull regime.
+        if regime.regime in [MarketRegime.BULL, MarketRegime.STRONG_BULL]:
+            adx_val = regime.details.get("current_adx", 20.0)
+            if adx_val >= self.counter_trend_adx_veto:
+                return None
+            res = location.nearest_resistance
+            if not res or res.strength < 2 or location.distance_to_resistance_pct > self.location_proximity_pct:
+                return None
+            mid_bb, upper_bb, _ = self.calculate_bollinger_bands(closes_5m, self.bollinger_period, self.bollinger_std_dev)
+            rsi_5m = self.calculate_rsi_quick(closes_5m, 14)
+            is_bb_stretch = current_price >= upper_bb * 0.998
+            is_rsi_overbought = rsi_5m > self.counter_trend_rsi_overbought
+            if is_bb_stretch and is_rsi_overbought:
+                if not self.enable_setup_c_short:
+                    return SetupSignal(
+                        setup_type=SetupType.NONE,
+                        direction=TradeDirection.WAIT,
+                        detected=False,
+                        timeframe="5m",
+                        reason="EXPERIMENTAL_SETUP_DISABLED: COUNTER_TREND_REACTION SHORT",
+                    )
+                return SetupSignal(
+                    setup_type=SetupType.COUNTER_TREND_REACTION,
+                    direction=TradeDirection.SHORT,
+                    detected=True,
+                    timeframe="5m",
+                    invalidation_level=res.price_max * 1.003,
+                    target_level=max(mid_bb, res.center * 0.985),
+                    zone=res,
+                    reason=(
+                        f"Setup C: Counter-Trend Reaction at major resistance ({res.strength} confluences) "
+                        f"with 5M BB upper stretch ({upper_bb:.1f}) & RSI overbought ({rsi_5m:.1f})"
                     ),
                 )
 
@@ -232,6 +321,7 @@ class SetupEngine:
         2. Setup B: Breakout + Retest
         3. Setup C: Counter-Trend Reaction
         """
+        self.last_experimental_blocker = None
         if location.is_bad_location:
             return SetupSignal(
                 setup_type=SetupType.NONE,
@@ -259,5 +349,5 @@ class SetupEngine:
             setup_type=SetupType.NONE,
             direction=TradeDirection.WAIT,
             detected=False,
-            reason="No active setup detected across current market state",
+            reason=self.last_experimental_blocker or "No active setup detected across current market state",
         )

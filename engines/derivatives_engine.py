@@ -27,6 +27,11 @@ class DerivativesEngine:
     CROWDING_LONG_THRESHOLD = 2.20
     CROWDING_SHORT_THRESHOLD = 0.75
 
+    def __init__(self, oi_material_change_pct: float = 0.005, bearish_taker_ratio: float = 0.80, bullish_taker_ratio: float = 1.20):
+        self.oi_material_change_pct = oi_material_change_pct
+        self.bearish_taker_ratio = bearish_taker_ratio
+        self.bullish_taker_ratio = bullish_taker_ratio
+
     def classify_funding(self, funding_rate: Optional[float]) -> FundingClass:
         """Categorizes funding rate into NORMAL, ELEVATED, EXTREME."""
         if funding_rate is None:
@@ -74,7 +79,7 @@ class DerivativesEngine:
 
         available_sources = [
             f.source for f in [oi_f, funding_f, ls_f, taker_f, liq_f]
-            if f.source != DataSource.UNAVAILABLE and f.value is not None
+            if f.source != DataSource.UNAVAILABLE and f.value is not None and not f.is_stale
         ]
 
         if not available_sources:
@@ -91,53 +96,70 @@ class DerivativesEngine:
                 reason="All derivatives data sources unavailable",
             )
 
-        funding_val = funding_f.value
+        funding_val = None if funding_f.is_stale else funding_f.value
         funding_class = self.classify_funding(funding_val)
-        crowding = self.classify_crowding(ls_f.value)
+        ls_val = None if ls_f.is_stale else ls_f.value
+        taker_val = None if taker_f.is_stale else taker_f.value
+        crowding = self.classify_crowding(ls_val)
 
         # Evaluate signals
         reasons = []
         is_degraded = len(available_sources) < 3
         status = DerivativesStatus.DEGRADED if is_degraded else DerivativesStatus.NEUTRAL
 
-        oi_ch_val = oi_ch_f.value or 0.0
-        is_oi_up = oi_ch_val > 0.005
-        is_oi_down = oi_ch_val < -0.005
+        oi_ch_val = None if oi_ch_f.is_stale else oi_ch_f.value
+        is_oi_up = oi_ch_val is not None and oi_ch_val > self.oi_material_change_pct
+        is_oi_down = oi_ch_val is not None and oi_ch_val < -self.oi_material_change_pct
         is_price_up = price_change_pct > 0
         is_price_down = price_change_pct < 0
 
         if candidate_direction == TradeDirection.LONG:
             if funding_class == FundingClass.EXTREME and funding_val and funding_val > 0 and crowding == CrowdingStatus.LONG_CROWDING:
-                status = DerivativesStatus.WARN
-                reasons.append("Extreme positive funding with heavy long crowding")
+                if taker_val is not None and taker_val <= self.bearish_taker_ratio:
+                    status = DerivativesStatus.REJECT
+                    reasons.append("Extreme positive funding and heavy long crowding with bearish taker participation")
+                else:
+                    status = DerivativesStatus.WARN
+                    reasons.append("Extreme positive funding with heavy long crowding")
 
-            if setup_type == SetupType.COUNTER_TREND_REACTION:
-                if is_price_down and is_oi_down:
+            if status != DerivativesStatus.REJECT and setup_type == SetupType.COUNTER_TREND_REACTION:
+                if is_price_down and is_oi_up and taker_val is not None and taker_val <= self.bearish_taker_ratio:
+                    status = DerivativesStatus.REJECT
+                    reasons.append("Counter-trend long veto: falling price, expanding OI and bearish taker participation")
+                elif is_price_down and is_oi_down:
                     status = DerivativesStatus.CONFIRM
                     reasons.append("Exhaustion flush: Price down with OI decreasing")
                 elif is_price_down and is_oi_up:
                     status = DerivativesStatus.WARN
                     reasons.append("Caution: Price falling with aggressive new short OI")
-            elif setup_type == SetupType.TREND_PULLBACK:
+            elif status != DerivativesStatus.REJECT and setup_type == SetupType.TREND_PULLBACK:
                 if is_price_up and is_oi_up:
                     status = DerivativesStatus.CONFIRM
                     reasons.append("Bullish trend participation: Price and OI rising")
-                elif taker_f.value and taker_f.value >= 1.2:
+                elif taker_val is not None and taker_val >= self.bullish_taker_ratio:
                     status = DerivativesStatus.CONFIRM
-                    reasons.append(f"Taker buy pressure dominant: {taker_f.value:.2f}")
+                    reasons.append(f"Taker buy pressure dominant: {taker_val:.2f}")
 
         elif candidate_direction == TradeDirection.SHORT:
             if funding_class == FundingClass.EXTREME and funding_val and funding_val < 0 and crowding == CrowdingStatus.SHORT_CROWDING:
-                status = DerivativesStatus.WARN
-                reasons.append("Extreme negative funding with heavy short crowding")
+                if taker_val is not None and taker_val >= self.bullish_taker_ratio:
+                    status = DerivativesStatus.REJECT
+                    reasons.append("Extreme negative funding and heavy short crowding with bullish taker participation")
+                else:
+                    status = DerivativesStatus.WARN
+                    reasons.append("Extreme negative funding with heavy short crowding")
 
-            if setup_type == SetupType.TREND_PULLBACK:
+            if status != DerivativesStatus.REJECT and setup_type == SetupType.COUNTER_TREND_REACTION:
+                if is_price_up and is_oi_up and taker_val is not None and taker_val >= self.bullish_taker_ratio:
+                    status = DerivativesStatus.REJECT
+                    reasons.append("Counter-trend short veto: rising price, expanding OI and bullish taker participation")
+            elif status != DerivativesStatus.REJECT and setup_type == SetupType.TREND_PULLBACK:
                 if is_price_down and is_oi_up:
                     status = DerivativesStatus.CONFIRM
                     reasons.append("Bearish participation: Price down with OI rising")
-                elif taker_f.value and taker_f.value <= 0.8:
+                elif taker_val is not None and taker_val <= self.bearish_taker_ratio:
                     status = DerivativesStatus.CONFIRM
-                    reasons.append(f"Taker sell pressure dominant: {taker_f.value:.2f}")
+                    reasons.append(f"Taker sell pressure dominant: {taker_val:.2f}")
 
         reason_str = "; ".join(reasons) if reasons else ("Partial derivatives available" if is_degraded else "Derivatives normal")
 

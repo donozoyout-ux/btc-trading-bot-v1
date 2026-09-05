@@ -178,6 +178,15 @@ def test_duplicate_candle_and_signal_do_not_trade(tmp_path):
     assert executor.client.market_calls == []
 
 
+def test_disabled_experimental_setup_cannot_reach_testnet_order(tmp_path):
+    executor = make_executor(tmp_path)
+    blocked = snapshot(3, "EXPERIMENTAL-B-SHORT", eligible=False)
+    blocked["strategy"]["blocking_reasons"] = ["EXPERIMENTAL_SETUP_DISABLED"]
+    result = executor.process_snapshot(blocked, BotState())
+    assert result["status"] == "NO_ELIGIBLE_SIGNAL"
+    assert executor.client.market_calls == []
+
+
 def test_entry_reconciliation_and_reduce_only_protection(tmp_path):
     client = FakeExecutionClient()
     result = make_executor(tmp_path, client).process_snapshot(snapshot(), BotState())
