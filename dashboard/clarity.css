@@ -1,0 +1,22 @@
+.source-status.OPTIONAL {
+  color: var(--muted);
+}
+
+.optional-source {
+  opacity: 0.72;
+}
+
+.risk-state-message {
+  margin: 14px 0 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(54, 230, 162, 0.1);
+  border-radius: 10px;
+  background: rgba(54, 230, 162, 0.045);
+  color: #91a8bc;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.dashboard-board .zone-plan .optional-source {
+  background: rgba(255, 255, 255, 0.012);
+}
