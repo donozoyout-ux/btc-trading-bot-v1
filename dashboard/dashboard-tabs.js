@@ -13,8 +13,8 @@
     .dashboard-board .zone-metrics{grid-column:1/-1}
     .dashboard-board .zone-chart{grid-column:span 8}
     .dashboard-board .zone-decision{grid-column:span 4}
-    .dashboard-board .zone-account{grid-column:span 8}
-    .dashboard-board .zone-execution{grid-column:span 4}
+    .dashboard-board .zone-account{grid-column:span 7}
+    .dashboard-board .zone-execution{grid-column:span 5}
     .dashboard-board .zone-mtf{grid-column:span 8}
     .dashboard-board .zone-strategy{grid-column:span 4}
     .dashboard-board .zone-news,.dashboard-board .zone-plan,.dashboard-board .zone-logs{grid-column:span 4}
@@ -41,6 +41,10 @@
     .dashboard-board .account-table th,.dashboard-board .account-table td{padding:6px 7px;font-size:8px}
     .dashboard-board .account-table{min-width:760px}
 
+    .dashboard-board .zone-execution .account-head{align-items:flex-start;gap:8px}
+    .dashboard-board .zone-execution .account-head>div:first-child{min-width:0}
+    .dashboard-board .zone-execution .account-head h2{white-space:nowrap}
+    .dashboard-board .zone-execution .account-badges{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}
     .dashboard-board .zone-execution .account-balance-row{grid-template-columns:repeat(2,minmax(0,1fr))}
     .dashboard-board .zone-execution .account-stat{min-height:52px}
     .dashboard-board .zone-execution .account-stat strong{font-size:13px}
@@ -89,11 +93,11 @@
       .dashboard-board{gap:8px}
       .dashboard-board .zone-chart{grid-column:span 9}
       .dashboard-board .zone-decision{grid-column:span 3}
-      .dashboard-board .zone-account{grid-column:span 9}
-      .dashboard-board .zone-execution{grid-column:span 3}
+      .dashboard-board .zone-account{grid-column:span 7}
+      .dashboard-board .zone-execution{grid-column:span 5}
       .dashboard-board .chart-wrap{height:350px}
-      .dashboard-board .account-balance-row{grid-template-columns:repeat(10,minmax(0,1fr))}
-      .dashboard-board .zone-execution .account-balance-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .dashboard-board .zone-account .account-balance-row{grid-template-columns:repeat(5,minmax(0,1fr))}
+      .dashboard-board .zone-execution .account-balance-row{grid-template-columns:repeat(3,minmax(0,1fr))}
     }
     @media(max-width:1439px){
       .dashboard-board{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
