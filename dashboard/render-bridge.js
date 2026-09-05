@@ -77,10 +77,19 @@
     setMessage('Bir API isteği tamamlanamadı. Web arayüzü açık kalacak ve otomatik yeniden deneyecek.');
   });
 
-  const tabsScript = document.createElement('script');
-  tabsScript.src = '/dashboard-tabs.js';
-  tabsScript.defer = true;
-  document.head.appendChild(tabsScript);
+  const loadScript = (src, onload) => {
+    if (document.querySelector(`script[src="${src}"]`)) {
+      if (onload) onload();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.defer = true;
+    if (onload) script.addEventListener('load', onload, {once: true});
+    document.head.appendChild(script);
+  };
+
+  loadScript('/dashboard-tabs.js', () => loadScript('/trade-tracker.js'));
 
   loadBootstrap();
   setTimeout(statusFromConnection, 2500);
