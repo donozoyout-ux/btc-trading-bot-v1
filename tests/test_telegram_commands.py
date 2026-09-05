@@ -83,8 +83,15 @@ class FakeDashboard:
             "system_state": {"kill_switch": False, "daily_loss_guard": "SAFE", "loss_streak_guard": "SAFE"},
             "news": {"status": "AVAILABLE"},
             "ai_analyst": {"status": "DISABLED"},
-            "derivatives": {"status": "DEGRADED"},
-            "sources": {"coinglass": {"status": "HEALTHY"}, "coinmarketcap": {"status": "HEALTHY"}},
+            "derivatives": {
+                "status": "DEGRADED",
+                "open_interest": {"value": 12345.0, "source": "BINANCE"},
+                "funding_rate": {"value": 0.0001, "source": "BINANCE"},
+                "long_short_ratio": {"value": 1.02, "source": "BINANCE"},
+                "taker_buy_ratio": {"value": 1.1, "source": "BINANCE"},
+                "liquidations_24h": {"value": None, "source": "UNAVAILABLE"},
+            },
+            "sources": {"coinglass": {"status": "AUTH_ERROR"}, "coinmarketcap": {"status": "HEALTHY"}},
             "macro_context": {"btc_dominance": 56.2, "total_market_cap_usd": 3000000000000, "total_volume_24h_usd": 90000000000},
         }
 
@@ -150,9 +157,12 @@ def test_status_account_position_orders_signal_risk_sources():
     assert "TP1: 81,000.00" in combined
     assert "NO_TRADE" in combined
     assert "Kill switch: SAFE" in combined
-    assert "TESTNET_PUBLIC_FALLBACK" in combined
-    assert "CoinGlass: HEALTHY" in combined
+    assert "Binance: FALLBACK" in combined
+    assert "CoinGlass: AUTH_ERROR" in combined
+    assert "CoinMarketCap: CONNECTED" in combined
+    assert "Derivatives: DEGRADED" in combined
     assert "BTC Dominance: 56.20%" in combined
+    assert "CoinGlass Liquidations: $Unavailable" in combined
     assert "READ ONLY" in combined
     assert "PONG" in combined
 

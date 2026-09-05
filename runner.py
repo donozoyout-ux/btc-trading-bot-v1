@@ -98,6 +98,7 @@ class MasterPipeline:
         candles_dict: Dict[str, List[Candle]],
         state: BotState,
         derivatives_input: Optional[Dict] = None,
+        source_health: Optional[Dict[str, str]] = None,
     ) -> DecisionReport:
         """Runs a single 5M evaluation cycle across all buffered timeframes."""
         # Simulation clock = last closed 5M candle. Wall time would freeze daily
@@ -111,10 +112,18 @@ class MasterPipeline:
         evaluation_id = f"EV-{self._evaluation_counter:08d}"
 
         # STEP 1: DATA HEALTH ENGINE
+        source_health = source_health or {}
+        derivative_fields = derivatives_input or {}
+        coinglass_has_data = any(
+            isinstance(field, dict)
+            and field.get("value") is not None
+            and str(field.get("source", "")).upper() == "COINGLASS"
+            for field in derivative_fields.values()
+        )
         health_result = self.data_health_engine.evaluate_health(
             candle_dict=candles_dict,
-            coinglass_available=bool(self.settings.COINGLASS_API_KEY),
-            cmc_available=bool(self.settings.COINMARKETCAP_API_KEY),
+            coinglass_available=source_health.get("coinglass") == "CONNECTED" or coinglass_has_data,
+            cmc_available=source_health.get("coinmarketcap") in {"CONNECTED", "HEALTHY"},
             binance_latency_ms=150,
         )
         latest_5m = candles_dict.get("5m", [])
@@ -235,6 +244,20 @@ class MasterPipeline:
             taker_field=derivative_field("taker_buy_ratio", DataSource.BINANCE),
             liquidation_field=derivative_field("liquidations_24h", DataSource.COINGLASS),
         )
+        binance_derivatives_available = any(
+            isinstance(field, dict)
+            and field.get("value") is not None
+            and str(field.get("source", "")).upper() == "BINANCE"
+            for field in deriv_data.values()
+        )
+        if (
+            source_health.get("coinglass")
+            and source_health.get("coinglass") != "CONNECTED"
+            and binance_derivatives_available
+            and derivatives_state.status != DerivativesStatus.REJECT
+        ):
+            derivatives_state.status = DerivativesStatus.DEGRADED
+            derivatives_state.reason = f"{derivatives_state.reason}; CoinGlass supplemental context unavailable"
 
         # STEP 9: PRE-TRADE PLAN ENGINE & RISK ENGINE
         current_atr = regime_result.details.get("current_atr", current_price * 0.01)

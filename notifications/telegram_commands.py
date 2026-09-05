@@ -284,12 +284,16 @@ class TelegramCommandService:
         derivatives = snapshot.get("derivatives") or {}
         sources = snapshot.get("sources") or {}
         derivatives_status = derivatives.get("status") or market.get("derivatives_status") or "UNKNOWN"
+        binance_status = "FALLBACK" if market.get("fallback_active") or "FALLBACK" in str(market.get("market_data_source", "")) else "CONNECTED"
+        cmc_status = (sources.get("coinmarketcap") or {}).get("status") or "UNAVAILABLE"
+        if cmc_status == "HEALTHY":
+            cmc_status = "CONNECTED"
         return "\n".join([
             "📡 VERİ KAYNAKLARI",
             "",
-            f"Binance: {self._text(market.get('market_data_source'), 'UNKNOWN')}",
+            f"Binance: {binance_status}",
             f"CoinGlass: {self._text((sources.get('coinglass') or {}).get('status'), 'UNAVAILABLE')}",
-            f"CoinMarketCap: {self._text((sources.get('coinmarketcap') or {}).get('status'), 'UNAVAILABLE')}",
+            f"CoinMarketCap: {self._text(cmc_status, 'UNAVAILABLE')}",
             f"Derivatives: {self._text(derivatives_status, 'UNKNOWN')}",
             f"News: {self._text(news.get('status'), 'UNKNOWN')}",
             f"AI: {self._text(ai.get('status'), 'DISABLED')}",
@@ -302,13 +306,23 @@ class TelegramCommandService:
         def value(name):
             field = derivatives.get(name)
             return field.get("value") if isinstance(field, dict) else field
+        def source(name):
+            field = derivatives.get(name)
+            return field.get("source") if isinstance(field, dict) else None
+        def market_num(raw, digits=2):
+            return "Unavailable" if raw is None else self._num(raw, digits)
+        oi_value = value("open_interest")
+        oi_text = f"${market_num(oi_value, 0)}" if source("open_interest") == "COINGLASS" else f"{market_num(oi_value, 2)} BTC"
         return "\n".join([
             "🌍 MARKET CONTEXT", "",
-            f"BTC Dominance: {self._num(macro.get('btc_dominance'))}%",
-            f"Total Market Cap: ${self._num(macro.get('total_market_cap_usd'), 0)}",
-            f"24h Volume: ${self._num(macro.get('total_volume_24h_usd'), 0)}",
-            f"Aggregate OI: ${self._num(value('open_interest'), 0)}",
-            f"24h Liquidations: ${self._num(value('liquidations_24h'), 0)}",
+            f"BTC Dominance: {market_num(macro.get('btc_dominance'))}%",
+            f"Total Market Cap: ${market_num(macro.get('total_market_cap_usd'), 0)}",
+            f"24h Volume: ${market_num(macro.get('total_volume_24h_usd'), 0)}",
+            f"Open Interest: {oi_text}",
+            f"Funding: {market_num(value('funding_rate'), 6)}",
+            f"Long/Short: {market_num(value('long_short_ratio'), 3)}",
+            f"Taker Buy/Sell: {market_num(value('taker_buy_ratio'), 3)}",
+            f"CoinGlass Liquidations: ${market_num(value('liquidations_24h'), 0)}",
             "", "🔒 READ ONLY · TESTNET execution controls unchanged",
         ])
 

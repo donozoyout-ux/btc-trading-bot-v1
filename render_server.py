@@ -101,6 +101,8 @@ def bootstrap_payload() -> dict:
         "runtime": "RENDER" if os.environ.get("RENDER") else "CLOUD",
         "service": "BTC Intelligence Console",
         "ui": "READY",
+        # Supplemental providers (CoinGlass/CMC) never gate process startup.
+        "ready_for_render": "YES_DEGRADED",
         "orders_enabled": execution_enabled,
         "shadow_mode": settings.SHADOW_MODE,
         "account_read_only": settings.ACCOUNT_READ_ONLY,

@@ -19,6 +19,7 @@ def test_render_bootstrap_is_network_free_and_safe(monkeypatch):
     assert payload["ok"] is True
     assert payload["runtime"] == "RENDER"
     assert payload["ui"] == "READY"
+    assert payload["ready_for_render"] == "YES_DEGRADED"
     assert payload["orders_enabled"] is False
     assert payload["shadow_mode"] is True
     assert payload["account_read_only"] is True

@@ -26,6 +26,7 @@ class CoinGlassClient:
         self._cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
         self._auth_cache: Optional[tuple[float, Dict[str, Any]]] = None
         self._connected_logged = False
+        self._last_warning_status: Optional[str] = None
 
     @property
     def configured(self) -> bool:
@@ -90,8 +91,11 @@ class CoinGlassClient:
         if status == "CONNECTED" and not self._connected_logged:
             logger.info("COINGLASS: CONNECTED")
             self._connected_logged = True
-        elif status != "CONNECTED":
-            logger.warning("COINGLASS AUTH: {}", status)
+            self._last_warning_status = None
+        elif status != "CONNECTED" and status != self._last_warning_status:
+            # Deliberately log only the sanitized category, once per state.
+            logger.warning("COINGLASS: {}", status)
+            self._last_warning_status = status
         return result
 
     def _cached_request(self, name: str, unavailable_fields: Dict[str, Any], path: str, params: Dict[str, Any], parser) -> Dict[str, Any]:

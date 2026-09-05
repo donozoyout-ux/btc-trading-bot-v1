@@ -450,7 +450,13 @@ class DashboardRuntime:
                 "taker_buy_ratio": {"value": taker_ratio, "source": "BINANCE" if taker_ratio is not None else "UNAVAILABLE", "observed_at": observed_at if taker_ratio is not None else None},
                 "liquidations_24h": {"value": cg_liq.get("total") if cg_liq.get("is_available") else None, "source": "COINGLASS" if cg_liq.get("is_available") else "UNAVAILABLE", "observed_at": cg_liq.get("observed_at")},
             }
-            report = self.pipeline.run_cycle(candles, self.state, derivatives_input=derivatives_input)
+            cmc_status = "CONNECTED" if cmc.get("is_available") else cmc.get("status", "UNAVAILABLE")
+            report = self.pipeline.run_cycle(
+                candles,
+                self.state,
+                derivatives_input=derivatives_input,
+                source_health={"coinglass": cg_status, "coinmarketcap": cmc_status},
+            )
             chart_intelligence = self.chart_reader.analyze(candles)
             mtf = self.mtf_interpreter.interpret(chart_intelligence)
             strategy = self.strategy_orchestrator.summarize(report, chart_intelligence, mtf, news)
@@ -487,6 +493,13 @@ class DashboardRuntime:
                 "open_position_count": len(account["positions"]),
                 "open_order_count": len(account["open_orders"]),
             }
+            binance_source_status = "HEALTHY" if not any([mark_err, oi_err, funding_err, ls_err, taker_err]) else "DEGRADED"
+            critical_ready = (
+                binance_source_status in {"HEALTHY", "DEGRADED"}
+                and (not self.account_configured or account["connected"])
+            )
+            supplemental_degraded = cg_status != "CONNECTED" or cmc_status != "CONNECTED"
+            readiness = "NO" if not critical_ready else "YES_DEGRADED" if supplemental_degraded else "YES"
             if self.admin_token_configured:
                 account_summary = {
                     "environment": "TESTNET", "connected": False, "status": "PROTECTED",
@@ -529,6 +542,7 @@ class DashboardRuntime:
                     "orders_enabled": self.execution_enabled,
                     "shadow_mode": self.settings.SHADOW_MODE,
                     "signed_endpoints_enabled": self.account_configured,
+                    "ready_for_render": readiness,
                 },
                 "market": {
                     "price": current_price,
@@ -581,7 +595,7 @@ class DashboardRuntime:
                 "execution": execution_state,
                 "sources": {
                     "binance": {
-                        "status": "HEALTHY" if not any([mark_err, oi_err, funding_err, ls_err, taker_err]) else "DEGRADED",
+                        "status": binance_source_status,
                         "environment": getattr(self.binance, "active_environment", "CUSTOM_PUBLIC"),
                         "fallback_active": bool(getattr(self.binance, "fallback_active", False)),
                         "errors": [e for e in [mark_err, oi_err, funding_err, ls_err, taker_err] if e],
@@ -595,7 +609,7 @@ class DashboardRuntime:
                         "aggregate_oi": _jsonable(cg_oi),
                     },
                     "coinmarketcap": {
-                        "status": "HEALTHY" if cmc.get("is_available") else "UNAVAILABLE",
+                        "status": cmc_status,
                         "configured": self.cmc.configured,
                         "observed_at": cmc.get("observed_at"),
                         "metrics": _jsonable(cmc),
@@ -634,8 +648,10 @@ class DashboardRuntime:
 
     def health(self) -> Dict[str, Any]:
         account = self.account()
+        critical_ready = not self.account_configured or account["connected"]
         return {
             "ok": True,
+            "ready_for_render": "YES_DEGRADED" if critical_ready else "NO",
             "mode": "TESTNET AUTO EXECUTION" if self.execution_enabled else "DEMO / SHADOW / READ ONLY",
             "orders_enabled": self.execution_enabled,
             "shadow_mode": self.settings.SHADOW_MODE,

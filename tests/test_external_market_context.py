@@ -82,6 +82,11 @@ def test_auth_401_is_classified_and_backed_off_for_five_minutes():
     now[0] += 299
     assert client.get_aggregate_oi()["status"] == "AUTH_ERROR"
     assert client.session.calls == 1
+    result = client.get_liquidation_data()
+    assert result["is_available"] is False
+    assert result["total"] is None
+    assert result["long_liquidation_usdt"] is None
+    assert result["short_liquidation_usdt"] is None
 
 
 def test_coinglass_plan_and_rate_limit_categories():
@@ -105,6 +110,8 @@ def test_runtime_contract_preserves_provenance_and_macro_is_advisory_only():
     assert '"macro_context"' in dashboard
     assert "DerivativesField(**raw)" in runner
     assert "macro_context" not in executor
+    assert "bool(self.settings.COINGLASS_API_KEY)" not in runner
+    assert 'source_health.get("coinglass") == "CONNECTED"' in runner
 
 
 def test_dashboard_and_logs_never_embed_external_api_keys():
