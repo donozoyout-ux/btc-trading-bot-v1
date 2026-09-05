@@ -77,6 +77,11 @@
     setMessage('Bir API isteği tamamlanamadı. Web arayüzü açık kalacak ve otomatik yeniden deneyecek.');
   });
 
+  const tabsScript = document.createElement('script');
+  tabsScript.src = '/dashboard-tabs.js';
+  tabsScript.defer = true;
+  document.head.appendChild(tabsScript);
+
   loadBootstrap();
   setTimeout(statusFromConnection, 2500);
   setInterval(statusFromConnection, 3000);
