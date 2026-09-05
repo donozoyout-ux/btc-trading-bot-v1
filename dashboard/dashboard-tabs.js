@@ -144,31 +144,6 @@
   });
 
   document.querySelectorAll('.dashboard-tabs').forEach(el => el.remove());
-
-  const syncRiskCore = () => {
-    const rr = document.getElementById('riskRR');
-    const decision = document.getElementById('finalDecision');
-    const label = rr?.parentElement?.querySelector('small');
-    if (!rr || !decision || !label) return;
-    const finalDecision = String(decision.textContent || '').trim().toUpperCase();
-    const rawRR = String(rr.textContent || '').trim();
-    const noSetup = ['NO TRADE', 'NO_TRADE', 'WAIT'].includes(finalDecision) && (rawRR === '—' || rawRR === '' || rawRR === 'WAIT');
-    if (noSetup) {
-      rr.textContent = 'WAIT';
-      label.textContent = 'NO SETUP';
-      rr.title = 'Geçerli işlem planı olmadığı için R:R hesaplanmıyor.';
-    } else if (rawRR !== 'WAIT') {
-      label.textContent = 'R:R';
-      rr.removeAttribute('title');
-    }
-  };
-  const riskObserver = new MutationObserver(syncRiskCore);
-  const riskRR = document.getElementById('riskRR');
-  const finalDecision = document.getElementById('finalDecision');
-  if (riskRR) riskObserver.observe(riskRR, {childList:true, characterData:true, subtree:true});
-  if (finalDecision) riskObserver.observe(finalDecision, {childList:true, characterData:true, subtree:true});
-  syncRiskCore();
-
   requestAnimationFrame(() => {
     window.dispatchEvent(new Event('resize'));
     setTimeout(() => window.dispatchEvent(new Event('resize')), 140);

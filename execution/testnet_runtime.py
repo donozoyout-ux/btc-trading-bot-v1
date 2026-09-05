@@ -73,12 +73,11 @@ class TestnetExecutionRuntime:
             "telegram_chat_id_configured": bool(s.TELEGRAM_CHAT_ID),
         }
 
-    def authenticate(self, *, notify: bool = True) -> Dict[str, Any]:
+    def authenticate(self) -> Dict[str, Any]:
         self.executor._assert_execution_boundary()
         server_time = self.client.get_server_time()
         account = self.client.get_account_summary()
-        if notify:
-            self.executor._notify("BINANCE_CONNECTED", {"message": "Signed Binance Futures TESTNET account connected"}, "BINANCE_CONNECTED")
+        self.executor._notify("BINANCE_CONNECTED", {"message": "Signed Binance Futures TESTNET account connected"}, "BINANCE_CONNECTED")
         return {"server_time": server_time, "account": account}
 
     def run_smoke_test(self) -> Dict[str, Any]:
@@ -93,10 +92,7 @@ class TestnetExecutionRuntime:
         open_order: Optional[Dict[str, Any]] = None
         try:
             self.executor._assert_execution_boundary()
-            # Smoke is an internal startup health check. Keep its intermediate
-            # BUY/CLOSE operations out of Telegram so users never confuse the
-            # controlled test with a real strategy trade.
-            self.authenticate(notify=False)
+            self.authenticate()
             before = self.client.get_position("BTCUSDT")
             if float(before.get("position_amt") or 0) != 0:
                 raise ExecutionError("POSITION_ALREADY_OPEN")
@@ -115,6 +111,7 @@ class TestnetExecutionRuntime:
             self.executor._record_order("SMOKE_TEST", "SMOKE_OPEN", open_order, before, position)
             if not opened:
                 raise ExecutionError("TEST_POSITION_NOT_DETECTED")
+            self.executor._notify("ORDER_OPENED", {"side": "LONG", "entry": open_order.get("average_fill_price"), "size": abs(float(position["position_amt"])), "stop": "SMOKE TEST", "tp1": "AUTO CLOSE", "tp2": "AUTO CLOSE"}, "ORDER_OPENED:SMOKE_TEST")
             self.sleep_fn(3)
             close_order = self.client.close_position_market("BTCUSDT")
             final_position = self.client.get_position("BTCUSDT")
@@ -124,6 +121,7 @@ class TestnetExecutionRuntime:
                 self.executor._record_order("SMOKE_TEST", "SMOKE_CLOSE", close_order, position, final_position)
             if not flat:
                 raise ExecutionError("SMOKE_CLOSE_RECONCILIATION_FAILED")
+            self.executor._notify("ORDER_CLOSED", {"message": "Controlled TESTNET smoke position closed; final position FLAT"}, "ORDER_CLOSED:SMOKE_TEST")
             result = {"status": "PASS", "test_buy": "PASS", "position_detected": True, "test_close": "PASS", "final_position": "FLAT", "open_order": open_order, "close_order": close_order}
             self._smoke_result = result
             self.executor._notify("SMOKE_TEST_PASS", {"message": "Controlled BUY, position verification and reduce-only close passed; final position FLAT"}, "SMOKE_TEST_PASS")
@@ -157,15 +155,13 @@ class TestnetExecutionRuntime:
 
         # Restart safety comes before a startup smoke. If Render restarts while
         # a real TESTNET position is already open, the bot must recover and
-        # manage that position instead of treating it as a smoke-test failure.
-        # Startup auth is intentionally silent; Telegram receives one concise
-        # startup message rather than connection + smoke open + smoke close +
-        # smoke pass + system-start spam.
-        self.authenticate(notify=False)
+        # manage that position instead of treating it as a smoke-test failure
+        # (which previously attempted to flatten it in the smoke exception
+        # handler). A smoke is only meaningful on a verified-flat account.
+        self.authenticate()
         recovered = self.executor.recover_from_exchange()
         recovered_position = recovered.get("position") or {}
         has_active_position = float(recovered_position.get("position_amt") or 0) != 0
-        smoke_summary_sent = False
 
         if self.settings.RUN_EXECUTION_SMOKE_TEST and has_active_position:
             self._status(
@@ -179,15 +175,11 @@ class TestnetExecutionRuntime:
             smoke = self.run_smoke_test()
             if smoke.get("status") != "PASS" or smoke.get("final_position") != "FLAT":
                 raise ExecutionError("SMOKE_TEST_FAILED")
-            smoke_summary_sent = True
             # Smoke ends FLAT. Reconcile once more so journal/exchange state is
             # aligned before normal strategy cycles begin.
             self.executor.recover_from_exchange()
 
-        # A successful startup smoke already emitted one concise PASS summary.
-        # Otherwise send the normal bot-start message. Never send both.
-        if not smoke_summary_sent:
-            self.executor._notify("SYSTEM_STARTED", {"message": "Automatic TESTNET trading loop started"}, "SYSTEM_STARTED")
+        self.executor._notify("SYSTEM_STARTED", {"message": "Automatic TESTNET trading loop started"}, "SYSTEM_STARTED")
         self._status(bot_status="RUNNING", execution_thread="RUNNING", last_execution_result="LOOP_STARTED", last_error="")
         cycles = 0
         while max_cycles is None or cycles < max_cycles:
