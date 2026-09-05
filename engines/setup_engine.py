@@ -27,7 +27,7 @@ class SetupEngine:
         self,
         volume_engine: Optional[VolumeEngine] = None,
         location_proximity_pct: float = 0.005,
-        counter_trend_rsi_oversold: float = 30.0,
+        counter_trend_rsi_oversold: float = 32.0,
         counter_trend_rsi_overbought: float = 70.0,
         counter_trend_adx_veto: float = 35.0,
         bollinger_period: int = 20,
@@ -44,6 +44,7 @@ class SetupEngine:
         self.bollinger_std_dev = bollinger_std_dev
         self.enable_setup_b_short = enable_setup_b_short
         self.enable_setup_c_short = enable_setup_c_short
+        self.last_experimental_blocker: Optional[str] = None
 
     @staticmethod
     def calculate_bollinger_bands(closes: np.ndarray, period: int = 20, std_dev: float = 2.0) -> Tuple[float, float, float]:
@@ -196,12 +197,10 @@ class SetupEngine:
                 )
                 if broke_below and retested and current_price < z.price_min:
                     if not self.enable_setup_b_short:
-                        return SetupSignal(
-                            setup_type=SetupType.NONE,
-                            direction=TradeDirection.WAIT,
-                            detected=False,
-                            reason="EXPERIMENTAL_SETUP_DISABLED: BREAKOUT_RETEST SHORT",
-                        )
+                        # Record telemetry without returning a truthy NONE
+                        # signal that would suppress lower-priority Setup C.
+                        self.last_experimental_blocker = "EXPERIMENTAL_SETUP_DISABLED: BREAKOUT_RETEST SHORT"
+                        return None
                     return SetupSignal(
                         setup_type=SetupType.BREAKOUT_RETEST,
                         direction=TradeDirection.SHORT,
@@ -322,6 +321,7 @@ class SetupEngine:
         2. Setup B: Breakout + Retest
         3. Setup C: Counter-Trend Reaction
         """
+        self.last_experimental_blocker = None
         if location.is_bad_location:
             return SetupSignal(
                 setup_type=SetupType.NONE,
@@ -349,5 +349,5 @@ class SetupEngine:
             setup_type=SetupType.NONE,
             direction=TradeDirection.WAIT,
             detected=False,
-            reason="No active setup detected across current market state",
+            reason=self.last_experimental_blocker or "No active setup detected across current market state",
         )

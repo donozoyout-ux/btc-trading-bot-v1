@@ -1,7 +1,7 @@
 import pytest
 
 from config.constants import DataSource, DerivativesStatus, LocationQuality, MarketRegime, SetupType, TradeDirection, VolatilityLevel
-from core.models import Candle, ConfluenceZone, DerivativesField, LocationResult, RegimeResult
+from core.models import Candle, ConfluenceZone, DerivativesField, LocationResult, MarketStructure, RegimeResult
 from engines.derivatives_engine import DerivativesEngine
 from engines.setup_engine import SetupEngine
 from engines.strategy_orchestrator import StrategyOrchestrator
@@ -83,10 +83,43 @@ def test_setup_b_short_is_disabled_by_default_and_explicitly_enabled():
     rows[-2] = candle(13, 98.5, high=100, low=98)
     rows[-1] = candle(14, 98)
     blocked = SetupEngine().detect_setup_b_breakout_retest(regime(MarketRegime.BEAR), rows, [ZONE])
-    assert blocked.setup_type == SetupType.NONE
-    assert "EXPERIMENTAL_SETUP_DISABLED" in blocked.reason
+    assert blocked is None
     enabled = SetupEngine(enable_setup_b_short=True).detect_setup_b_breakout_retest(regime(MarketRegime.BEAR), rows, [ZONE])
     assert enabled.direction == TradeDirection.SHORT
+
+
+def test_disabled_setup_b_short_falls_through_to_setup_c_long_and_enabled_b_keeps_priority(monkeypatch):
+    rows_15m = [candle(i, 102) for i in range(15)]
+    rows_15m[-9] = candle(6, 98)
+    rows_15m[-2] = candle(13, 98.5, high=100, low=98)
+    rows_15m[-1] = candle(14, 98)
+    support = ConfluenceZone(level_type="SUPPORT", price_min=89, price_max=91, center=90, strength=2)
+    location = LocationResult(
+        quality=LocationQuality.STRONG_LONG_LOCATION,
+        current_price=90,
+        nearest_support=support,
+        distance_to_support_pct=0,
+    )
+    struct = MarketStructure(timeframe="1h", structure=StructureType.MIXED)
+    rows_5m = [candle(i, 90) for i in range(25)]
+
+    disabled = SetupEngine()
+    monkeypatch.setattr(disabled, "calculate_bollinger_bands", lambda *args: (100, 109, 91))
+    monkeypatch.setattr(disabled, "calculate_rsi_quick", lambda *args: 31)
+    selected = disabled.evaluate_setups(
+        regime(MarketRegime.BEAR), struct, rows_15m, rows_5m, location, [ZONE]
+    )
+    assert selected.setup_type == SetupType.COUNTER_TREND_REACTION
+    assert selected.direction == TradeDirection.LONG
+
+    enabled = SetupEngine(enable_setup_b_short=True)
+    monkeypatch.setattr(enabled, "calculate_bollinger_bands", lambda *args: (100, 109, 91))
+    monkeypatch.setattr(enabled, "calculate_rsi_quick", lambda *args: 31)
+    selected = enabled.evaluate_setups(
+        regime(MarketRegime.BEAR), struct, rows_15m, rows_5m, location, [ZONE]
+    )
+    assert selected.setup_type == SetupType.BREAKOUT_RETEST
+    assert selected.direction == TradeDirection.SHORT
 
 
 @pytest.mark.parametrize("market,direction,price,support,resistance,rsi", [
