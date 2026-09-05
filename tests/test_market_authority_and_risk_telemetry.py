@@ -211,7 +211,7 @@ def _base_snapshot():
         "final_decision": "LONG_ENTRY",
         "meta": {},
         "sources": {"binance": {"status": "HEALTHY"}},
-        "strategy": {"eligible": True, "blocking_reasons": []},
+        "strategy": {"eligible": True, "blocking_reasons": [], "hard_blockers": []},
         "derivatives": {"status": "CONFIRM"},
         "market": {},
     }
@@ -235,6 +235,7 @@ def test_render_snapshot_blocks_new_entry_when_market_is_testnet_fallback(monkey
     assert snapshot["final_decision"] == "NO_TRADE"
     assert snapshot["strategy"]["eligible"] is False
     assert "MARKET_DATA_NOT_TRADING_SAFE" in snapshot["strategy"]["blocking_reasons"]
+    assert "MARKET_DATA_NOT_TRADING_SAFE" in snapshot["strategy"]["hard_blockers"]
     assert snapshot["sources"]["binance"]["status"] == "DEGRADED"
     assert snapshot["derivatives"]["open_interest"]["source"] == "BINANCE_TESTNET_FALLBACK"
     assert snapshot["derivatives"]["trading_authority"] == "SUPPLEMENTAL_OR_NONE"
@@ -254,6 +255,7 @@ def test_render_snapshot_keeps_entry_authority_on_native_production_futures(monk
     assert snapshot["strategy"]["eligible"] is True
     assert snapshot["derivatives"]["trading_authority"] == "PRODUCTION_FUTURES"
     assert "MARKET_DATA_NOT_TRADING_SAFE" not in snapshot["strategy"]["blocking_reasons"]
+    assert "MARKET_DATA_NOT_TRADING_SAFE" not in snapshot["strategy"]["hard_blockers"]
 
 
 def test_render_snapshot_allows_testnet_forward_test_on_real_spot_proxy(monkeypatch):

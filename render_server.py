@@ -94,12 +94,17 @@ class RenderDashboardRuntime(base.DashboardRuntime):
             binance_source["status"] = "DEGRADED"
 
         strategy = snapshot.setdefault("strategy", {})
-        blockers = list(strategy.get("blocking_reasons") or [])
+        hard_blockers = list(
+            strategy.get("hard_blockers")
+            if "hard_blockers" in strategy
+            else strategy.get("blocking_reasons") or []
+        )
         if not trading_safe:
             strategy["eligible"] = False
-            if "MARKET_DATA_NOT_TRADING_SAFE" not in blockers:
-                blockers.append("MARKET_DATA_NOT_TRADING_SAFE")
-            strategy["blocking_reasons"] = blockers
+            if "MARKET_DATA_NOT_TRADING_SAFE" not in hard_blockers:
+                hard_blockers.append("MARKET_DATA_NOT_TRADING_SAFE")
+            strategy["hard_blockers"] = hard_blockers
+            strategy["blocking_reasons"] = hard_blockers
             if snapshot.get("final_decision") in {"LONG_ENTRY", "SHORT_ENTRY"}:
                 snapshot["final_decision"] = "NO_TRADE"
 

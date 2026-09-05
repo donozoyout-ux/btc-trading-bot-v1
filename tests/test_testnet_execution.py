@@ -31,7 +31,7 @@ class FakeExecutionClient:
     testnet = True
     configured = True
 
-    def __init__(self, position_amt=0.0, protection_failure=False):
+    def __init__(self, position_amt=0.0, protection_failure=False, wallet_balance=1000.0, mark_price=80000.0, fill_price=80000.0):
         self.position = {"symbol": "BTCUSDT", "position_amt": position_amt, "side": "LONG" if position_amt > 0 else "SHORT" if position_amt < 0 else "FLAT", "entry_price": 80000.0, "mark_price": 80000.0, "unrealized_pnl": 0.0, "leverage": 1}
         self.orders = []
         self.regular_orders = []
@@ -39,9 +39,13 @@ class FakeExecutionClient:
         self.close_calls = 0
         self.cancelled_algo_orders = []
         self.protection_failure = protection_failure
+        self.wallet_balance = wallet_balance
+        self.mark_price = mark_price
+        self.fill_price = fill_price
 
     def get_server_time(self): return 123456789
-    def get_account_summary(self): return {"wallet_balance": 1000.0, "available_balance": 1000.0, "margin_balance": 1000.0, "unrealized_pnl": 0.0, "positions": [], "open_orders": []}
+    def get_mark_price(self, symbol="BTCUSDT"): return self.mark_price
+    def get_account_summary(self): return {"wallet_balance": self.wallet_balance, "available_balance": self.wallet_balance, "margin_balance": self.wallet_balance, "unrealized_pnl": 0.0, "positions": [], "open_orders": []}
     def get_position(self, symbol="BTCUSDT"): return dict(self.position)
     def get_positions(self, symbol=None):
         if float(self.position.get("position_amt") or 0) == 0:
@@ -68,7 +72,7 @@ class FakeExecutionClient:
             self.position.update(position_amt=0.0, side="FLAT")
         else:
             self.position.update(position_amt=quantity if side == "BUY" else -quantity, side="LONG" if side == "BUY" else "SHORT")
-        return {"client_order_id": client_order_id, "binance_order_id": len(self.market_calls), "symbol": symbol, "side": side, "type": "MARKET", "requested_quantity": quantity, "executed_quantity": quantity, "average_fill_price": 80000.0, "status": "FILLED", "reduce_only": reduce_only, "timestamp": 1}
+        return {"client_order_id": client_order_id, "binance_order_id": len(self.market_calls), "symbol": symbol, "side": side, "type": "MARKET", "requested_quantity": quantity, "executed_quantity": quantity, "average_fill_price": self.fill_price, "status": "FILLED", "reduce_only": reduce_only, "timestamp": 1}
     def place_protective_order(self, symbol, side, order_type, quantity, stop_price):
         if self.protection_failure:
             raise ExecutionError("ORDER_REJECTED")
@@ -88,10 +92,11 @@ def snapshot(ts=1, decision_id="D1", eligible=True, kill=False):
         "decision_id": decision_id,
         "final_decision": "LONG_ENTRY" if eligible else "NO_TRADE",
         "candles": {"5m": [{"time": ts}]},
-        "decision": {"price": 80000.0, "risk_status": "ACCEPT_TRADE" if eligible else "REJECT_TRADE", "risk_assessment": {"position_size_btc": 0.001}, "trade_plan": {"stop_loss": 79000.0, "tp1": 81000.0, "tp2": 82000.0}},
-        "strategy": {"eligible": eligible, "entry_trigger_state": "ENTRY_READY" if eligible else "NO_SETUP", "trade_plan": {"stop_loss": 79000.0, "tp1": 81000.0, "tp2": 82000.0}},
+        "decision": {"price": 80000.0, "risk_status": "ACCEPT_TRADE" if eligible else "REJECT_TRADE", "risk_assessment": {"position_size_btc": 0.001, "risk_amount_usdt": 1.0, "risk_pct_used": 0.001}, "trade_plan": {"stop_loss": 79000.0, "tp1": 81000.0, "tp2": 82000.0}},
+        "strategy": {"eligible": eligible, "entry_trigger_state": "ENTRY_READY" if eligible else "NO_SETUP", "hard_blockers": [], "entry_quality_assessment": {"decision": "ACCEPT" if eligible else "REJECT"}, "trade_plan": {"entry_price": 80000.0, "stop_loss": 79000.0, "tp1": 81000.0, "tp2": 82000.0}},
         "system_state": {"kill_switch": kill},
         "sources": {"binance": {"status": "HEALTHY"}},
+        "risk_capital": {"source": "BINANCE_TESTNET_WALLET", "sizing_capital_usdt": 1000.0, "wallet_balance_usdt": 1000.0, "available_balance_usdt": 1000.0},
         "ai_analyst": {"execution_authority": True},
     }
 

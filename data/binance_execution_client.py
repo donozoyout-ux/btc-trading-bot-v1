@@ -151,6 +151,13 @@ class BinanceFuturesExecutionClient:
             "open_orders": orders,
         }
 
+    def get_mark_price(self, symbol: str = "BTCUSDT") -> float:
+        payload = self._request("GET", "/fapi/v1/premiumIndex", {"symbol": symbol})
+        try:
+            return float(payload["markPrice"])
+        except (KeyError, TypeError, ValueError):
+            raise ExecutionError("EXCHANGE_ERROR") from None
+
     def get_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         params = {"symbol": symbol} if symbol else None
         payload = self._request("GET", "/fapi/v2/positionRisk", params)

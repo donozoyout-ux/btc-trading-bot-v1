@@ -155,6 +155,13 @@ class SetupSignal(BaseModel):
     target_level: float = 0.0
     zone: Optional[ConfluenceZone] = None
     reason: str = ""
+    breakout_timestamp: Optional[int] = None
+    retest_timestamp: Optional[int] = None
+    breakout_level: Optional[float] = None
+    breakout_quality: Optional[str] = None
+    retest_hold: bool = False
+    retest_confirmation: Optional[str] = None
+    setup_invalidated: bool = False
 
 
 class TriggerResult(BaseModel):
@@ -223,6 +230,25 @@ class RiskAssessment(BaseModel):
     trade_plan: Optional[TradePlan] = None
 
 
+class EntryQualityAssessment(BaseModel):
+    decision: str
+    reason_codes: List[str] = Field(default_factory=list)
+    direction: TradeDirection
+    entry_price: float
+    nearest_support: Optional[float] = None
+    nearest_resistance: Optional[float] = None
+    distance_to_support_pct: Optional[float] = None
+    distance_to_resistance_pct: Optional[float] = None
+    atr_extension_5m: Optional[float] = None
+    atr_extension_15m: Optional[float] = None
+    rsi_5m: Optional[float] = None
+    rsi_15m: Optional[float] = None
+    opposing_bos: bool = False
+    opposing_choch: bool = False
+    price_basis_deviation_pct: Optional[float] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
 class DataHealthResult(BaseModel):
     """Comprehensive data health status covering overall safety and source-level states."""
     overall_safety: DataSafetyStatus = DataSafetyStatus.SAFE
@@ -261,6 +287,8 @@ class DecisionReport(BaseModel):
     reason: str
     trade_plan: Optional[TradePlan] = None
     risk_assessment: Optional[RiskAssessment] = None
+    entry_quality_assessment: Optional[EntryQualityAssessment] = None
+    setup_evidence: Dict[str, Any] = Field(default_factory=dict)
 
 
 class TradeRecord(BaseModel):

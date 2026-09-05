@@ -33,7 +33,7 @@ def test_experimental_short_settings_default_disabled():
 def test_setup_b_long_behavior_remains_available():
     rows = [candle(i, 98) for i in range(15)]
     rows[-9] = candle(6, 102)
-    rows[-2] = candle(13, 101.5, high=102, low=100.5)
+    rows[-2] = Candle(timestamp=13 * 900_000, open=100.5, high=102, low=100.5, close=101.5, volume=100, is_closed=True)
     rows[-1] = candle(14, 102)
     result = SetupEngine().detect_setup_b_breakout_retest(regime(MarketRegime.BULL), rows, [ZONE])
     assert result.direction == TradeDirection.LONG
@@ -43,7 +43,7 @@ def test_setup_b_long_behavior_remains_available():
 def test_setup_b_long_preserves_prior_last_10_window_parity():
     rows = [candle(i, 98) for i in range(15)]
     rows[-3] = candle(12, 102, high=103, low=100.5)
-    rows[-2] = candle(13, 101, high=102, low=100)
+    rows[-2] = Candle(timestamp=13 * 900_000, open=100, high=101.5, low=100, close=101, volume=100, is_closed=True)
     rows[-1] = candle(14, 102)
     result = SetupEngine().detect_setup_b_breakout_retest(regime(MarketRegime.BULL), rows, [ZONE])
     assert result is not None
@@ -53,7 +53,7 @@ def test_setup_b_long_preserves_prior_last_10_window_parity():
 def test_setup_b_short_requires_prior_breakdown_then_closed_retest():
     rows = [candle(i, 102) for i in range(15)]
     rows[-9] = candle(6, 98)
-    rows[-2] = candle(13, 98.5, high=100, low=98)
+    rows[-2] = Candle(timestamp=13 * 900_000, open=100, high=100, low=98, close=98.5, volume=100, is_closed=True)
     rows[-1] = candle(14, 98)
     result = SetupEngine(enable_setup_b_short=True).detect_setup_b_breakout_retest(regime(MarketRegime.BEAR), rows, [ZONE])
     assert result.direction == TradeDirection.SHORT
@@ -77,10 +77,26 @@ def test_setup_b_ignores_open_future_breakdown_bar():
     assert SetupEngine().detect_setup_b_breakout_retest(regime(MarketRegime.BEAR), rows, [ZONE]) is None
 
 
+def test_setup_b_failed_level_cannot_be_revived_by_later_recovery():
+    long_rows = [candle(i, 98) for i in range(15)]
+    long_rows[-9] = candle(6, 102)
+    long_rows[-6] = Candle(timestamp=9 * 900_000, open=100.5, high=102, low=100.5, close=101.5, volume=100, is_closed=True)
+    long_rows[-4] = candle(11, 98, high=100, low=97)
+    long_rows[-1] = candle(14, 102)
+    assert SetupEngine().detect_setup_b_breakout_retest(regime(MarketRegime.BULL), long_rows, [ZONE]) is None
+
+    short_rows = [candle(i, 102) for i in range(15)]
+    short_rows[-9] = candle(6, 98)
+    short_rows[-6] = Candle(timestamp=9 * 900_000, open=100, high=100, low=98, close=98.5, volume=100, is_closed=True)
+    short_rows[-4] = candle(11, 102, high=103, low=100)
+    short_rows[-1] = candle(14, 98)
+    assert SetupEngine(enable_setup_b_short=True).detect_setup_b_breakout_retest(regime(MarketRegime.BEAR), short_rows, [ZONE]) is None
+
+
 def test_setup_b_short_is_disabled_by_default_and_explicitly_enabled():
     rows = [candle(i, 102) for i in range(15)]
     rows[-9] = candle(6, 98)
-    rows[-2] = candle(13, 98.5, high=100, low=98)
+    rows[-2] = Candle(timestamp=13 * 900_000, open=100, high=100, low=98, close=98.5, volume=100, is_closed=True)
     rows[-1] = candle(14, 98)
     blocked = SetupEngine().detect_setup_b_breakout_retest(regime(MarketRegime.BEAR), rows, [ZONE])
     assert blocked is None
@@ -91,7 +107,7 @@ def test_setup_b_short_is_disabled_by_default_and_explicitly_enabled():
 def test_disabled_setup_b_short_falls_through_to_setup_c_long_and_enabled_b_keeps_priority(monkeypatch):
     rows_15m = [candle(i, 102) for i in range(15)]
     rows_15m[-9] = candle(6, 98)
-    rows_15m[-2] = candle(13, 98.5, high=100, low=98)
+    rows_15m[-2] = Candle(timestamp=13 * 900_000, open=100, high=100, low=98, close=98.5, volume=100, is_closed=True)
     rows_15m[-1] = candle(14, 98)
     support = ConfluenceZone(level_type="SUPPORT", price_min=89, price_max=91, center=90, strength=2)
     location = LocationResult(

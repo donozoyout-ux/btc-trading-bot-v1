@@ -290,23 +290,129 @@ class TestnetExecutor(BaseExecutor):
         system = snapshot.get("system_state", {})
         sources = snapshot.get("sources", {})
         final = str(snapshot.get("final_decision") or decision.get("final_decision"))
-        eligible = all([final in (DecisionStatus.LONG_ENTRY.value, DecisionStatus.SHORT_ENTRY.value), strategy.get("eligible") is True, strategy.get("entry_trigger_state") == TriggerState.ENTRY_READY.value, decision.get("risk_status") == RiskDecision.ACCEPT_TRADE.value, not system.get("kill_switch"), sources.get("binance", {}).get("status") == "HEALTHY"])
+        hard_blockers = (
+            strategy.get("hard_blockers", [])
+            if "hard_blockers" in strategy
+            else strategy.get("blocking_reasons", [])
+        )
+        entry_quality = strategy.get("entry_quality_assessment") or decision.get("entry_quality_assessment") or {}
+        eligible = all([final in (DecisionStatus.LONG_ENTRY.value, DecisionStatus.SHORT_ENTRY.value), strategy.get("eligible") is True, strategy.get("entry_trigger_state") == TriggerState.ENTRY_READY.value, decision.get("risk_status") == RiskDecision.ACCEPT_TRADE.value, entry_quality.get("decision") == "ACCEPT", not hard_blockers, not system.get("kill_switch"), sources.get("binance", {}).get("status") == "HEALTHY"])
         if not eligible:
             self._write_runtime_state()
             return {"status": "NO_ELIGIBLE_SIGNAL"}
         plan = strategy.get("trade_plan") or decision.get("trade_plan") or {}
         risk = decision.get("risk_assessment") or {}
-        raw_quantity = float(risk.get("position_size_btc") or 0)
-        if raw_quantity <= 0:
+        capital = snapshot.get("risk_capital") or {}
+        capital_source = str(capital.get("source") or "")
+        sizing_capital = capital.get("sizing_capital_usdt")
+        wallet = capital.get("wallet_balance_usdt")
+        available = capital.get("available_balance_usdt")
+        if capital_source not in {"BINANCE_TESTNET_WALLET", "BINANCE_TESTNET_AVAILABLE"} or sizing_capital is None or float(sizing_capital) <= 0:
+            raise ExecutionError("RISK_CAPITAL_UNAVAILABLE")
+        sizing_capital = float(sizing_capital)
+        state.account_balance_usdt = sizing_capital
+        setup_type = str(strategy.get("setup_type") or decision.get("setup") or "")
+        risk_pct = float(risk.get("risk_pct_used") or 0)
+        planned_entry = float(plan.get("entry_price") or decision.get("price") or 0)
+        stop_loss = float(plan.get("stop_loss") or 0)
+        stop_distance = abs(planned_entry - stop_loss)
+        if planned_entry <= 0 or stop_distance <= 0:
             raise ExecutionError("INVALID_POSITION_SIZE")
+        planned_risk_usdt = float(risk.get("risk_amount_usdt") or 0)
+        raw_quantity = float(risk.get("position_size_btc") or 0)
+        if raw_quantity <= 0 or planned_risk_usdt <= 0 or risk_pct <= 0:
+            raise ExecutionError("INVALID_POSITION_SIZE")
+        if raw_quantity * planned_entry > sizing_capital * self.settings.MAX_ACCOUNT_LEVERAGE * (1 + 1e-9):
+            raise ExecutionError("POSITION_SIZE_EXCEEDS_LEVERAGE_CAP")
         side = "BUY" if final == DecisionStatus.LONG_ENTRY.value else "SELL"
-        quantity = self.client.normalize_quantity("BTCUSDT", raw_quantity, market=True, price=decision.get("price"))
+        strategy_price = float(decision.get("price") or planned_entry)
+        market_source = sources.get("binance", {}).get("environment") or sources.get("binance", {}).get("market_data_source") or "UNKNOWN"
+        entry_snapshot = {
+            "decision_id": decision_id,
+            "evaluation_id": decision.get("evaluation_id"),
+            "candidate_id": risk.get("candidate_id"),
+            "setup_type": setup_type,
+            "direction": strategy.get("direction"),
+            "entry_trigger": strategy.get("entry_trigger_state"),
+            "entry_quality_assessment": entry_quality,
+            "chart_intelligence": snapshot.get("chart_intelligence"),
+            "location": {"quality": decision.get("location"), "zones": snapshot.get("zones")},
+            "regime": decision.get("regime"),
+            "regime_score": decision.get("regime_score"),
+            "volatility": decision.get("volatility"),
+            "overextended_up": decision.get("overextended_up"),
+            "overextended_down": decision.get("overextended_down"),
+            "derivatives": snapshot.get("derivatives"),
+            "trade_plan": plan,
+            "risk_assessment": risk,
+            "risk_capital_source": capital_source,
+            "wallet_balance": wallet,
+            "available_balance": available,
+            "sizing_capital": sizing_capital,
+            "configured_risk_pct": risk_pct,
+            "planned_risk_usdt": planned_risk_usdt,
+            "risk_sized_quantity": raw_quantity,
+            "strategy_market_source": market_source,
+            "strategy_market_basis": "SPOT_PROXY" if "SPOT" in market_source else "FUTURES",
+            "strategy_price": strategy_price,
+            "planned_entry": planned_entry,
+        }
+        self.execution_journal.record(decision_id=decision_id, action="ENTRY_SNAPSHOT", status="FROZEN", details=entry_snapshot)
+        mark_value = self.client.get_mark_price("BTCUSDT")
+        if mark_value is None or float(mark_value) <= 0:
+            raise ExecutionError("MARK_PRICE_UNAVAILABLE")
+        testnet_mark = float(mark_value)
+        basis_deviation = max(abs(testnet_mark - planned_entry) / planned_entry, abs(testnet_mark - strategy_price) / strategy_price)
+        if basis_deviation > self.settings.MAX_SLIPPAGE_TOLERANCE_PCT:
+            raise ExecutionError("EXECUTION_PRICE_DEVIATION")
+        quantity = self.client.normalize_quantity("BTCUSDT", raw_quantity, market=True, price=testnet_mark)
+        self.execution_journal.record(
+            decision_id=decision_id,
+            action="ENTRY_MARK_CHECK",
+            status="PASS",
+            details={"testnet_mark": testnet_mark, "planned_entry": planned_entry, "entry_basis_deviation_pct": basis_deviation, "normalized_quantity": quantity},
+        )
         before = position
-        entry = self.client.place_market_order("BTCUSDT", side, quantity, reduce_only=False, client_order_id=f"btc-{decision_id[-24:]}")
-        after = self.client.get_position("BTCUSDT")
-        if float(entry.get("executed_quantity") or 0) <= 0 or float(after.get("position_amt") or 0) == 0:
-            raise ExecutionError("ENTRY_RECONCILIATION_FAILED")
-        self._known_position = after
+        entry = None
+        try:
+            entry = self.client.place_market_order("BTCUSDT", side, quantity, reduce_only=False, client_order_id=f"btc-{decision_id[-24:]}")
+            after = self.client.get_position("BTCUSDT")
+            if float(entry.get("executed_quantity") or 0) <= 0 or float(after.get("position_amt") or 0) == 0:
+                raise ExecutionError("ENTRY_RECONCILIATION_FAILED")
+            self._known_position = after
+            actual_fill = float(entry.get("average_fill_price") or 0)
+            fill_deviation = abs(actual_fill - planned_entry) / planned_entry if actual_fill > 0 else 1.0
+            if fill_deviation > self.settings.MAX_SLIPPAGE_TOLERANCE_PCT:
+                self.execution_journal.record(
+                    decision_id=decision_id,
+                    action="FILL_DEVIATION",
+                    status="FLATTEN_REQUESTED",
+                    reason="EXECUTION_PRICE_DEVIATION",
+                    details={"planned_entry": planned_entry, "actual_fill": actual_fill, "fill_deviation_pct": fill_deviation},
+                )
+                raise ExecutionError("EXECUTION_PRICE_DEVIATION")
+        except Exception as exc:
+            final_position = {}
+            try:
+                # The order outcome may be unknown when reconciliation itself
+                # failed, so attempt a reduce-only flatten without relying on a
+                # successful position read first.
+                self.client.close_position_market("BTCUSDT")
+                final_position = self.client.get_position("BTCUSDT")
+                self._known_position = final_position
+            except Exception:
+                state.activate_emergency_latch("ENTRY_RECONCILIATION_FAILURE")
+            self.execution_journal.record(
+                decision_id=decision_id,
+                action="ENTRY_RECONCILIATION_FAILURE",
+                status="POSITION_FLATTENED" if final_position and float(final_position.get("position_amt") or 0) == 0 else "KILL_SWITCH",
+                reason=getattr(exc, "category", type(exc).__name__),
+                position_before=before,
+                position_after=final_position,
+            )
+            if not final_position or float(final_position.get("position_amt") or 0) != 0:
+                state.activate_emergency_latch("ENTRY_RECONCILIATION_FAILURE")
+            raise
         self._record_order(decision_id, "ENTRY", entry, before, after)
         try:
             protections = self._place_protection(decision_id, side, abs(float(after["position_amt"])), plan)

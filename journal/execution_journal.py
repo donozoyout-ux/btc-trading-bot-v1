@@ -30,6 +30,7 @@ class ExecutionJournal:
         position_before: Optional[Dict[str, Any]] = None,
         position_after: Optional[Dict[str, Any]] = None,
         context: Optional[Dict[str, Any]] = None,
+        details: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         event = {
             "event_id": f"EXEC-{uuid.uuid4().hex[:16]}",
@@ -45,7 +46,8 @@ class ExecutionJournal:
             "reason": reason,
             "position_before": position_before,
             "position_after": position_after,
-            "context": dict(context or {}),
+        "context": dict(context or {}),
+        "details": details,
         }
         with self.events_file.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
