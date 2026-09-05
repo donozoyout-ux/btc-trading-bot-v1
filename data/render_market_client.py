@@ -5,6 +5,9 @@ This module keeps signed TESTNET execution completely separate while giving the
 web/runtime market-data path a temporary TESTNET-public fallback. Missing
 long/short or taker-ratio data is represented as ``None``; it is never replaced
 with a fake neutral value such as ``1.0``.
+
+TESTNET public fallback data is display-only. It can keep the dashboard alive,
+but it is never exposed to the strategy as authoritative derivatives context.
 """
 
 from __future__ import annotations
@@ -68,6 +71,12 @@ class RenderResilientBinanceFuturesMarketClient:
     """Credential-free public market client with an HTTP-451 circuit breaker."""
 
     OPTIONAL_METHODS = {"get_long_short_ratio", "get_taker_volume_ratio"}
+    DERIVATIVE_METHODS = {
+        "get_open_interest",
+        "get_funding_rate",
+        "get_long_short_ratio",
+        "get_taker_volume_ratio",
+    }
     EXPECTED_ERRORS = (
         requests.RequestException,
         KeyError,
@@ -102,6 +111,11 @@ class RenderResilientBinanceFuturesMarketClient:
         self._optional_availability: Dict[str, Optional[bool]] = {
             name: None for name in self.OPTIONAL_METHODS
         }
+        self._fallback_derivatives: Dict[str, Dict[str, Any]] = {}
+
+    @property
+    def market_data_trading_safe(self) -> bool:
+        return self.active_environment == "PRODUCTION_PUBLIC" and not self.fallback_active
 
     @staticmethod
     def _is_http_451(exc: BaseException) -> bool:
@@ -132,6 +146,16 @@ class RenderResilientBinanceFuturesMarketClient:
             self.active_environment = "PRODUCTION_PUBLIC"
             self.fallback_active = False
 
+    def _remember_fallback_derivative(self, method: str, value: Optional[float]) -> None:
+        if method not in self.DERIVATIVE_METHODS:
+            return
+        self._fallback_derivatives[method] = {
+            "value": value,
+            "source": "BINANCE_TESTNET_FALLBACK",
+            "observed_at": int(time.time() * 1000),
+            "trading_authority": False,
+        }
+
     def _fallback_call(self, method: str, *args, **kwargs):
         optional = method in self.OPTIONAL_METHODS
         try:
@@ -139,6 +163,7 @@ class RenderResilientBinanceFuturesMarketClient:
         except self.EXPECTED_ERRORS:
             self.active_environment = "TESTNET_PUBLIC_FALLBACK"
             self.fallback_active = True
+            self._remember_fallback_derivative(method, None)
             if optional:
                 self._optional_availability[method] = False
                 return None
@@ -146,6 +171,7 @@ class RenderResilientBinanceFuturesMarketClient:
 
         self.active_environment = "TESTNET_PUBLIC_FALLBACK"
         self.fallback_active = True
+        self._remember_fallback_derivative(method, result)
         if optional:
             self._optional_availability[method] = result is not None
         return result
@@ -181,6 +207,18 @@ class RenderResilientBinanceFuturesMarketClient:
             self._optional_availability[method] = True
         return result
 
+    def _authoritative_derivative_call(self, method: str, *args, **kwargs):
+        result = self._call(method, *args, **kwargs)
+        # If the result came from TESTNET public fallback, keep it only as
+        # display telemetry. Strategy code receives None and therefore cannot
+        # CONFIRM/WARN/REJECT from testnet-only derivatives values.
+        if self.fallback_active:
+            return None
+        return result
+
+    def fallback_derivatives_telemetry(self) -> Dict[str, Dict[str, Any]]:
+        return {key: dict(value) for key, value in self._fallback_derivatives.items()}
+
     def status(self) -> Dict[str, Any]:
         attempted = [
             value for value in self._optional_availability.values() if value is not None
@@ -197,6 +235,7 @@ class RenderResilientBinanceFuturesMarketClient:
         retry_after = max(0, int(self._production_blocked_until - self._clock()))
         return {
             "market_data_source": self.active_environment,
+            "market_data_trading_safe": self.market_data_trading_safe,
             "production_public_status": self.production_public_status,
             "production_public_retry_after_seconds": retry_after,
             "fallback_active": self.fallback_active,
@@ -213,13 +252,13 @@ class RenderResilientBinanceFuturesMarketClient:
         return self._call("get_mark_price", *args, **kwargs)
 
     def get_open_interest(self, *args, **kwargs):
-        return self._call("get_open_interest", *args, **kwargs)
+        return self._authoritative_derivative_call("get_open_interest", *args, **kwargs)
 
     def get_funding_rate(self, *args, **kwargs):
-        return self._call("get_funding_rate", *args, **kwargs)
+        return self._authoritative_derivative_call("get_funding_rate", *args, **kwargs)
 
     def get_long_short_ratio(self, *args, **kwargs):
-        return self._call("get_long_short_ratio", *args, **kwargs)
+        return self._authoritative_derivative_call("get_long_short_ratio", *args, **kwargs)
 
     def get_taker_volume_ratio(self, *args, **kwargs):
-        return self._call("get_taker_volume_ratio", *args, **kwargs)
+        return self._authoritative_derivative_call("get_taker_volume_ratio", *args, **kwargs)
