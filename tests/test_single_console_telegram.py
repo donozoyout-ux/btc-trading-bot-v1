@@ -42,8 +42,8 @@ def test_order_opened_telegram_is_compact_turkish_testnet_message():
     assert "Giriş:" in message
     assert "Stop:" in message
     assert "TP1:" in message and "TP2:" in message
-    assert "Binance Futures TESTNET" in message
-    assert "Gerçek para: HAYIR" in message
+    assert "MODE: BINANCE FUTURES TESTNET" in message
+    assert "REAL MONEY: NO" in message
 
 
 def test_smoke_pass_message_has_only_actionable_status():
