@@ -152,12 +152,33 @@ class TestnetExecutionRuntime:
 
     def run_loop(self, max_cycles: Optional[int] = None) -> None:
         self.executor._assert_execution_boundary()
-        if self.settings.RUN_EXECUTION_SMOKE_TEST:
+
+        # Restart safety comes before a startup smoke. If Render restarts while
+        # a real TESTNET position is already open, the bot must recover and
+        # manage that position instead of treating it as a smoke-test failure
+        # (which previously attempted to flatten it in the smoke exception
+        # handler). A smoke is only meaningful on a verified-flat account.
+        self.authenticate()
+        recovered = self.executor.recover_from_exchange()
+        recovered_position = recovered.get("position") or {}
+        has_active_position = float(recovered_position.get("position_amt") or 0) != 0
+
+        if self.settings.RUN_EXECUTION_SMOKE_TEST and has_active_position:
+            self._status(
+                smoke_test="SKIPPED_ACTIVE_POSITION",
+                bot_status="STARTING",
+                execution_thread="STARTING",
+                last_execution_result="RECOVERED_ACTIVE_POSITION",
+                last_error="",
+            )
+        elif self.settings.RUN_EXECUTION_SMOKE_TEST:
             smoke = self.run_smoke_test()
             if smoke.get("status") != "PASS" or smoke.get("final_position") != "FLAT":
                 raise ExecutionError("SMOKE_TEST_FAILED")
-        self.authenticate()
-        self.executor.recover_from_exchange()
+            # Smoke ends FLAT. Reconcile once more so journal/exchange state is
+            # aligned before normal strategy cycles begin.
+            self.executor.recover_from_exchange()
+
         self.executor._notify("SYSTEM_STARTED", {"message": "Automatic TESTNET trading loop started"}, "SYSTEM_STARTED")
         self._status(bot_status="RUNNING", execution_thread="RUNNING", last_execution_result="LOOP_STARTED", last_error="")
         cycles = 0
