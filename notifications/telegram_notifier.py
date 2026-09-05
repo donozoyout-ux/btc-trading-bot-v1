@@ -15,7 +15,8 @@ class TelegramEventNotifier:
         "LONG_SETUP", "SHORT_SETUP", "WAIT_TRIGGER", "POSITION_OPENED", "POSITION_CLOSED",
         "TP1", "TP2", "STOP_LOSS", "HIGH_NEWS_RISK", "KILL_SWITCH", "DATA_SOURCE_ERROR", "DAILY_SUMMARY",
         "SYSTEM_STARTED", "BINANCE_CONNECTED", "ORDER_OPENED", "ORDER_CLOSED",
-        "TAKE_PROFIT", "ORDER_REJECTED", "ERROR",
+        "TAKE_PROFIT", "ORDER_REJECTED", "PROTECTION_FAILURE", "SMOKE_TEST_PASS",
+        "SMOKE_TEST_FAIL", "ERROR",
     }
 
     def __init__(self, client: TelegramClient, dedupe_ttl_seconds: int = 3600):
@@ -48,13 +49,13 @@ class TelegramEventNotifier:
                 f"Stop: {self._value(p.get('stop'))}\n"
                 f"TP1: {self._value(p.get('tp1'))}\n"
                 f"TP2: {self._value(p.get('tp2'))}\n\n"
-                "Mode: TESTNET\n\nReal Money: NO"
+                "MODE: BINANCE FUTURES TESTNET\nREAL MONEY: NO"
             )
-        if event in {"SYSTEM_STARTED", "BINANCE_CONNECTED", "ORDER_CLOSED", "TAKE_PROFIT", "ORDER_REJECTED", "ERROR"} or (
+        if event in {"SYSTEM_STARTED", "BINANCE_CONNECTED", "ORDER_CLOSED", "TAKE_PROFIT", "ORDER_REJECTED", "PROTECTION_FAILURE", "SMOKE_TEST_PASS", "SMOKE_TEST_FAIL", "ERROR"} or (
             event == "STOP_LOSS" and p.get("mode") == "TESTNET"
         ):
             label = event.replace("_", " ")
-            return f"BTC TESTNET — {label}\n\n{self._value(p.get('message') or p.get('reason'))}\n\nMode: TESTNET\nReal Money: NO"
+            return f"BTC TESTNET — {label}\n\n{self._value(p.get('message') or p.get('reason'))}\n\nMODE: BINANCE FUTURES TESTNET\nREAL MONEY: NO"
         if event in ("LONG_SETUP", "SHORT_SETUP", "WAIT_TRIGGER"):
             direction = self._value(p.get("direction"), "WAIT")
             return (

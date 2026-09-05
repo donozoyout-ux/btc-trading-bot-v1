@@ -37,6 +37,8 @@ def test_render_index_injects_visible_runtime_panel_and_bridge():
     assert 'id="renderBootBadge"' in html
     assert 'src="/render-bridge.js"' in html
     assert "BTC Intelligence Console" in html
+    assert 'id="botRuntimeStatus"' in html
+    assert 'id="lastExecutionResult"' in html
 
 
 def test_render_bridge_asset_exists():
@@ -62,6 +64,28 @@ def test_render_bootstrap_reports_explicit_testnet_execution(monkeypatch, tmp_pa
     assert payload["shadow_mode"] is False
 
 
-def test_render_never_runs_one_time_smoke_automatically():
+def test_render_runs_configured_smoke_before_the_auto_loop():
     source = Path(render_server.__file__).read_text(encoding="utf-8")
-    assert ".run_smoke_test(" not in source
+    assert "runtime.run_loop()" in source
+    assert "RUN BEFORE AUTO LOOP" in source
+    assert "IGNORED ON CLOUD" not in source
+
+
+def test_render_bootstrap_exposes_safe_execution_thread_status():
+    previous = render_server.execution_status()
+    try:
+        render_server._update_execution_status(
+            execution_thread="RUNNING",
+            bot_status="RUNNING",
+            smoke_test="PASS",
+            last_execution_result="NO_ELIGIBLE_SIGNAL",
+            execution_error=None,
+        )
+        payload = render_server.bootstrap_payload()
+        assert payload["execution_mode"] == "TESTNET"
+        assert payload["execution_thread"] == "RUNNING"
+        assert payload["bot_status"] == "RUNNING"
+        assert payload["smoke_test"] == "PASS"
+        assert payload["execution_error"] is None
+    finally:
+        render_server._update_execution_status(**previous)

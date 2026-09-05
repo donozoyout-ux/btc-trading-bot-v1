@@ -129,9 +129,8 @@ and `OPENAI_API_KEY` is set. Its schema always returns
 `execution_authority=false`; it cannot alter deterministic setup, direction,
 trade plan, sizing, kill switch, or risk rejection.
 
-Set `DASHBOARD_ADMIN_TOKEN` to protect account/AI/Telegram private endpoints.
-Mutation-style Telegram/AI helpers are disabled entirely when that token is not
-configured. Shadow decisions are stored in
+The unattended dashboard has no interactive admin login wall. API credentials
+remain server-side and are never serialized to the browser. Shadow decisions are stored in
 `journal_logs/shadow_decisions.jsonl`; `SHADOW_MODE=true` never enables orders.
 
 ### Automated Binance Futures TESTNET execution
@@ -150,7 +149,7 @@ python main.py execution-doctor
 # Also requires RUN_EXECUTION_SMOKE_TEST=true
 python main.py execution-smoke
 
-# After a successful smoke test, set RUN_EXECUTION_SMOKE_TEST=false
+# Startup runs the configured smoke exactly once, then starts the normal loop
 python main.py testnet-auto
 ```
 

@@ -37,6 +37,11 @@ class TestnetExecutor(BaseExecutor):
             self.last_order = persisted.get("last_binance_order")
             self.last_telegram_event = persisted.get("last_telegram_event")
             self._protective_orders = list(persisted.get("protective_orders") or [])
+        self.smoke_test_status = str(persisted.get("smoke_test") or "NOT_RUN")
+        self.bot_status = str(persisted.get("bot_status") or "STOPPED")
+        self.execution_thread = str(persisted.get("execution_thread") or "STOPPED")
+        self.last_execution_result = persisted.get("last_execution_result")
+        self.last_error = persisted.get("last_error")
 
     @property
     def orders_enabled(self) -> bool:
@@ -62,8 +67,74 @@ class TestnetExecutor(BaseExecutor):
         except Exception:
             logger.warning("TESTNET Telegram event unavailable")
 
-    def _write_runtime_state(self, smoke_test: str = "NOT_RUN") -> None:
-        self.execution_journal.write_state({"environment": "TESTNET", "real_money": "DISABLED", "execution_enabled": self.orders_enabled, "position": self._known_position, "protective_orders": self._protective_orders, "last_binance_order": self.last_order, "last_telegram_event": self.last_telegram_event, "smoke_test": smoke_test, "last_processed_closed_5m_timestamp": self.last_processed_closed_5m_timestamp})
+    def _write_runtime_state(
+        self,
+        smoke_test: Optional[str] = None,
+        *,
+        bot_status: Optional[str] = None,
+        execution_thread: Optional[str] = None,
+        last_execution_result: Optional[str] = None,
+        last_error: Optional[str] = None,
+    ) -> None:
+        if smoke_test is not None:
+            self.smoke_test_status = smoke_test
+        if bot_status is not None:
+            self.bot_status = bot_status
+        if execution_thread is not None:
+            self.execution_thread = execution_thread
+        if last_execution_result is not None:
+            self.last_execution_result = last_execution_result
+        if last_error is not None:
+            self.last_error = last_error or None
+        self.execution_journal.write_state({
+            "environment": "TESTNET",
+            "real_money": "DISABLED",
+            "execution_enabled": self.orders_enabled,
+            "bot_status": self.bot_status,
+            "execution_thread": self.execution_thread,
+            "position": self._known_position,
+            "remaining_quantity": abs(float(self._known_position.get("position_amt") or 0)),
+            "protective_orders": self._protective_orders,
+            "last_binance_order": self.last_order,
+            "last_telegram_event": self.last_telegram_event,
+            "last_execution_result": self.last_execution_result,
+            "last_error": self.last_error,
+            "smoke_test": self.smoke_test_status,
+            "last_processed_closed_5m_timestamp": self.last_processed_closed_5m_timestamp,
+        })
+
+    @staticmethod
+    def _is_reduce_only(order: Dict[str, Any]) -> bool:
+        truthy = lambda value: str(value).strip().lower() in {"1", "true", "yes", "on"}
+        return truthy(order.get("reduceOnly") or order.get("reduce_only")) or truthy(order.get("closePosition"))
+
+    def cleanup_flat_reduce_only_orders(self) -> Dict[str, Any]:
+        """Cancel only orphan exits that cannot increase a flat TESTNET account."""
+        position = self.client.get_position("BTCUSDT")
+        if float(position.get("position_amt") or 0) != 0:
+            return {"cancelled": 0, "remaining": [], "position": position}
+
+        cancelled = 0
+        for order in self.client.get_open_orders("BTCUSDT"):
+            if self._is_reduce_only(order) and order.get("orderId") is not None:
+                self.client.cancel_order("BTCUSDT", int(order["orderId"]))
+                cancelled += 1
+        for order in self.client.get_open_algo_orders("BTCUSDT"):
+            if self._is_reduce_only(order) and order.get("algoId") is not None:
+                self.client.cancel_algo_order(algo_id=int(order["algoId"]))
+                cancelled += 1
+
+        remaining = self.client.get_open_orders("BTCUSDT") + self.client.get_open_algo_orders("BTCUSDT")
+        if cancelled:
+            self._protective_orders = []
+            self.execution_journal.record(
+                decision_id=None,
+                action="STALE_PROTECTION_CANCELLED",
+                status="CONFIRMED",
+                reason=f"Cancelled {cancelled} orphan reduce-only TESTNET order(s) while flat",
+                position_after=position,
+            )
+        return {"cancelled": cancelled, "remaining": remaining, "position": position}
 
     def recover_from_exchange(self) -> Dict[str, Any]:
         self._assert_execution_boundary()
@@ -134,9 +205,9 @@ class TestnetExecutor(BaseExecutor):
             self._notify("KILL_SWITCH", {"reason": "TESTNET reconciliation failed; new entries blocked"}, "KILL_SWITCH:RECONCILIATION_FAILURE")
             raise
         if float(position.get("position_amt") or 0) == 0:
-            regular_orders = self.client.get_open_orders("BTCUSDT")
-            algo_orders = self.client.get_open_algo_orders("BTCUSDT")
-            if regular_orders or algo_orders:
+            cleanup = self.cleanup_flat_reduce_only_orders()
+            remaining_orders = cleanup["remaining"]
+            if remaining_orders:
                 state.activate_emergency_latch("UNEXPECTED_OPEN_ORDERS")
                 self.execution_journal.record(
                     decision_id=None,
@@ -154,9 +225,9 @@ class TestnetExecutor(BaseExecutor):
                 return {
                     "status": "OPEN_ORDERS_PRESENT",
                     "position": position,
-                    "open_orders": regular_orders + algo_orders,
+                    "open_orders": remaining_orders,
                 }
-            return {"status": "FLAT", "position": position}
+            return {"status": "FLAT", "position": position, "stale_orders_cancelled": cleanup["cancelled"]}
         orders = self.client.get_open_algo_orders("BTCUSDT")
         protective_types = {
             str(order.get("orderType"))
@@ -249,7 +320,7 @@ class TestnetExecutor(BaseExecutor):
                 logger.warning("Unable to cancel TESTNET protection after flatten")
             self._protective_orders = []
             self.execution_journal.record(decision_id=decision_id, action="PROTECTION_FAILURE", status="POSITION_FLATTENED" if float(final_position.get("position_amt") or 0) == 0 else "FLATTEN_FAILED", reason=getattr(exc, "category", type(exc).__name__), position_before=after, position_after=final_position)
-            self._notify("ERROR", {"message": "PROTECTION_FAILURE; TESTNET position flatten attempted"}, f"PROTECTION_FAILURE:{decision_id}")
+            self._notify("PROTECTION_FAILURE", {"message": "Entry protection failed; TESTNET position flatten attempted"}, f"PROTECTION_FAILURE:{decision_id}")
             raise ExecutionError("PROTECTION_FAILURE") from None
         self._notify("ORDER_OPENED", {"side": after.get("side"), "entry": entry.get("average_fill_price"), "size": abs(float(after.get("position_amt") or 0)), "stop": plan.get("stop_loss"), "tp1": plan.get("tp1"), "tp2": plan.get("tp2")}, f"ORDER_OPENED:{decision_id}")
         self._write_runtime_state()

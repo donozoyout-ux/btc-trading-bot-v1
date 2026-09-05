@@ -495,6 +495,10 @@ class DashboardRuntime:
                 "environment": "TESTNET",
                 "real_money": "DISABLED",
                 "execution_enabled": self.execution_enabled,
+                "bot_status": "STOPPED",
+                "execution_thread": "DISABLED" if not self.execution_enabled else "STARTING",
+                "last_execution_result": None,
+                "last_error": None,
                 "position": {"side": "FLAT", "position_amt": 0.0},
                 "last_binance_order": None,
                 "last_telegram_event": None,
@@ -506,6 +510,9 @@ class DashboardRuntime:
             execution_state["environment"] = "TESTNET"
             execution_state["real_money"] = "DISABLED"
             execution_state["execution_enabled"] = self.execution_enabled
+            if not self.execution_enabled:
+                execution_state["bot_status"] = "STOPPED"
+                execution_state["execution_thread"] = "DISABLED"
 
             snapshot = {
                 "decision_id": decision_id,

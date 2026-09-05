@@ -17,7 +17,12 @@ from notifications.telegram_notifier import TelegramEventNotifier
 class TestnetExecutionRuntime:
     __test__ = False
 
-    def __init__(self, settings: Optional[BotSettings] = None, *, client=None, dashboard_runtime=None, sleep_fn=time.sleep):
+    FATAL_EXECUTION_ERRORS = {
+        "MAINNET_EXECUTION_BLOCKED", "ENV_NOT_TESTNET", "ORDER_SUBMISSION_DISABLED",
+        "EXECUTION_FLAGS_CONFLICT", "ACCOUNT_UNAVAILABLE", "INVALID_API_KEY", "INVALID_SIGNATURE",
+    }
+
+    def __init__(self, settings: Optional[BotSettings] = None, *, client=None, dashboard_runtime=None, sleep_fn=time.sleep, status_callback=None):
         self.settings = settings or get_settings()
         if not self.settings.BINANCE_API_KEY or not self.settings.BINANCE_API_SECRET:
             raise ExecutionError("ACCOUNT_UNAVAILABLE")
@@ -37,6 +42,20 @@ class TestnetExecutionRuntime:
         self.dashboard = dashboard_runtime
         self.state: BotState = self.dashboard.state
         self.sleep_fn = sleep_fn
+        self.status_callback = status_callback
+        self._smoke_attempted = False
+        self._smoke_result: Optional[Dict[str, Any]] = None
+
+    def _status(self, **changes: Any) -> None:
+        self.executor._write_runtime_state(
+            changes.get("smoke_test"),
+            bot_status=changes.get("bot_status"),
+            execution_thread=changes.get("execution_thread"),
+            last_execution_result=changes.get("last_execution_result"),
+            last_error=changes.get("last_error"),
+        )
+        if self.status_callback is not None:
+            self.status_callback(**changes)
 
     @staticmethod
     def doctor(settings: Optional[BotSettings] = None) -> Dict[str, Any]:
@@ -64,19 +83,27 @@ class TestnetExecutionRuntime:
     def run_smoke_test(self) -> Dict[str, Any]:
         if not self.settings.RUN_EXECUTION_SMOKE_TEST:
             return {"status": "NOT_RUN", "test_buy": "NOT_RUN", "test_close": "NOT_RUN", "final_position": "UNKNOWN"}
-        self.executor._assert_execution_boundary()
-        self.authenticate()
-        before = self.client.get_position("BTCUSDT")
-        if float(before.get("position_amt") or 0) != 0:
-            raise ExecutionError("POSITION_ALREADY_OPEN")
-        mark_price = float(self.dashboard.binance.get_mark_price("BTCUSDT"))
-        quantity = self.client.normalize_quantity("BTCUSDT", self.settings.TEST_ORDER_NOTIONAL_USDT / mark_price, market=True, price=mark_price)
-        actual_notional = quantity * mark_price
-        if actual_notional > self.settings.TEST_ORDER_MAX_NOTIONAL_USDT:
-            raise ExecutionError("SMOKE_NOTIONAL_SAFETY_CAP")
-        opened = False
+        if self._smoke_attempted:
+            if self._smoke_result is not None:
+                return dict(self._smoke_result)
+            raise ExecutionError("SMOKE_TEST_ALREADY_FAILED")
+        self._smoke_attempted = True
+        self._status(smoke_test="RUNNING", bot_status="STARTING", execution_thread="STARTING", last_execution_result="SMOKE_TEST_RUNNING", last_error="")
         open_order: Optional[Dict[str, Any]] = None
         try:
+            self.executor._assert_execution_boundary()
+            self.authenticate()
+            before = self.client.get_position("BTCUSDT")
+            if float(before.get("position_amt") or 0) != 0:
+                raise ExecutionError("POSITION_ALREADY_OPEN")
+            cleanup = self.executor.cleanup_flat_reduce_only_orders()
+            if cleanup["remaining"]:
+                raise ExecutionError("UNEXPECTED_OPEN_ORDERS")
+            mark_price = float(self.dashboard.binance.get_mark_price("BTCUSDT"))
+            quantity = self.client.normalize_quantity("BTCUSDT", self.settings.TEST_ORDER_NOTIONAL_USDT / mark_price, market=True, price=mark_price)
+            actual_notional = quantity * mark_price
+            if actual_notional > self.settings.TEST_ORDER_MAX_NOTIONAL_USDT:
+                raise ExecutionError("SMOKE_NOTIONAL_SAFETY_CAP")
             open_order = self.client.place_market_order("BTCUSDT", "BUY", quantity, reduce_only=False, client_order_id=f"btc-smoke-{int(time.time())}")
             position = self.client.get_position("BTCUSDT")
             opened = float(open_order.get("executed_quantity") or 0) > 0 and float(position.get("position_amt") or 0) > 0
@@ -95,20 +122,24 @@ class TestnetExecutionRuntime:
             if not flat:
                 raise ExecutionError("SMOKE_CLOSE_RECONCILIATION_FAILED")
             self.executor._notify("ORDER_CLOSED", {"message": "Controlled TESTNET smoke position closed; final position FLAT"}, "ORDER_CLOSED:SMOKE_TEST")
-            self.executor._write_runtime_state("PASS")
-            return {"status": "PASS", "test_buy": "PASS", "position_detected": True, "test_close": "PASS", "final_position": "FLAT", "open_order": open_order, "close_order": close_order}
+            result = {"status": "PASS", "test_buy": "PASS", "position_detected": True, "test_close": "PASS", "final_position": "FLAT", "open_order": open_order, "close_order": close_order}
+            self._smoke_result = result
+            self.executor._notify("SMOKE_TEST_PASS", {"message": "Controlled BUY, position verification and reduce-only close passed; final position FLAT"}, "SMOKE_TEST_PASS")
+            self._status(smoke_test="PASS", bot_status="STARTING", execution_thread="STARTING", last_execution_result="SMOKE_TEST_PASS", last_error="")
+            return dict(result)
         except Exception as exc:
-            final_position = self.client.get_position("BTCUSDT")
-            if opened and float(final_position.get("position_amt") or 0) != 0:
-                try:
+            final_position: Dict[str, Any] = {"symbol": "BTCUSDT", "position_amt": None, "side": "UNKNOWN"}
+            try:
+                final_position = self.client.get_position("BTCUSDT")
+                if float(final_position.get("position_amt") or 0) != 0:
                     self.client.close_position_market("BTCUSDT")
                     final_position = self.client.get_position("BTCUSDT")
-                except Exception:
-                    pass
+            except Exception:
+                pass
             self.executor._known_position = final_position
-            self.executor._write_runtime_state("FAIL")
             reason = getattr(exc, "category", type(exc).__name__)
-            self.executor._notify("ERROR", {"message": f"Smoke test failed: {reason}"}, f"ERROR:SMOKE_TEST:{reason}")
+            self.executor._notify("SMOKE_TEST_FAIL", {"message": f"Smoke test failed: {reason}"}, f"SMOKE_TEST_FAIL:{reason}")
+            self._status(smoke_test="FAIL", bot_status="STOPPED", execution_thread="STOPPED", last_execution_result="SMOKE_TEST_FAIL", last_error=reason)
             raise ExecutionError(reason) from None
 
     def run_cycle(self) -> Dict[str, Any]:
@@ -121,12 +152,26 @@ class TestnetExecutionRuntime:
 
     def run_loop(self, max_cycles: Optional[int] = None) -> None:
         self.executor._assert_execution_boundary()
+        if self.settings.RUN_EXECUTION_SMOKE_TEST:
+            smoke = self.run_smoke_test()
+            if smoke.get("status") != "PASS" or smoke.get("final_position") != "FLAT":
+                raise ExecutionError("SMOKE_TEST_FAILED")
         self.authenticate()
         self.executor.recover_from_exchange()
         self.executor._notify("SYSTEM_STARTED", {"message": "Automatic TESTNET trading loop started"}, "SYSTEM_STARTED")
+        self._status(bot_status="RUNNING", execution_thread="RUNNING", last_execution_result="LOOP_STARTED", last_error="")
         cycles = 0
         while max_cycles is None or cycles < max_cycles:
-            self.run_cycle()
+            try:
+                result = self.run_cycle()
+                self._status(bot_status="RUNNING", execution_thread="RUNNING", last_execution_result=str(result.get("status") or "NO_ACTION"), last_error="")
+            except ExecutionError as exc:
+                self.executor._notify("ORDER_REJECTED" if exc.category in {"ORDER_REJECTED", "PROTECTION_FAILURE"} else "ERROR", {"message": f"TESTNET execution cycle failed: {exc.category}"}, f"EXECUTION_ERROR:{exc.category}")
+                self._status(bot_status="DEGRADED", execution_thread="RUNNING", last_execution_result="CYCLE_FAILED", last_error=exc.category)
+                if exc.category in self.FATAL_EXECUTION_ERRORS or max_cycles is not None:
+                    raise
             cycles += 1
             if max_cycles is None or cycles < max_cycles:
                 self.sleep_fn(self.settings.EXECUTION_POLL_SECONDS)
+        if max_cycles is not None:
+            self._status(bot_status="STOPPED", execution_thread="STOPPED", last_error="")

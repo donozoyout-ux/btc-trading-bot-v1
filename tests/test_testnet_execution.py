@@ -37,6 +37,7 @@ class FakeExecutionClient:
         self.regular_orders = []
         self.market_calls = []
         self.close_calls = 0
+        self.cancelled_algo_orders = []
         self.protection_failure = protection_failure
 
     def get_server_time(self): return 123456789
@@ -53,6 +54,10 @@ class FakeExecutionClient:
     def cancel_all_algo_open_orders(self, symbol):
         self.orders = []
         return {"code": 200}
+    def cancel_algo_order(self, *, algo_id=None, client_algo_id=None):
+        self.cancelled_algo_orders.append(algo_id)
+        self.orders = [order for order in self.orders if order.get("algoId") != algo_id]
+        return {"algoId": algo_id}
     def cancel_order(self, symbol, order_id):
         self.regular_orders = [order for order in self.regular_orders if order.get("orderId") != order_id]
         return {"orderId": order_id}
@@ -109,6 +114,18 @@ def test_explicit_testnet_flags_enable_execution(tmp_path):
     settings = enabled_settings(tmp_path)
     assert settings.testnet_execution_enabled is True
     assert make_executor(tmp_path, settings=settings).orders_enabled is True
+
+
+@pytest.mark.parametrize("overrides", [
+    {"ACCOUNT_READ_ONLY": True},
+    {"SHADOW_MODE": True},
+    {"ORDER_SUBMISSION_ENABLED": False},
+    {"ENV": "production"},
+])
+def test_incomplete_execution_flags_fail_closed(tmp_path, overrides):
+    settings = enabled_settings(tmp_path, **overrides)
+    assert settings.testnet_execution_enabled is False
+    assert settings.ORDER_SUBMISSION_ENABLED is False
 
 
 def test_missing_keys_block_execution(tmp_path):
@@ -231,10 +248,24 @@ def test_reconciliation_failure_activates_kill_switch(tmp_path):
     assert state.kill_switch_activated is True
 
 
-def test_flat_account_with_existing_order_blocks_new_entries(tmp_path):
+def test_flat_account_cleans_orphan_reduce_only_orders(tmp_path):
     client = FakeExecutionClient(position_amt=0.0)
     client.orders = [
         {"algoId": 999, "orderType": "STOP_MARKET", "algoStatus": "NEW", "reduceOnly": True}
+    ]
+    state = BotState()
+    result = make_executor(tmp_path, client).manage_existing_position(state)
+    assert result["status"] == "FLAT"
+    assert result["stale_orders_cancelled"] == 1
+    assert state.kill_switch_activated is False
+    assert client.cancelled_algo_orders == [999]
+    assert client.market_calls == []
+
+
+def test_flat_account_with_non_reduce_only_order_blocks_new_entries(tmp_path):
+    client = FakeExecutionClient(position_amt=0.0)
+    client.orders = [
+        {"algoId": 999, "orderType": "STOP_MARKET", "algoStatus": "NEW", "reduceOnly": False}
     ]
     state = BotState()
     result = make_executor(tmp_path, client).manage_existing_position(state)
@@ -272,3 +303,72 @@ def test_smoke_test_opens_and_reduce_only_closes(tmp_path):
     assert result["final_position"] == "FLAT"
     assert client.market_calls[0]["reduce_only"] is False
     assert client.market_calls[-1]["reduce_only"] is True
+
+
+def test_smoke_runs_before_auto_loop_and_pass_status_is_preserved(tmp_path):
+    settings = enabled_settings(tmp_path, RUN_EXECUTION_SMOKE_TEST=True)
+    client = FakeExecutionClient()
+    dashboard = SimpleNamespace(
+        binance=SimpleNamespace(get_mark_price=lambda symbol: 80000.0),
+        state=BotState(),
+        snapshot=lambda force=False: snapshot(3, "NO-ENTRY", eligible=False),
+    )
+    runtime = TestnetExecutionRuntime(settings, client=client, dashboard_runtime=dashboard, sleep_fn=lambda _: None)
+
+    runtime.run_loop(max_cycles=1)
+
+    assert len(client.market_calls) == 2
+    assert runtime.executor.execution_journal.read_state()["smoke_test"] == "PASS"
+    assert runtime.executor.execution_journal.read_state()["last_execution_result"] == "NO_ELIGIBLE_SIGNAL"
+    assert runtime.executor.execution_journal.read_state()["execution_thread"] == "STOPPED"
+
+
+def test_smoke_failure_prevents_auto_loop(tmp_path):
+    class FailingSmokeClient(FakeExecutionClient):
+        def place_market_order(self, symbol, side, quantity, *, reduce_only=False, client_order_id=None):
+            raise ExecutionError("ORDER_REJECTED")
+
+    settings = enabled_settings(tmp_path, RUN_EXECUTION_SMOKE_TEST=True)
+    snapshot_calls = []
+    dashboard = SimpleNamespace(
+        binance=SimpleNamespace(get_mark_price=lambda symbol: 80000.0),
+        state=BotState(),
+        snapshot=lambda force=False: snapshot_calls.append(force),
+    )
+    runtime = TestnetExecutionRuntime(settings, client=FailingSmokeClient(), dashboard_runtime=dashboard, sleep_fn=lambda _: None)
+
+    with pytest.raises(ExecutionError, match="ORDER_REJECTED"):
+        runtime.run_loop(max_cycles=1)
+
+    assert snapshot_calls == []
+    state = runtime.executor.execution_journal.read_state()
+    assert state["smoke_test"] == "FAIL"
+    assert state["execution_thread"] == "STOPPED"
+
+
+def test_smoke_blocks_when_a_non_reduce_only_order_exists(tmp_path):
+    settings = enabled_settings(tmp_path, RUN_EXECUTION_SMOKE_TEST=True)
+    client = FakeExecutionClient()
+    client.orders = [{"algoId": 55, "orderType": "STOP_MARKET", "reduceOnly": False}]
+    dashboard = SimpleNamespace(
+        binance=SimpleNamespace(get_mark_price=lambda symbol: 80000.0),
+        state=BotState(),
+    )
+    runtime = TestnetExecutionRuntime(settings, client=client, dashboard_runtime=dashboard, sleep_fn=lambda _: None)
+
+    with pytest.raises(ExecutionError, match="UNEXPECTED_OPEN_ORDERS"):
+        runtime.run_smoke_test()
+
+    assert client.market_calls == []
+
+
+def test_testnet_trade_telegram_has_explicit_real_money_boundary():
+    class Client:
+        configured = True
+        def __init__(self): self.messages = []
+        def send_message(self, text): self.messages.append(text); return {"sent": True}
+
+    client = Client()
+    TelegramEventNotifier(client).notify("SMOKE_TEST_PASS", {"message": "ok"}, "smoke")
+    assert "MODE: BINANCE FUTURES TESTNET" in client.messages[0]
+    assert "REAL MONEY: NO" in client.messages[0]

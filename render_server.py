@@ -26,6 +26,27 @@ import dashboard_server as base
 
 ROOT = Path(__file__).resolve().parent
 DASHBOARD_DIR = ROOT / "dashboard"
+_EXECUTION_STATUS_LOCK = threading.Lock()
+_EXECUTION_STATUS = {
+    "execution_mode": "TESTNET",
+    "execution_thread": "DISABLED",
+    "bot_status": "STOPPED",
+    "smoke_test": "NOT_RUN",
+    "last_execution_result": None,
+    "execution_error": None,
+}
+
+
+def _update_execution_status(**changes) -> None:
+    if "last_error" in changes:
+        changes["execution_error"] = changes.pop("last_error") or None
+    with _EXECUTION_STATUS_LOCK:
+        _EXECUTION_STATUS.update(changes)
+
+
+def execution_status() -> dict:
+    with _EXECUTION_STATUS_LOCK:
+        return dict(_EXECUTION_STATUS)
 
 
 def bootstrap_payload() -> dict:
@@ -37,7 +58,7 @@ def bootstrap_payload() -> dict:
     runtime = getattr(base, "RUNTIME", None)
     settings = runtime.settings if runtime is not None else base.get_settings()
     execution_enabled = settings.testnet_execution_enabled
-    return {
+    payload = {
         "ok": True,
         "runtime": "RENDER" if os.environ.get("RENDER") else "CLOUD",
         "service": "BTC Intelligence Console",
@@ -59,6 +80,8 @@ def bootstrap_payload() -> dict:
         "render_git_commit": (os.environ.get("RENDER_GIT_COMMIT") or "")[:12] or None,
         "generated_at": int(time.time() * 1000),
     }
+    payload.update(execution_status())
+    return payload
 
 
 def _render_index_html() -> bytes:
@@ -124,7 +147,7 @@ def _warm_snapshot() -> None:
 
 
 def _run_testnet_execution() -> None:
-    """Run TESTNET automation; never repeat one-time smoke on cloud restart."""
+    """Run one optional startup smoke before the normal TESTNET loop."""
 
     from data.binance_execution_client import ExecutionError
     from execution.testnet_runtime import TestnetExecutionRuntime
@@ -133,12 +156,14 @@ def _run_testnet_execution() -> None:
         runtime = TestnetExecutionRuntime(
             settings=base.RUNTIME.settings,
             dashboard_runtime=base.RUNTIME,
+            status_callback=_update_execution_status,
         )
-
         runtime.run_loop()
     except ExecutionError as exc:
+        _update_execution_status(execution_thread="STOPPED", bot_status="DEGRADED", execution_error=exc.category, last_execution_result="EXECUTION_STOPPED")
         logger.error("Render TESTNET execution stopped: {}", exc.category)
     except Exception as exc:
+        _update_execution_status(execution_thread="STOPPED", bot_status="DEGRADED", execution_error=type(exc).__name__, last_execution_result="EXECUTION_STOPPED")
         logger.error("Render TESTNET execution stopped: {}", type(exc).__name__)
 
 
@@ -156,6 +181,7 @@ def main() -> None:
 
     execution_enabled = base.RUNTIME.settings.testnet_execution_enabled
     if execution_enabled:
+        _update_execution_status(execution_thread="STARTING", bot_status="STARTING", smoke_test="RUNNING" if base.RUNTIME.settings.RUN_EXECUTION_SMOKE_TEST else "NOT_RUN", execution_error=None)
         threading.Thread(
             target=_run_testnet_execution,
             name="render-testnet-execution",
@@ -173,7 +199,7 @@ def main() -> None:
     )
     logger.info(
         "EXECUTION SMOKE TEST: {}",
-        "IGNORED ON CLOUD" if base.RUNTIME.settings.RUN_EXECUTION_SMOKE_TEST else "DISABLED",
+        "RUN BEFORE AUTO LOOP" if base.RUNTIME.settings.RUN_EXECUTION_SMOKE_TEST else "DISABLED",
     )
 
     server = ThreadingHTTPServer((host, port), RenderDashboardHandler)
