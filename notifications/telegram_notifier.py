@@ -42,7 +42,7 @@ class TelegramEventNotifier:
 
     @staticmethod
     def _footer() -> str:
-        return "🧪 Binance Futures TESTNET\n💵 Gerçek para: HAYIR"
+        return "🧪 MODE: BINANCE FUTURES TESTNET\n💵 REAL MONEY: NO"
 
     @staticmethod
     def _clean_reason(value: Any) -> str:
