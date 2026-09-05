@@ -1,6 +1,9 @@
 .source-status.OPTIONAL {
   color: var(--muted);
 }
+.source-status.AUTH_ERROR,
+.source-status.PLAN_FORBIDDEN { color: var(--red); }
+.source-status.RATE_LIMITED { color: var(--amber); }
 
 .optional-source {
   opacity: 0.72;

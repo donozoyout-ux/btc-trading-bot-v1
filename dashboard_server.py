@@ -437,6 +437,7 @@ class DashboardRuntime:
 
             cg_liq = self.coinglass.get_liquidation_data("BTC")
             cg_oi = self.coinglass.get_aggregate_oi("BTC")
+            cg_status = "CONNECTED" if cg_liq.get("is_available") or cg_oi.get("is_available") else cg_oi.get("status") or cg_liq.get("status") or "UNAVAILABLE"
             cmc = self.cmc.get_global_metrics()
             news = self.news_engine.evaluate(force=force)
 
@@ -586,7 +587,7 @@ class DashboardRuntime:
                         "errors": [e for e in [mark_err, oi_err, funding_err, ls_err, taker_err] if e],
                     },
                     "coinglass": {
-                        "status": "HEALTHY" if cg_liq.get("is_available") or cg_oi.get("is_available") else "UNAVAILABLE",
+                        "status": cg_status,
                         "configured": self.coinglass.configured,
                         "observed_at": max([x for x in [cg_liq.get("observed_at"), cg_oi.get("observed_at")] if x is not None], default=None),
                         "error_category": cg_oi.get("error_category") or cg_liq.get("error_category"),

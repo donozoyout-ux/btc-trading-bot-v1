@@ -8,7 +8,7 @@ from data.coinglass_client import CoinGlassClient
 
 
 class Response:
-    def __init__(self, payload): self.payload = payload
+    def __init__(self, payload, status_code=200): self.payload, self.status_code = payload, status_code
     def raise_for_status(self): return None
     def json(self): return self.payload
 
@@ -19,6 +19,7 @@ class Session:
         self.calls += 1
         payload = self.payloads[min(self.calls - 1, len(self.payloads) - 1)]
         if isinstance(payload, Exception): raise payload
+        if isinstance(payload, tuple): return Response(payload[1], payload[0])
         return Response(payload)
 
 
@@ -35,12 +36,13 @@ def test_coinglass_parses_real_values_and_observation_time():
     clock = lambda: 100.0
     client = CoinGlassClient("key", time_fn=clock)
     client.session = Session([
-        {"data": [{"exchange": "All", "open_interest_usd": "123456.7"}]},
-        {"data": [{"exchange": "All", "long_liquidation_usd": "10", "short_liquidation_usd": "20", "liquidation_usd": "30"}]},
+        {"code": "0", "data": ["BTC"]},
+        {"code": "0", "data": [{"close": "123456.7"}]},
+        {"code": "0", "data": [{"exchange": "All", "long_liquidation_usd": "10", "short_liquidation_usd": "20", "liquidation_usd": "30"}]},
     ])
     oi = client.get_aggregate_oi()
     liq = client.get_liquidation_data()
-    assert oi == {"source": DataSource.COINGLASS, "status": "CONNECTED", "is_available": True, "observed_at": 100000, "aggregate_oi_usd": 123456.7}
+    assert oi == {"source": DataSource.COINGLASS, "status": "CONNECTED", "is_available": True, "observed_at": 100000, "error_category": None, "aggregate_oi_usd": 123456.7}
     assert liq["total"] == 30.0 and liq["observed_at"] == 100000
 
 
@@ -66,10 +68,33 @@ def test_api_errors_fail_soft_and_never_create_neutral_numbers():
     client = CoinGlassClient("key")
     client.session = Session([requests.ConnectionError("offline")])
     result = client.get_aggregate_oi()
-    assert result["status"] == "UNAVAILABLE"
+    assert result["status"] == "NETWORK_ERROR"
     assert result["aggregate_oi_usd"] is None
     assert result["source"] == DataSource.UNAVAILABLE
     assert result["error_category"] == "NETWORK_ERROR"
+
+
+def test_auth_401_is_classified_and_backed_off_for_five_minutes():
+    now = [100.0]
+    client = CoinGlassClient("bad-key", time_fn=lambda: now[0])
+    client.session = Session([(401, {"code": "401"})])
+    assert client.authenticate()["status"] == "AUTH_ERROR"
+    now[0] += 299
+    assert client.get_aggregate_oi()["status"] == "AUTH_ERROR"
+    assert client.session.calls == 1
+
+
+def test_coinglass_plan_and_rate_limit_categories():
+    for code, expected in ((403, "PLAN_FORBIDDEN"), (429, "RATE_LIMITED")):
+        client = CoinGlassClient("key")
+        client.session = Session([(code, {})])
+        assert client.authenticate()["status"] == expected
+
+
+def test_coinglass_classifies_auth_code_inside_http_200_payload():
+    client = CoinGlassClient("bad-key")
+    client.session = Session([{"code": "401", "msg": "unauthorized"}])
+    assert client.authenticate()["status"] == "AUTH_ERROR"
 
 
 def test_runtime_contract_preserves_provenance_and_macro_is_advisory_only():
