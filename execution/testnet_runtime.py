@@ -134,8 +134,16 @@ class TestnetExecutionRuntime:
                 if float(final_position.get("position_amt") or 0) != 0:
                     self.client.close_position_market("BTCUSDT")
                     final_position = self.client.get_position("BTCUSDT")
-            except Exception:
-                pass
+            except Exception as cleanup_exc:
+                self.executor._known_position = final_position
+                self.executor.execution_journal.record(
+                    decision_id="SMOKE_TEST",
+                    action="SMOKE_FLATTEN_FAILURE",
+                    status="KILL_SWITCH",
+                    reason=type(cleanup_exc).__name__,
+                    position_after=final_position,
+                )
+                self.state.activate_emergency_latch("SMOKE_FLATTEN_FAILURE")
             self.executor._known_position = final_position
             reason = getattr(exc, "category", type(exc).__name__)
             self.executor._notify("SMOKE_TEST_FAIL", {"message": f"Smoke test failed: {reason}"}, f"SMOKE_TEST_FAIL:{reason}")
@@ -191,6 +199,12 @@ class TestnetExecutionRuntime:
                 self._status(bot_status="DEGRADED", execution_thread="RUNNING", last_execution_result="CYCLE_FAILED", last_error=exc.category)
                 if exc.category in self.FATAL_EXECUTION_ERRORS or max_cycles is not None:
                     raise
+            except Exception as exc:
+                self.state.activate_emergency_latch("UNEXPECTED_EXECUTION_FAILURE")
+                self.executor._notify("KILL_SWITCH", {"message": "Unexpected TESTNET execution failure; new entries blocked"}, "KILL_SWITCH:UNEXPECTED_EXECUTION_FAILURE")
+                self._status(bot_status="DEGRADED", execution_thread="RUNNING", last_execution_result="CYCLE_FAILED", last_error=type(exc).__name__)
+                if max_cycles is not None:
+                    raise ExecutionError("UNEXPECTED_EXECUTION_FAILURE") from None
             cycles += 1
             if max_cycles is None or cycles < max_cycles:
                 self.sleep_fn(self.settings.EXECUTION_POLL_SECONDS)

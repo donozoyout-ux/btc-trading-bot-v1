@@ -56,12 +56,10 @@ class StrategyOrchestrator:
                 blockers.append("EXPERIMENTAL_SETUP_DISABLED")
             else:
                 blockers.append("NO_DETERMINISTIC_SETUP")
-        if mtf.get("conflicts"):
-            blockers.extend(mtf["conflicts"])
-        if news.get("news_risk") in ("HIGH", "EXTREME"):
-            blockers.append(f"NEWS_RISK_{news['news_risk']}")
         if report.derivatives.value == "REJECT":
             blockers.append("DERIVATIVES_REJECT")
+        if report.entry_quality_assessment and report.entry_quality_assessment.decision == "REJECT":
+            blockers.extend(report.entry_quality_assessment.reason_codes)
         if report.kill_switch_active:
             blockers.append("KILL_SWITCH_ACTIVE")
         if self._risk_rejected(report):
@@ -82,11 +80,15 @@ class StrategyOrchestrator:
             score += 10
         score = min(score, 100)
 
+        warnings = list(dict.fromkeys((mtf.get("conflicts") or []) + ([f"NEWS_RISK_{news['news_risk']}"] if news.get("news_risk") in ("HIGH", "EXTREME") else [])))
+        # Advisory MTF/news context never enters the hard-blocker collection.
+        hard_blockers = list(dict.fromkeys(blockers))
         eligible = bool(
             report.final_decision in (DecisionStatus.LONG_ENTRY, DecisionStatus.SHORT_ENTRY)
             and report.risk_assessment is not None
             and report.risk_assessment.decision == RiskDecision.ACCEPT_TRADE
             and not report.kill_switch_active
+            and not hard_blockers
         )
         return {
             "setup_type": setup_type,
@@ -94,7 +96,10 @@ class StrategyOrchestrator:
             "eligible": eligible,
             "score": score,
             "reasons": [reason for reason in reasons if reason],
-            "blocking_reasons": list(dict.fromkeys(blockers)),
+            "blocking_reasons": hard_blockers,
+            "hard_blockers": hard_blockers,
+            "warnings": warnings,
+            "entry_quality_assessment": report.entry_quality_assessment.model_dump(mode="json") if report.entry_quality_assessment else None,
             "entry_trigger_state": report.trigger_state.value,
             "trade_plan": report.trade_plan.model_dump(mode="json") if report.trade_plan else None,
             "risk_decision": report.risk_status.value,

@@ -484,13 +484,40 @@ class DashboardRuntime:
                 "taker_buy_ratio": {"value": taker_ratio, "source": "BINANCE" if taker_ratio is not None else "UNAVAILABLE", "observed_at": observed_at if taker_ratio is not None else None},
                 "liquidations_24h": {"value": cg_liq.get("total") if cg_liq.get("is_available") else None, "source": "COINGLASS" if cg_liq.get("is_available") else "UNAVAILABLE", "observed_at": cg_liq.get("observed_at")},
             }
+            account = None
+            risk_capital_source = "CONFIG_FALLBACK"
+            sizing_capital = self.state.account_balance_usdt
+
+            def sync_testnet_risk_capital() -> bool:
+                nonlocal account, risk_capital_source, sizing_capital
+                account = self.account(force=True)
+                wallet = account.get("wallet_balance_usdt")
+                available = account.get("available_balance_usdt")
+                if account.get("connected") and wallet is not None and wallet > 0:
+                    sizing_capital = float(wallet)
+                    risk_capital_source = "BINANCE_TESTNET_WALLET"
+                elif account.get("connected") and available is not None and available > 0:
+                    sizing_capital = float(available)
+                    risk_capital_source = "BINANCE_TESTNET_AVAILABLE"
+                else:
+                    risk_capital_source = "UNAVAILABLE"
+                    return False
+                self.state.account_balance_usdt = sizing_capital
+                return True
+
             cmc_status = "CONNECTED" if cmc.get("is_available") else cmc.get("status", "UNAVAILABLE")
             report = self.pipeline.run_cycle(
                 candles,
                 self.state,
                 derivatives_input=derivatives_input,
                 source_health={"coinglass": cg_status, "coinmarketcap": cmc_status},
+                risk_capital_available=not self.execution_enabled,
+                risk_capital_provider=sync_testnet_risk_capital if self.execution_enabled else None,
             )
+            if account is None:
+                account = self.account(force=force)
+                if self.execution_enabled:
+                    risk_capital_source = "UNAVAILABLE"
             chart_intelligence = self.chart_reader.analyze(candles)
             mtf = self.mtf_interpreter.interpret(chart_intelligence)
             strategy = self.strategy_orchestrator.summarize(report, chart_intelligence, mtf, news)
@@ -515,7 +542,6 @@ class DashboardRuntime:
             close_24h = candles["5m"][-289].close if len(candles["5m"]) >= 289 else candles["5m"][0].close
             change_24h_pct = ((current_price - close_24h) / close_24h) * 100.0 if close_24h else 0.0
 
-            account = self.account(force=force)
             account_summary = {
                 "environment": "TESTNET",
                 "connected": account["connected"],
@@ -629,6 +655,14 @@ class DashboardRuntime:
                     "kill_switch_active": self.state.kill_switch_activated,
                     "kill_switch_reason": self.state.kill_switch_reason,
                     "active_position": _jsonable(self.state.active_position),
+                },
+                "risk_capital": {
+                    "source": risk_capital_source,
+                    "sizing_capital_usdt": sizing_capital if risk_capital_source != "UNAVAILABLE" else None,
+                    "wallet_balance_usdt": account.get("wallet_balance_usdt"),
+                    "available_balance_usdt": account.get("available_balance_usdt"),
+                    "configured_risk_pct": self.settings.COUNTER_TREND_RISK_PCT if report.setup.value == "COUNTER_TREND_REACTION" else self.settings.TREND_RISK_PCT,
+                    "planned_risk_usdt": report.risk_assessment.risk_amount_usdt if report.risk_assessment else None,
                 },
                 "account": account_summary,
                 "execution": execution_state,

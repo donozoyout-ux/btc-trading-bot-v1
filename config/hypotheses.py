@@ -32,6 +32,8 @@ INITIAL_HYPOTHESES: Dict[str, Any] = {
     "derivatives_oi_material_change_pct": 0.005,  # 0.50% OI expansion/contraction
     "derivatives_bearish_taker_ratio": 0.80,      # Taker buy/sell at or below = bearish participation
     "derivatives_bullish_taker_ratio": 1.20,      # Taker buy/sell at or above = bullish participation
+    # Initial hypothesis only: reject entries stretched >= 2 ATR from 20-bar mean.
+    "entry_max_atr_extension": 2.0,
     
     # Risk & Sizing hypotheses (Section 37, 38, 40)
     "min_risk_reward_ratio": 1.50,         # Minimum acceptable structural R:R filter

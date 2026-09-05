@@ -13,44 +13,50 @@ class EntryTriggerEngine:
     Requires multi-factor candle behavior (rejection wick, engulfing, micro BOS, volume).
     """
 
-    def __init__(self, min_wick_ratio: float = 0.35, min_body_ratio: float = 0.65):
+    def __init__(self, min_wick_ratio: float = 0.35, min_body_ratio: float = 0.65, volume_rvol_threshold: float = 1.50):
         self.min_wick_ratio = min_wick_ratio
         self.min_body_ratio = min_body_ratio
+        self.volume_rvol_threshold = volume_rvol_threshold
 
     def evaluate_5m_patterns(self, candles_5m: List[Candle], direction: TradeDirection) -> Tuple[bool, str]:
         """
         Analyzes the latest closed 5M candles for multi-factor trigger confluence.
         Returns (is_confirmed, pattern_description).
         """
-        if len(candles_5m) < 5:
+        closed = [c for c in candles_5m if c.is_closed]
+        if len(closed) < 5:
             return False, "Insufficient 5M candles"
 
-        curr = candles_5m[-1]
-        prev = candles_5m[-2]
+        curr = closed[-1]
+        prev = closed[-2]
 
         total_range = curr.total_range
         lower_wick_ratio = curr.lower_wick / total_range
         upper_wick_ratio = curr.upper_wick / total_range
         body_ratio = curr.body_size / total_range
 
-        # Volume confirmation (above recent 5M average)
-        volumes = [c.volume for c in candles_5m[-21:-1]]
+        # Volume state is descriptive support, never price-action confirmation.
+        volumes = [c.volume for c in closed[-21:-1]]
         avg_vol = np.mean(volumes) if volumes else 1.0
-        vol_confirmed = curr.volume >= avg_vol * 0.95
+        rvol = curr.volume / avg_vol if avg_vol > 0 else 0.0
+        volume_state = "VOLUME_EXPANSION" if rvol >= self.volume_rvol_threshold else "VOLUME_NORMAL" if rvol >= 0.95 else "VOLUME_PRESENT"
 
         confluence_points = 0
         patterns_found = []
 
         if direction == TradeDirection.LONG:
+            price_action_confirmed = False
             # Factor 1: Lower wick rejection
             if lower_wick_ratio >= self.min_wick_ratio and curr.close >= curr.open:
                 confluence_points += 1
                 patterns_found.append(f"Wick Rejection ({lower_wick_ratio*100:.0f}%)")
+                price_action_confirmed = True
 
             # Factor 2: Bullish Engulfing
             if curr.is_bullish and prev.is_bearish and curr.close > prev.high and curr.open <= prev.close:
                 confluence_points += 1
                 patterns_found.append("Bullish Engulfing")
+                price_action_confirmed = True
 
             # Factor 3: Strong Directional Body
             if curr.is_bullish and body_ratio >= self.min_body_ratio:
@@ -58,30 +64,34 @@ class EntryTriggerEngine:
                 patterns_found.append(f"Strong Bullish Body ({body_ratio*100:.0f}%)")
 
             # Factor 4: 5M Micro Structure Break (Close above recent 3 bars high)
-            recent_high = max(c.high for c in candles_5m[-4:-1])
+            recent_high = max(c.high for c in closed[-4:-1])
             if curr.close > recent_high:
                 confluence_points += 1
                 patterns_found.append("Micro BOS High Break")
+                price_action_confirmed = True
 
             # Factor 5: Volume confirmation
-            if vol_confirmed:
+            if volume_state == "VOLUME_EXPANSION":
                 confluence_points += 1
-                patterns_found.append("Volume Expansion")
+            patterns_found.append(f"{volume_state} (RVOL {rvol:.2f})")
 
             # Quality trigger requires at least 2 confluence factors per Section 28
-            is_triggered = confluence_points >= 2
+            is_triggered = price_action_confirmed and confluence_points >= 2
             return is_triggered, " + ".join(patterns_found)
 
         elif direction == TradeDirection.SHORT:
+            price_action_confirmed = False
             # Factor 1: Upper wick rejection
             if upper_wick_ratio >= self.min_wick_ratio and curr.close <= curr.open:
                 confluence_points += 1
                 patterns_found.append(f"Upper Wick Rejection ({upper_wick_ratio*100:.0f}%)")
+                price_action_confirmed = True
 
             # Factor 2: Bearish Engulfing
             if curr.is_bearish and prev.is_bullish and curr.close < prev.low and curr.open >= prev.close:
                 confluence_points += 1
                 patterns_found.append("Bearish Engulfing")
+                price_action_confirmed = True
 
             # Factor 3: Strong Bearish Body
             if curr.is_bearish and body_ratio >= self.min_body_ratio:
@@ -89,17 +99,18 @@ class EntryTriggerEngine:
                 patterns_found.append(f"Strong Bearish Body ({body_ratio*100:.0f}%)")
 
             # Factor 4: Micro Structure Break (Close below recent 3 bars low)
-            recent_low = min(c.low for c in candles_5m[-4:-1])
+            recent_low = min(c.low for c in closed[-4:-1])
             if curr.close < recent_low:
                 confluence_points += 1
                 patterns_found.append("Micro BOS Low Break")
+                price_action_confirmed = True
 
             # Factor 5: Volume confirmation
-            if vol_confirmed:
+            if volume_state == "VOLUME_EXPANSION":
                 confluence_points += 1
-                patterns_found.append("Volume Expansion")
+            patterns_found.append(f"{volume_state} (RVOL {rvol:.2f})")
 
-            is_triggered = confluence_points >= 2
+            is_triggered = price_action_confirmed and confluence_points >= 2
             return is_triggered, " + ".join(patterns_found)
 
         return False, "No valid trade direction"
@@ -134,7 +145,7 @@ class EntryTriggerEngine:
         is_pattern_confirmed, pattern_desc = self.evaluate_5m_patterns(candles_5m, setup.direction)
 
         if is_pattern_confirmed:
-            curr_c = candles_5m[-1]
+            curr_c = next(c for c in reversed(candles_5m) if c.is_closed)
             return TriggerResult(
                 state=TriggerState.ENTRY_READY,
                 is_triggered=True,

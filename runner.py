@@ -1,7 +1,7 @@
 """Master Pipeline orchestrating the sequential execution per Master Specification V2.1 FINAL."""
 
 import time
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 from loguru import logger
 
 from config.settings import BotSettings
@@ -26,6 +26,7 @@ from core.models import (
     RiskAssessment,
     TradeRecord,
     DerivativesField,
+    EntryQualityAssessment,
 )
 from core.state import BotState
 from engines.data_health import DataHealthEngine
@@ -41,6 +42,7 @@ from engines.trigger_engine import EntryTriggerEngine
 from engines.trade_plan_engine import TradePlanEngine
 from engines.risk_engine import RiskEngine
 from engines.exit_engine import ExitEngine
+from engines.entry_quality_engine import EntryQualityEngine
 from journal.journaler import Journaler
 
 
@@ -94,6 +96,7 @@ class MasterPipeline:
         self.trigger_engine = EntryTriggerEngine(
             min_wick_ratio=self.settings.WICK_REJECTION_RATIO,
             min_body_ratio=self.settings.DIRECTIONAL_BODY_RATIO,
+            volume_rvol_threshold=self.settings.VOLUME_RVOL_THRESHOLD,
         )
         self.trade_plan_engine = TradePlanEngine(atr_buffer_factor=0.20)
         self.risk_engine = RiskEngine(settings)
@@ -101,6 +104,11 @@ class MasterPipeline:
             taker_fee_pct=settings.TAKER_FEE_PCT,
             slippage_pct=settings.SLIPPAGE_PCT,
             auto_breakeven=settings.EXIT_POLICY_AUTO_BREAKEVEN,
+        )
+        self.entry_quality_engine = EntryQualityEngine(
+            settings.ENTRY_MAX_ATR_EXTENSION,
+            settings.LOCATION_PROXIMITY_PCT,
+            settings.MIN_RISK_REWARD,
         )
 
     def _next_candidate_id(self) -> str:
@@ -113,6 +121,8 @@ class MasterPipeline:
         state: BotState,
         derivatives_input: Optional[Dict] = None,
         source_health: Optional[Dict[str, str]] = None,
+        risk_capital_available: bool = True,
+        risk_capital_provider: Optional[Callable[[], bool]] = None,
     ) -> DecisionReport:
         """Runs a single 5M evaluation cycle across all buffered timeframes."""
         # Simulation clock = last closed 5M candle. Wall time would freeze daily
@@ -175,6 +185,7 @@ class MasterPipeline:
         struct_4h = self.structure_engine.analyze_structure("4h", candles_4h)
         struct_1h = self.structure_engine.analyze_structure("1h", candles_1h)
         struct_15m = self.structure_engine.analyze_structure("15m", candles_15m)
+        struct_5m = self.structure_engine.analyze_structure("5m", candles_5m)
 
         # STEP 3: MARKET REGIME (BTC Market Inputs Only)
         regime_result = self.regime_engine.evaluate_regime(
@@ -278,22 +289,37 @@ class MasterPipeline:
         current_atr = regime_result.details.get("current_atr", current_price * 0.01)
         trade_plan = None
         risk_assessment = None
+        entry_quality_assessment = None
         guard_type = GuardType.OTHER_RISK_CONTROL_BLOCK
         candidate_id = ""
 
+        capital_ready = risk_capital_available
         if trigger_result.is_triggered and derivatives_state.status != DerivativesStatus.REJECT:
             trade_plan = self.trade_plan_engine.generate_plan(
                 setup=setup_signal,
                 trigger=trigger_result,
                 current_atr=current_atr,
             )
-            candidate_id = self._next_candidate_id()
-            risk_assessment = self.risk_engine.evaluate_risk(
-                trade_plan=trade_plan,
-                state=state,
-                candidate_id=candidate_id,
+            entry_quality_assessment = self.entry_quality_engine.evaluate(
+                setup_signal.direction, trade_plan, setup_signal, location_result,
+                struct_5m, candles_5m, candles_15m,
             )
-            guard_type = risk_assessment.guard_type
+            # Live TESTNET balance is deliberately synchronized only after the
+            # setup, trigger and entry-quality gates, immediately before sizing.
+            if entry_quality_assessment.decision == "ACCEPT" and risk_capital_provider is not None:
+                try:
+                    capital_ready = bool(risk_capital_provider())
+                except Exception as exc:
+                    logger.warning("Signed TESTNET risk-capital synchronization failed: {}", type(exc).__name__)
+                    capital_ready = False
+            if entry_quality_assessment.decision == "ACCEPT" and capital_ready:
+                candidate_id = self._next_candidate_id()
+                risk_assessment = self.risk_engine.evaluate_risk(
+                    trade_plan=trade_plan,
+                    state=state,
+                    candidate_id=candidate_id,
+                )
+                guard_type = risk_assessment.guard_type
 
         # STEP 10: FINAL DECISION SYNTHESIS
         final_decision = DecisionStatus.NO_TRADE
@@ -307,6 +333,12 @@ class MasterPipeline:
         elif derivatives_state.status == DerivativesStatus.REJECT:
             final_decision = DecisionStatus.NO_TRADE
             decision_reason = f"Derivatives Veto: {derivatives_state.reason}"
+        elif entry_quality_assessment and entry_quality_assessment.decision == "REJECT":
+            final_decision = DecisionStatus.NO_TRADE
+            decision_reason = f"Entry Quality Veto: {', '.join(entry_quality_assessment.reason_codes)}"
+        elif trigger_result.is_triggered and not capital_ready:
+            final_decision = DecisionStatus.NO_TRADE
+            decision_reason = "Risk Capital Unavailable: signed Binance TESTNET balance required"
         elif trigger_result.is_triggered and risk_assessment and risk_assessment.decision == RiskDecision.ACCEPT_TRADE:
             if setup_signal.direction == TradeDirection.LONG:
                 final_decision = DecisionStatus.LONG_ENTRY
@@ -352,6 +384,16 @@ class MasterPipeline:
             reason=decision_reason,
             trade_plan=trade_plan,
             risk_assessment=risk_assessment,
+            entry_quality_assessment=entry_quality_assessment,
+            setup_evidence={
+                "breakout_timestamp": setup_signal.breakout_timestamp,
+                "retest_timestamp": setup_signal.retest_timestamp,
+                "breakout_level": setup_signal.breakout_level,
+                "breakout_quality": setup_signal.breakout_quality,
+                "retest_hold": setup_signal.retest_hold,
+                "retest_confirmation": setup_signal.retest_confirmation,
+                "setup_invalidated": setup_signal.setup_invalidated,
+            },
         )
 
         self.journaler.log_decision(report)

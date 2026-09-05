@@ -160,47 +160,85 @@ class SetupEngine:
 
         # For LONG Breakout Retest
         if regime.regime in [MarketRegime.BULL, MarketRegime.STRONG_BULL]:
-            # Look for a zone that was recently broken to the upside and is currently retested
             for z in zones:
-                # Breakout condition: a candle in last 10 closed above z.price_max
-                # Preserve the established Setup B LONG window. Closed bars are
-                # enforced above, so this restores parity without future bars.
-                broke_above = any(c.close > z.price_max for c in last_10[:-2])
-                # Retest condition: price dipped back to z and held (low <= z.price_max * 1.002 and close >= z.price_min)
-                retested = any(c.low <= z.price_max * 1.002 and c.close >= z.price_min for c in last_10[-3:])
-
-                if broke_above and retested and current_price >= z.price_min:
-                    inv_price = z.price_min * 0.997
-                    target_price = current_price * 1.025
-
-                    return SetupSignal(
-                        setup_type=SetupType.BREAKOUT_RETEST,
-                        direction=TradeDirection.LONG,
-                        detected=True,
-                        timeframe="15m",
-                        invalidation_level=inv_price,
-                        target_level=target_price,
-                        zone=z,
-                        reason=f"Setup B: Breakout and retest of level {z.center:.1f} holding as support",
-                    )
+                for break_index, breakout in enumerate(last_10[:-1]):
+                    clean_close = breakout.close >= z.price_max * (1 + self.location_proximity_pct)
+                    body_close = breakout.is_bullish and breakout.body_size / breakout.total_range >= 0.65
+                    if breakout.close <= z.price_max or not (clean_close or body_close):
+                        continue
+                    for retest_index in range(break_index + 1, len(last_10)):
+                        retest = last_10[retest_index]
+                        touches = retest.low <= z.price_max * 1.002
+                        holds = retest.low >= z.price_min * 0.997 and retest.close >= z.price_max
+                        previous = last_10[retest_index - 1]
+                        rejection = retest.is_bullish and retest.lower_wick / retest.total_range >= 0.35
+                        engulfing = retest.is_bullish and previous.is_bearish and retest.close > previous.high
+                        strong_close = retest.is_bullish and retest.body_size / retest.total_range >= 0.65
+                        if not (touches and holds and (rejection or engulfing or strong_close)):
+                            continue
+                        if any(row.close < z.price_min for row in last_10[retest_index + 1:]):
+                            # A confirmed conversion that subsequently fails
+                            # cannot be revived by a later recovery candle.
+                            break
+                        if current_price < z.price_max:
+                            return None
+                        confirmation = "BULLISH_REJECTION" if rejection else "BULLISH_ENGULFING" if engulfing else "STRONG_BULLISH_CLOSE"
+                        return SetupSignal(
+                            setup_type=SetupType.BREAKOUT_RETEST,
+                            direction=TradeDirection.LONG,
+                            detected=True,
+                            timeframe="15m",
+                            invalidation_level=z.price_min * 0.997,
+                            target_level=current_price * 1.025,
+                            zone=z,
+                            reason=f"Setup B: Breakout and retest of level {z.center:.1f} holding as support",
+                            breakout_timestamp=breakout.timestamp,
+                            retest_timestamp=retest.timestamp,
+                            breakout_level=z.price_max,
+                            breakout_quality="CLEAN_CLOSE" if clean_close else "DIRECTIONAL_BODY",
+                            retest_hold=True,
+                            retest_confirmation=confirmation,
+                            setup_invalidated=False,
+                        )
 
         # For SHORT Breakdown Retest. The breakdown is confined to the
         # historical portion and therefore must precede every retest bar.
         if regime.regime in [MarketRegime.BEAR, MarketRegime.STRONG_BEAR]:
             for z in zones:
-                broke_below = any(c.close < z.price_min for c in last_10[:-3])
-                retested = any(
-                    c.high >= z.price_min * 0.998
-                    and c.low <= z.price_max
-                    and c.close < z.price_min
-                    for c in last_10[-3:]
-                )
-                if broke_below and retested and current_price < z.price_min:
+                match = None
+                for break_index, breakdown in enumerate(last_10[:-1]):
+                    clean_close = breakdown.close <= z.price_min * (1 - self.location_proximity_pct)
+                    body_close = breakdown.is_bearish and breakdown.body_size / breakdown.total_range >= 0.65
+                    if breakdown.close >= z.price_min or not (clean_close or body_close):
+                        continue
+                    for retest_index in range(break_index + 1, len(last_10)):
+                        retest = last_10[retest_index]
+                        touches = retest.high >= z.price_min * 0.998
+                        holds = retest.high <= z.price_max * 1.003 and retest.close <= z.price_min
+                        previous = last_10[retest_index - 1]
+                        rejection = retest.is_bearish and retest.upper_wick / retest.total_range >= 0.35
+                        engulfing = retest.is_bearish and previous.is_bullish and retest.close < previous.low
+                        strong_close = retest.is_bearish and retest.body_size / retest.total_range >= 0.65
+                        if not (touches and holds and (rejection or engulfing or strong_close)):
+                            continue
+                        if any(row.close > z.price_max for row in last_10[retest_index + 1:]):
+                            # A confirmed conversion that subsequently fails
+                            # cannot be revived by a later recovery candle.
+                            break
+                        if current_price > z.price_min:
+                            return None
+                        match = (breakdown, retest, clean_close, rejection, engulfing)
+                        break
+                    if match:
+                        break
+                if match:
+                    breakdown, retest, clean_close, rejection, engulfing = match
                     if not self.enable_setup_b_short:
                         # Record telemetry without returning a truthy NONE
                         # signal that would suppress lower-priority Setup C.
                         self.last_experimental_blocker = "EXPERIMENTAL_SETUP_DISABLED: BREAKOUT_RETEST SHORT"
                         return None
+                    confirmation = "BEARISH_REJECTION" if rejection else "BEARISH_ENGULFING" if engulfing else "STRONG_BEARISH_CLOSE"
                     return SetupSignal(
                         setup_type=SetupType.BREAKOUT_RETEST,
                         direction=TradeDirection.SHORT,
@@ -210,6 +248,13 @@ class SetupEngine:
                         target_level=current_price * 0.975,
                         zone=z,
                         reason=f"Setup B: Breakdown and retest of level {z.center:.1f} holding as resistance",
+                        breakout_timestamp=breakdown.timestamp,
+                        retest_timestamp=retest.timestamp,
+                        breakout_level=z.price_min,
+                        breakout_quality="CLEAN_CLOSE" if clean_close else "DIRECTIONAL_BODY",
+                        retest_hold=True,
+                        retest_confirmation=confirmation,
+                        setup_invalidated=False,
                     )
 
         return None
