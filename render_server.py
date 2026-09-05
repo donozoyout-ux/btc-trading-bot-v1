@@ -59,6 +59,73 @@ class RenderDashboardRuntime(base.DashboardRuntime):
         )
         super().__init__(market_client=market_client)
 
+    def snapshot(self, force: bool = False) -> dict:
+        """Annotate Render snapshots with explicit trading-authority provenance.
+
+        TESTNET public market data may keep the dashboard populated, but it must
+        never authorize a new TESTNET entry. Fallback derivatives values are
+        display-only and are labelled explicitly instead of masquerading as
+        production Binance Futures data.
+        """
+        snapshot = super().snapshot(force=force)
+        market = self.binance.status()
+        source = str(market.get("market_data_source") or "UNKNOWN")
+        trading_safe = bool(market.get("market_data_trading_safe", False))
+
+        meta = snapshot.setdefault("meta", {})
+        meta["market_data_source"] = source
+        meta["market_data_trading_safe"] = trading_safe
+
+        binance_source = snapshot.setdefault("sources", {}).setdefault("binance", {})
+        binance_source["environment"] = source
+        binance_source["fallback_active"] = bool(market.get("fallback_active", False))
+        binance_source["market_data_trading_safe"] = trading_safe
+        if not trading_safe:
+            # Defense in depth: the executor also has an explicit authority gate.
+            binance_source["status"] = "DEGRADED"
+
+        strategy = snapshot.setdefault("strategy", {})
+        blockers = list(strategy.get("blocking_reasons") or [])
+        if not trading_safe:
+            strategy["eligible"] = False
+            if "MARKET_DATA_NOT_TRADING_SAFE" not in blockers:
+                blockers.append("MARKET_DATA_NOT_TRADING_SAFE")
+            strategy["blocking_reasons"] = blockers
+            if snapshot.get("final_decision") in {"LONG_ENTRY", "SHORT_ENTRY"}:
+                snapshot["final_decision"] = "NO_TRADE"
+
+        derivatives = snapshot.setdefault("derivatives", {})
+        derivatives["trading_authority"] = "PRODUCTION" if trading_safe else "NONE"
+        if not trading_safe:
+            telemetry = self.binance.fallback_derivatives_telemetry()
+            mapping = {
+                "get_open_interest": "open_interest",
+                "get_funding_rate": "funding_rate",
+                "get_long_short_ratio": "long_short_ratio",
+                "get_taker_volume_ratio": "taker_buy_ratio",
+            }
+            has_display_value = False
+            for method, field_name in mapping.items():
+                field = telemetry.get(method)
+                if field is None:
+                    continue
+                derivatives[field_name] = dict(field)
+                if field.get("value") is not None:
+                    has_display_value = True
+            derivatives["display_status"] = "DEGRADED" if has_display_value else "UNAVAILABLE"
+
+            market_payload = snapshot.setdefault("market", {})
+            oi = telemetry.get("get_open_interest") or {}
+            funding = telemetry.get("get_funding_rate") or {}
+            ls = telemetry.get("get_long_short_ratio") or {}
+            taker = telemetry.get("get_taker_volume_ratio") or {}
+            market_payload["open_interest_btc"] = oi.get("value")
+            market_payload["funding_rate"] = funding.get("value")
+            market_payload["long_short_ratio"] = ls.get("value")
+            market_payload["taker_buy_sell_ratio"] = taker.get("value")
+
+        return snapshot
+
 
 def _update_execution_status(**changes) -> None:
     if "last_error" in changes:
@@ -111,6 +178,7 @@ def bootstrap_payload() -> dict:
             os.environ.get("BINANCE_API_KEY") and os.environ.get("BINANCE_API_SECRET")
         ),
         "market_data_source": market.get("market_data_source", "UNKNOWN"),
+        "market_data_trading_safe": bool(market.get("market_data_trading_safe", False)),
         "production_public_status": market.get("production_public_status", "UNKNOWN"),
         "production_public_retry_after_seconds": market.get(
             "production_public_retry_after_seconds", 0
