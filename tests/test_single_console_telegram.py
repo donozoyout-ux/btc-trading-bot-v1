@@ -21,6 +21,24 @@ def test_dashboard_uses_single_console_without_hidden_tab_navigation():
     assert "sessionStorage.setItem('btc-dashboard-tab'" not in source
 
 
+def test_render_dashboard_loads_live_trade_tracker_after_layout():
+    source = Path("dashboard/render-bridge.js").read_text(encoding="utf-8")
+    assert "'/dashboard-tabs.js'" in source
+    assert "'/trade-tracker.js'" in source
+
+
+def test_live_trade_tracker_uses_exchange_account_truth_for_pnl_and_protection():
+    source = Path("dashboard/trade-tracker.js").read_text(encoding="utf-8")
+    assert "fetch('/api/account'" in source
+    assert "unrealized_pnl" in source
+    assert "STOP LOSS" in source
+    assert "TP1" in source and "TP2" in source
+    assert "TAKE_PROFIT" in source
+    assert "STOP')" in source
+    assert "ACCOUNT_POLL_MS = 3000" in source
+    assert "SL + TP1 + TP2 AKTİF" in source
+
+
 def test_order_opened_telegram_is_compact_turkish_testnet_message():
     client = FakeTelegramClient()
     notifier = TelegramEventNotifier(client)
