@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 from config.settings import BotSettings, get_settings
 from core.state import BotState
 from data.binance_execution_client import BinanceFuturesExecutionClient, ExecutionError
-from execution.testnet_executor import TestnetExecutor
+from execution.safer_testnet_executor import SaferTestnetExecutor
 from journal.execution_journal import ExecutionJournal
 from notifications.telegram_client import TelegramClient
 from notifications.telegram_notifier import TelegramEventNotifier
@@ -35,7 +35,7 @@ class TestnetExecutionRuntime:
         self.journal = ExecutionJournal(self.settings.JOURNAL_DIR)
         telegram = TelegramClient(self.settings.TELEGRAM_BOT_TOKEN, self.settings.TELEGRAM_CHAT_ID, enabled=self.settings.TELEGRAM_ENABLED)
         self.notifier = TelegramEventNotifier(telegram, self.settings.TELEGRAM_DEDUPE_TTL_SECONDS)
-        self.executor = TestnetExecutor(self.client, settings=self.settings, execution_journal=self.journal, event_notifier=self.notifier)
+        self.executor = SaferTestnetExecutor(self.client, settings=self.settings, execution_journal=self.journal, event_notifier=self.notifier)
         if dashboard_runtime is None:
             from dashboard_server import DashboardRuntime
             dashboard_runtime = DashboardRuntime(settings=self.settings)
