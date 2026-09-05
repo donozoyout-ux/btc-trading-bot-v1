@@ -46,7 +46,9 @@ class StrategyOrchestrator:
             blockers.append("DERIVATIVES_REJECT")
         if report.kill_switch_active:
             blockers.append("KILL_SWITCH_ACTIVE")
-        if report.risk_status != RiskDecision.ACCEPT_TRADE:
+        # A default reject-like risk_status is used when risk was never evaluated.
+        # Only surface RISK_REJECT when an actual RiskAssessment exists.
+        if report.risk_assessment is not None and report.risk_assessment.decision != RiskDecision.ACCEPT_TRADE:
             blockers.append("RISK_REJECT")
 
         score = 0
@@ -66,7 +68,8 @@ class StrategyOrchestrator:
 
         eligible = bool(
             report.final_decision in (DecisionStatus.LONG_ENTRY, DecisionStatus.SHORT_ENTRY)
-            and report.risk_status == RiskDecision.ACCEPT_TRADE
+            and report.risk_assessment is not None
+            and report.risk_assessment.decision == RiskDecision.ACCEPT_TRADE
             and not report.kill_switch_active
         )
         return {
@@ -79,12 +82,15 @@ class StrategyOrchestrator:
             "entry_trigger_state": report.trigger_state.value,
             "trade_plan": report.trade_plan.model_dump(mode="json") if report.trade_plan else None,
             "risk_decision": report.risk_status.value,
+            "risk_evaluated": report.risk_assessment is not None,
             "execution_authority": False,
         }
 
     @staticmethod
     def final_decision(report: DecisionReport, ai: Dict[str, Any] | None = None) -> str:
-        """AI is deliberately ignored; a risk rejection always resolves to NO_TRADE."""
-        if report.kill_switch_active or report.risk_status != RiskDecision.ACCEPT_TRADE:
+        """AI is advisory only; WATCH survives until risk is actually evaluated."""
+        if report.kill_switch_active:
+            return DecisionStatus.NO_TRADE.value
+        if report.risk_assessment is not None and report.risk_assessment.decision != RiskDecision.ACCEPT_TRADE:
             return DecisionStatus.NO_TRADE.value
         return report.final_decision.value
