@@ -26,6 +26,11 @@ INITIAL_HYPOTHESES: Dict[str, Any] = {
     "counter_trend_adx_veto": 35.0,        # 4H/1H ADX ceiling above which counter-trend is vetoed
     "bollinger_band_period": 20,           # BB period for Setup C
     "bollinger_band_std_dev": 2.0,         # BB standard deviation
+
+    # Derivatives veto hypotheses. A veto requires all relevant real fields.
+    "derivatives_oi_material_change_pct": 0.005,  # 0.50% OI expansion/contraction
+    "derivatives_bearish_taker_ratio": 0.80,      # Taker buy/sell at or below = bearish participation
+    "derivatives_bullish_taker_ratio": 1.20,      # Taker buy/sell at or above = bullish participation
     
     # Risk & Sizing hypotheses (Section 37, 38, 40)
     "min_risk_reward_ratio": 1.50,         # Minimum acceptable structural R:R filter

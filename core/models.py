@@ -248,6 +248,7 @@ class DecisionReport(BaseModel):
     structure_1h: StructureType
     location: LocationQuality
     setup: SetupType
+    setup_direction: TradeDirection = TradeDirection.WAIT
     trigger_state: TriggerState
     derivatives: DerivativesStatus
     overextended_up: bool = False

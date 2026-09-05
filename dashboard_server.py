@@ -283,6 +283,9 @@ class DashboardRuntime:
         self._snapshot: Optional[Dict[str, Any]] = None
         self._account_lock = threading.Lock()
         self._account_cached_at = 0.0
+        # Two timestamped real Binance observations are required before an OI
+        # change can exist. Process restarts intentionally reset this history.
+        self._previous_binance_oi: Optional[tuple[int, float]] = None
         self._account_snapshot: Optional[Dict[str, Any]] = None
         self._last_ai_decision_id: Optional[str] = None
         self._last_ai_result: Dict[str, Any] = self.ai_analyst.unavailable()
@@ -442,9 +445,18 @@ class DashboardRuntime:
             news = self.news_engine.evaluate(force=force)
 
             observed_at = int(time.time() * 1000)
+            oi_change_pct = None
+            oi_change_observed_at = None
+            if open_interest is not None:
+                previous_oi = self._previous_binance_oi
+                if previous_oi and previous_oi[0] < observed_at and previous_oi[1] > 0:
+                    oi_change_pct = (open_interest - previous_oi[1]) / previous_oi[1]
+                    oi_change_observed_at = observed_at
+                self._previous_binance_oi = (observed_at, open_interest)
             cg_oi_value = cg_oi.get("aggregate_oi_usd") if cg_oi.get("is_available") else None
             derivatives_input = {
                 "open_interest": {"value": cg_oi_value if cg_oi_value is not None else open_interest, "source": "COINGLASS" if cg_oi_value is not None else "BINANCE" if open_interest is not None else "UNAVAILABLE", "observed_at": cg_oi.get("observed_at") if cg_oi_value is not None else observed_at if open_interest is not None else None},
+                "oi_change_pct": {"value": oi_change_pct, "source": "BINANCE" if oi_change_pct is not None else "UNAVAILABLE", "observed_at": oi_change_observed_at},
                 "funding_rate": {"value": funding, "source": "BINANCE" if funding is not None else "UNAVAILABLE", "observed_at": observed_at if funding is not None else None},
                 "long_short_ratio": {"value": long_short, "source": "BINANCE" if long_short is not None else "UNAVAILABLE", "observed_at": observed_at if long_short is not None else None},
                 "taker_buy_ratio": {"value": taker_ratio, "source": "BINANCE" if taker_ratio is not None else "UNAVAILABLE", "observed_at": observed_at if taker_ratio is not None else None},
@@ -562,6 +574,7 @@ class DashboardRuntime:
                 "derivatives": {
                     "status": _jsonable(report.derivatives),
                     "open_interest": derivatives_input["open_interest"],
+                    "oi_change_pct": derivatives_input["oi_change_pct"],
                     "funding_rate": derivatives_input["funding_rate"],
                     "long_short_ratio": derivatives_input["long_short_ratio"],
                     "taker_buy_ratio": derivatives_input["taker_buy_ratio"],

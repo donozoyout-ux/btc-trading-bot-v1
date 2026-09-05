@@ -108,6 +108,16 @@ class MetricsCalculator:
                 [t for t in closed_trades if t.setup_type == SetupType.COUNTER_TREND_REACTION]
             ),
         }
+        for setup in (
+            SetupType.TREND_PULLBACK,
+            SetupType.BREAKOUT_RETEST,
+            SetupType.COUNTER_TREND_REACTION,
+        ):
+            for direction in (TradeDirection.LONG, TradeDirection.SHORT):
+                key = f"{setup.value}_{direction.value}"
+                breakdowns[key] = MetricsCalculator._calculate_subset(
+                    [t for t in closed_trades if t.setup_type == setup and t.direction == direction]
+                )
 
         return {
             "total_trades": total_trades,
@@ -131,17 +141,26 @@ class MetricsCalculator:
         """Helper for breakdown subsets."""
         n = len(subset)
         if n == 0:
-            return {"trades": 0, "win_rate_pct": 0.0, "net_pnl": 0.0, "profit_factor": 0.0}
+            return {"trades": 0, "win_rate_pct": 0.0, "net_pnl": 0.0, "profit_factor": 0.0, "expectancy": 0.0, "max_drawdown_usdt": 0.0}
         wins = [t for t in subset if t.pnl_usdt > 0]
         losses = [t for t in subset if t.pnl_usdt < 0]
         net_pnl = sum(t.pnl_usdt for t in subset)
         gp = sum(t.pnl_usdt for t in wins)
         gl = abs(sum(t.pnl_usdt for t in losses))
         pf = (gp / gl) if gl > 0 else (99.0 if gp > 0 else 0.0)
+        expectancy = net_pnl / n
+        equity = peak = 0.0
+        max_drawdown = 0.0
+        for trade in subset:
+            equity += trade.pnl_usdt
+            peak = max(peak, equity)
+            max_drawdown = max(max_drawdown, peak - equity)
 
         return {
             "trades": n,
             "win_rate_pct": round((len(wins) / n) * 100.0, 2),
             "net_pnl": round(net_pnl, 2),
             "profit_factor": round(pf, 2),
+            "expectancy": round(expectancy, 2),
+            "max_drawdown_usdt": round(max_drawdown, 2),
         }

@@ -22,6 +22,8 @@ class StrategyOrchestrator:
         direction = "WAIT"
         if report.trade_plan:
             direction = report.trade_plan.direction.value
+        elif report.setup != SetupType.NONE:
+            direction = report.setup_direction.value
         elif report.final_decision in (DecisionStatus.LONG_ENTRY, DecisionStatus.LONG_WATCH):
             direction = "LONG"
         elif report.final_decision in (DecisionStatus.SHORT_ENTRY, DecisionStatus.SHORT_WATCH):
