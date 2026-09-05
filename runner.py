@@ -216,21 +216,24 @@ class MasterPipeline:
         )
 
         # Parse field containers
-        oi_val = deriv_data.get("open_interest")
-        funding_val = deriv_data.get("funding_rate")
-        ls_val = deriv_data.get("long_short_ratio")
-        taker_val = deriv_data.get("taker_buy_ratio")
-        liq_val = deriv_data.get("liquidations_24h")
+        def derivative_field(name, default_source):
+            raw = deriv_data.get(name)
+            if isinstance(raw, dict):
+                return DerivativesField(**raw)
+            return DerivativesField(
+                value=raw,
+                source=default_source if raw is not None else DataSource.UNAVAILABLE,
+            )
 
         derivatives_state = self.derivatives_engine.evaluate_derivatives(
             candidate_direction=setup_signal.direction,
             setup_type=setup_signal.setup_type,
             price_change_pct=price_change_pct,
-            oi_field=DerivativesField(value=oi_val, source=DataSource.BINANCE if oi_val is not None else DataSource.UNAVAILABLE),
-            funding_field=DerivativesField(value=funding_val, source=DataSource.BINANCE if funding_val is not None else DataSource.UNAVAILABLE),
-            ls_field=DerivativesField(value=ls_val, source=DataSource.BINANCE if ls_val is not None else DataSource.UNAVAILABLE),
-            taker_field=DerivativesField(value=taker_val, source=DataSource.BINANCE if taker_val is not None else DataSource.UNAVAILABLE),
-            liquidation_field=DerivativesField(value=liq_val, source=DataSource.COINGLASS if liq_val is not None else DataSource.UNAVAILABLE),
+            oi_field=derivative_field("open_interest", DataSource.BINANCE),
+            funding_field=derivative_field("funding_rate", DataSource.BINANCE),
+            ls_field=derivative_field("long_short_ratio", DataSource.BINANCE),
+            taker_field=derivative_field("taker_buy_ratio", DataSource.BINANCE),
+            liquidation_field=derivative_field("liquidations_24h", DataSource.COINGLASS),
         )
 
         # STEP 9: PRE-TRADE PLAN ENGINE & RISK ENGINE

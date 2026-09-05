@@ -84,6 +84,8 @@ class FakeDashboard:
             "news": {"status": "AVAILABLE"},
             "ai_analyst": {"status": "DISABLED"},
             "derivatives": {"status": "DEGRADED"},
+            "sources": {"coinglass": {"status": "HEALTHY"}, "coinmarketcap": {"status": "HEALTHY"}},
+            "macro_context": {"btc_dominance": 56.2, "total_market_cap_usd": 3000000000000, "total_volume_24h_usd": 90000000000},
         }
 
 
@@ -138,7 +140,7 @@ def test_help_lists_read_only_commands_and_no_trade_actions():
 
 def test_status_account_position_orders_signal_risk_sources():
     service, telegram = make_service()
-    for command in ("status", "account", "position", "orders", "signal", "risk", "sources", "ping"):
+    for command in ("status", "account", "position", "orders", "signal", "risk", "sources", "market", "ping"):
         assert service.handle_message({"chat": {"id": 123}, "text": f"/{command}"}) is True
     combined = "\n".join(telegram.messages)
     assert "RUNNING" in combined
@@ -149,6 +151,9 @@ def test_status_account_position_orders_signal_risk_sources():
     assert "NO_TRADE" in combined
     assert "Kill switch: SAFE" in combined
     assert "TESTNET_PUBLIC_FALLBACK" in combined
+    assert "CoinGlass: HEALTHY" in combined
+    assert "BTC Dominance: 56.20%" in combined
+    assert "READ ONLY" in combined
     assert "PONG" in combined
 
 
@@ -164,5 +169,5 @@ def test_registers_botfather_command_menu():
     method, payload = telegram.posts[-1]
     assert method == "setMyCommands"
     commands = {row["command"] for row in payload["commands"]}
-    assert {"help", "status", "account", "position", "orders", "signal", "risk", "sources", "ping"}.issubset(commands)
+    assert {"help", "status", "account", "position", "orders", "signal", "risk", "sources", "market", "ping"}.issubset(commands)
     assert "close" not in commands

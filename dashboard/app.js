@@ -42,6 +42,15 @@ render=function renderWithClearStates(d){
   source('cmcStatus',d.sources?.coinmarketcap?.status,true);
   source('aiSourceStatus',d.sources?.ai?.status,true);
   $('activePosition').textContent=flat?'FLAT · MONITORING':'ACTIVE';
+  const macro=d.macro_context||{},derivatives=d.derivatives||{},field=name=>typeof derivatives[name]==='object'?derivatives[name]?.value:derivatives[name],money=value=>value==null?'UNAVAILABLE':`$${Number(value).toLocaleString('en-US',{notation:'compact',maximumFractionDigits:2})}`;
+  const oiField=derivatives.open_interest||{},oiValue=field('open_interest');
+  $('cgAggregateOi').textContent=oiValue==null?'UNAVAILABLE':oiField.source==='COINGLASS'?money(oiValue):`${Number(oiValue).toLocaleString('en-US',{notation:'compact',maximumFractionDigits:2})} BTC`;
+  $('cgLiquidations').textContent=money(field('liquidations_24h'));
+  $('cmcDominance').textContent=macro.btc_dominance==null?'UNAVAILABLE':`${fmt(macro.btc_dominance,2)}%`;
+  $('cmcMarketCap').textContent=money(macro.total_market_cap_usd);
+  $('cmcVolume').textContent=money(macro.total_volume_24h_usd);
+  const observed=[d.sources?.coinglass?.observed_at,d.sources?.coinmarketcap?.observed_at].filter(Boolean);
+  $('externalObservedAt').textContent=observed.length?new Date(Math.max(...observed)).toLocaleTimeString('tr-TR'):'NOT CONNECTED';
 };
 function tfData(){if(!app.snapshot)return null;return{candles:app.snapshot.candles?.[app.tf]||[],indicators:app.snapshot.indicators?.[app.tf]||{},zones:app.snapshot.zones||[]}}
 function resize(c){const r=c.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);c.width=Math.floor(r.width*d);c.height=Math.floor(r.height*d);const ctx=c.getContext('2d');ctx.setTransform(d,0,0,d,0,0);return{ctx,w:r.width,h:r.height}}

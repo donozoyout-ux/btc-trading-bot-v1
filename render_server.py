@@ -257,6 +257,8 @@ def main() -> None:
     logger.info("ORDER_SUBMISSION_ENABLED: {}", str(settings.ORDER_SUBMISSION_ENABLED).upper())
     logger.info("SHADOW_MODE: {}", str(settings.SHADOW_MODE).upper())
     logger.info("RUN_EXECUTION_SMOKE_TEST: {}", str(settings.RUN_EXECUTION_SMOKE_TEST).upper())
+    logger.info("COINGLASS: {}", "CONFIGURED" if settings.COINGLASS_API_KEY else "NOT CONFIGURED")
+    logger.info("COINMARKETCAP: {}", "CONFIGURED" if settings.COINMARKETCAP_API_KEY else "NOT CONFIGURED")
     logger.info("BINANCE ACCOUNT MODE: TESTNET")
     logger.info("ACCOUNT ACCESS: {}", "EXECUTION" if execution_enabled else "READ ONLY")
     logger.info("SHADOW MODE: {}", "DISABLED" if execution_enabled else "ENABLED")

@@ -20,3 +20,13 @@
 .dashboard-board .zone-plan .optional-source {
   background: rgba(255, 255, 255, 0.012);
 }
+
+.source-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+.source-metrics > div { padding: 9px; border-radius: 10px; background: rgba(255,255,255,.02); }
+.source-metrics span { display: block; color: var(--muted); font-size: 8px; }
+.source-metrics strong { display: block; margin-top: 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 900px) { .source-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

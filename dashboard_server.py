@@ -396,6 +396,7 @@ class DashboardRuntime:
             "strategy": snapshot.get("strategy", {}),
             "derivatives": snapshot.get("derivatives", {}),
             "news": snapshot.get("news", {}),
+            "macro_context": snapshot.get("macro_context", {}),
             "risk": {
                 "status": decision.get("risk_status"),
                 "risk_reward": (decision.get("trade_plan") or {}).get("risk_reward"),
@@ -439,12 +440,14 @@ class DashboardRuntime:
             cmc = self.cmc.get_global_metrics()
             news = self.news_engine.evaluate(force=force)
 
+            observed_at = int(time.time() * 1000)
+            cg_oi_value = cg_oi.get("aggregate_oi_usd") if cg_oi.get("is_available") else None
             derivatives_input = {
-                "open_interest": open_interest,
-                "funding_rate": funding,
-                "long_short_ratio": long_short,
-                "taker_buy_ratio": taker_ratio,
-                "liquidations_24h": cg_liq.get("total") if cg_liq.get("is_available") else None,
+                "open_interest": {"value": cg_oi_value if cg_oi_value is not None else open_interest, "source": "COINGLASS" if cg_oi_value is not None else "BINANCE" if open_interest is not None else "UNAVAILABLE", "observed_at": cg_oi.get("observed_at") if cg_oi_value is not None else observed_at if open_interest is not None else None},
+                "funding_rate": {"value": funding, "source": "BINANCE" if funding is not None else "UNAVAILABLE", "observed_at": observed_at if funding is not None else None},
+                "long_short_ratio": {"value": long_short, "source": "BINANCE" if long_short is not None else "UNAVAILABLE", "observed_at": observed_at if long_short is not None else None},
+                "taker_buy_ratio": {"value": taker_ratio, "source": "BINANCE" if taker_ratio is not None else "UNAVAILABLE", "observed_at": observed_at if taker_ratio is not None else None},
+                "liquidations_24h": {"value": cg_liq.get("total") if cg_liq.get("is_available") else None, "source": "COINGLASS" if cg_liq.get("is_available") else "UNAVAILABLE", "observed_at": cg_liq.get("observed_at")},
             }
             report = self.pipeline.run_cycle(candles, self.state, derivatives_input=derivatives_input)
             chart_intelligence = self.chart_reader.analyze(candles)
@@ -542,11 +545,19 @@ class DashboardRuntime:
                 "news": news,
                 "ai_analyst": self._last_ai_result,
                 "derivatives": {
-                    "open_interest": open_interest,
-                    "funding_rate": funding,
-                    "long_short_ratio": long_short,
-                    "taker_buy_sell_ratio": taker_ratio,
-                    "liquidations_24h": derivatives_input.get("liquidations_24h"),
+                    "status": _jsonable(report.derivatives),
+                    "open_interest": derivatives_input["open_interest"],
+                    "funding_rate": derivatives_input["funding_rate"],
+                    "long_short_ratio": derivatives_input["long_short_ratio"],
+                    "taker_buy_ratio": derivatives_input["taker_buy_ratio"],
+                    "liquidations_24h": derivatives_input["liquidations_24h"],
+                },
+                "macro_context": {
+                    "btc_dominance": cmc.get("btc_dominance"),
+                    "total_market_cap_usd": cmc.get("total_market_cap_usd"),
+                    "total_volume_24h_usd": cmc.get("total_volume_24h_usd"),
+                    "source": _jsonable(cmc.get("source")),
+                    "observed_at": cmc.get("observed_at"),
                 },
                 "system_state": {
                     "kill_switch": self.state.kill_switch_activated,
@@ -576,11 +587,16 @@ class DashboardRuntime:
                     },
                     "coinglass": {
                         "status": "HEALTHY" if cg_liq.get("is_available") or cg_oi.get("is_available") else "UNAVAILABLE",
+                        "configured": self.coinglass.configured,
+                        "observed_at": max([x for x in [cg_liq.get("observed_at"), cg_oi.get("observed_at")] if x is not None], default=None),
+                        "error_category": cg_oi.get("error_category") or cg_liq.get("error_category"),
                         "liquidations": _jsonable(cg_liq),
                         "aggregate_oi": _jsonable(cg_oi),
                     },
                     "coinmarketcap": {
                         "status": "HEALTHY" if cmc.get("is_available") else "UNAVAILABLE",
+                        "configured": self.cmc.configured,
+                        "observed_at": cmc.get("observed_at"),
                         "metrics": _jsonable(cmc),
                     },
                     "binance_account": {

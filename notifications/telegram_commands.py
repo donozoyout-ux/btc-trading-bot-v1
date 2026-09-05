@@ -26,6 +26,7 @@ class TelegramCommandService:
         ("signal", "Güncel strateji kararını göster"),
         ("risk", "Güncel risk durumunu göster"),
         ("sources", "Veri kaynaklarının durumunu göster"),
+        ("market", "Makro piyasa ve türev bağlamını göster"),
         ("ping", "Botun Telegram komut kanalını test et"),
     )
 
@@ -281,15 +282,34 @@ class TelegramCommandService:
         news = snapshot.get("news") or {}
         ai = snapshot.get("ai_analyst") or {}
         derivatives = snapshot.get("derivatives") or {}
+        sources = snapshot.get("sources") or {}
         derivatives_status = derivatives.get("status") or market.get("derivatives_status") or "UNKNOWN"
         return "\n".join([
             "📡 VERİ KAYNAKLARI",
             "",
-            f"Market source: {self._text(market.get('market_data_source'), 'UNKNOWN')}",
-            f"Production public: {self._text(market.get('production_public_status'), 'UNKNOWN')}",
+            f"Binance: {self._text(market.get('market_data_source'), 'UNKNOWN')}",
+            f"CoinGlass: {self._text((sources.get('coinglass') or {}).get('status'), 'UNAVAILABLE')}",
+            f"CoinMarketCap: {self._text((sources.get('coinmarketcap') or {}).get('status'), 'UNAVAILABLE')}",
             f"Derivatives: {self._text(derivatives_status, 'UNKNOWN')}",
             f"News: {self._text(news.get('status'), 'UNKNOWN')}",
-            f"AI Analyst: {self._text(ai.get('status'), 'DISABLED')}",
+            f"AI: {self._text(ai.get('status'), 'DISABLED')}",
+        ])
+
+    def _market(self) -> str:
+        snapshot = self._snapshot()
+        macro = snapshot.get("macro_context") or {}
+        derivatives = snapshot.get("derivatives") or {}
+        def value(name):
+            field = derivatives.get(name)
+            return field.get("value") if isinstance(field, dict) else field
+        return "\n".join([
+            "🌍 MARKET CONTEXT", "",
+            f"BTC Dominance: {self._num(macro.get('btc_dominance'))}%",
+            f"Total Market Cap: ${self._num(macro.get('total_market_cap_usd'), 0)}",
+            f"24h Volume: ${self._num(macro.get('total_volume_24h_usd'), 0)}",
+            f"Aggregate OI: ${self._num(value('open_interest'), 0)}",
+            f"24h Liquidations: ${self._num(value('liquidations_24h'), 0)}",
+            "", "🔒 READ ONLY · TESTNET execution controls unchanged",
         ])
 
     def handle_message(self, message: Dict[str, Any]) -> bool:
@@ -319,6 +339,8 @@ class TelegramCommandService:
                 response = self._risk()
             elif command == "sources":
                 response = self._sources()
+            elif command == "market":
+                response = self._market()
             elif command == "ping":
                 response = "🏓 PONG\n\nTelegram komut kanalı aktif."
             else:

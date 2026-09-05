@@ -282,6 +282,9 @@ class TelegramEventNotifier:
 
         frames = snapshot.get("chart_intelligence", {}).get("timeframes", {})
         derivatives = snapshot.get("derivatives", {})
+        def derivative_value(name):
+            field = derivatives.get(name)
+            return field.get("value") if isinstance(field, dict) else field
         plan = strategy.get("trade_plan") or {}
         payload = {
             "price": decision.get("price"), "regime": decision.get("regime"),
@@ -289,8 +292,8 @@ class TelegramEventNotifier:
             "15m": frames.get("15m", {}).get("structure"), "5m": frames.get("5m", {}).get("structure"),
             "direction": strategy.get("direction"), "setup": strategy.get("setup_type"),
             "location": decision.get("location"), "trigger": strategy.get("entry_trigger_state"),
-            "funding": derivatives.get("funding_rate"), "open_interest": derivatives.get("open_interest"),
-            "taker": derivatives.get("taker_buy_sell_ratio"), "news_risk": news.get("news_risk"),
+            "funding": derivative_value("funding_rate"), "open_interest": derivative_value("open_interest"),
+            "taker": derivative_value("taker_buy_ratio"), "news_risk": news.get("news_risk"),
             "sentiment": news.get("sentiment"), "entry": plan.get("entry_price"), "stop": plan.get("stop_loss"),
             "tp1": plan.get("tp1"), "tp2": plan.get("tp2"), "rr": plan.get("risk_reward"),
             "decision": snapshot.get("final_decision"), "reason": decision.get("reason"),
