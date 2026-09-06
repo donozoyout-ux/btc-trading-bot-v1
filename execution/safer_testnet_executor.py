@@ -333,6 +333,14 @@ class SaferTestnetExecutor(TestnetExecutor):
             self.management_mae_r = min(self.management_mae_r, observed_r)
         frame = snapshot.get("chart_intelligence", {}).get("timeframes", {}).get("5m", {})
         direction = TradeDirection.LONG if is_long else TradeDirection.SHORT
+        momentum_support, momentum_opposing, momentum_available = self.position_manager.normalize_momentum(
+            direction, frame.get("trend")
+        )
+        volume_support, volume_available = self.position_manager.normalize_volume(frame.get("volume_state"))
+        frame_available = (
+            str(frame.get("status") or "").upper() == "AVAILABLE"
+            and int(frame.get("closed_candles") or 0) > 0
+        )
         zones = snapshot.get("zones") or []
         levels = [float(z.get("center") or 0) for z in zones]
         structural = sorted([x for x in levels if x > (current_tp2 or entry)]) if is_long else sorted([x for x in levels if 0 < x < (current_tp2 or entry)], reverse=True)
@@ -344,9 +352,10 @@ class SaferTestnetExecutor(TestnetExecutor):
             structure=StructureType(str(frame.get("structure") or StructureType.MIXED.value)), last_bos=frame.get("bos"), last_choch=frame.get("choch"),
             regime=MarketRegime(str(snapshot.get("decision", {}).get("regime") or MarketRegime.RANGE.value)),
             volatility=VolatilityLevel(str(snapshot.get("decision", {}).get("volatility") or VolatilityLevel.NORMAL.value)),
-            momentum_support=str(frame.get("trend") or "").upper() not in ({"BEARISH", "STRONG_BEAR"} if is_long else {"BULLISH", "STRONG_BULL"}),
-            volume_support="DRY" not in str(frame.get("volume_state") or "").upper(),
-            data_healthy=mark > 0 and source.get("status") == "HEALTHY" and source.get("market_data_trading_safe", True) is not False,
+            momentum_support=momentum_support, momentum_opposing=momentum_opposing,
+            momentum_available=momentum_available, volume_support=volume_support,
+            volume_available=volume_available,
+            data_healthy=mark > 0 and frame_available and source.get("status") == "HEALTHY" and source.get("market_data_trading_safe", True) is not False,
             candle_closed=True, candle_timestamp=candle_ts, current_tp2=current_tp2, candidate_tp2=structural[0] if structural else None,
             target_replan_count=self.target_replan_count, last_target_replan_at=self.last_target_replan_at,
             mfe_r=self.management_mfe_r, mae_r=self.management_mae_r,

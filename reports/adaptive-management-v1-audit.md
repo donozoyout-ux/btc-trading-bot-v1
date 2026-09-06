@@ -2,7 +2,7 @@
 
 ## Scope and base
 
-Implementation is on local branch `codex/adaptive-trade-management-v1`. Its merge base is current `origin/main` (`f5c1911`) and it starts from the rebased bad-entry-hardening commit (`77208e4`) so the requested entry-quality and execution safety gates are retained. No commit, push, deployment, live TESTNET request, smoke trade, or order submission was performed.
+Implementation is on branch `codex/adaptive-trade-management-v1`, rebased onto current `origin/main` (`858f5ad`). Current main already contains the bad-entry hardening and Render keepalive work; both are retained. No deployment, live TESTNET request, smoke trade, or order submission was performed during this correctness repair.
 
 ## 1. Files changed
 
@@ -37,11 +37,11 @@ Target allocation uses centralized initial-hypothesis profiles: conservative 70/
 
 ## 4. Recovery-wait logic
 
-The pure `PositionManager` treats a negative PnL as insufficient evidence to exit. A position inside initial risk, with intact structure and continuing regime or momentum support, returns `RECOVERY_WAIT` with `TEMPORARY_ADVERSE_MOVE`, `THESIS_STILL_VALID`, and `STRUCTURE_INTACT`. It places no orders itself.
+The pure `PositionManager` treats a negative PnL as insufficient evidence to exit. A position inside initial risk, with intact structure and continuing regime or momentum support, returns `RECOVERY_WAIT` with `TEMPORARY_ADVERSE_MOVE`, `THESIS_STILL_VALID`, and `STRUCTURE_INTACT`. Chart Reader trend values are normalized explicitly: UP supports LONG, DOWN supports SHORT, RANGE is neutral, and UNAVAILABLE never becomes support. Opposing momentum is reported truthfully even when the complete thesis still justifies recovery wait. It places no orders itself.
 
 ## 5. Early-exit logic
 
-Objective invalidation (initial invalidation hit, or a confirmed opposite structure plus BOS/CHoCH; regime flip requires confirming structure and momentum evidence) returns `EXIT_EARLY`. A single noisy indicator cannot trigger the path. If early exit is disabled, the result is fail-safe `NO_CHANGE` and the exchange stop remains authoritative.
+Objective invalidation (initial invalidation hit, or opposite BOS confirmed by matching opposite structure) returns `EXIT_EARLY`. An opposite CHoCH alone only weakens the thesis; it requires an opposing regime and/or opposing normalized momentum on a closed 5M frame before it can invalidate. A single noisy indicator cannot trigger the path. If early exit is disabled, the result is fail-safe `NO_CHANGE` and the exchange stop remains authoritative.
 
 ## 6. Risk invariants
 
@@ -49,7 +49,7 @@ Objective invalidation (initial invalidation hit, or a confirmed opposite struct
 - A detected widened stop is restored to the initial max-loss boundary.
 - Position growth returns `POSITION_SIZE_INCREASE_DETECTED` and `AVERAGING_DOWN_BLOCKED` without an add-size action.
 - No management action increases quantity, averages down, martingales, or widens initial loss.
-- Missing/unhealthy market analysis returns no speculative change and retains existing protection.
+- Management readiness requires healthy/safe Binance market data, a valid mark, and an AVAILABLE 5M frame containing closed candles. Missing/degraded analysis returns `MARKET_ANALYSIS_UNAVAILABLE_KEEP_EXISTING_PROTECTION`, makes no speculative change, and retains existing protection.
 - MFE/MAE, initial context, closed-candle clock, and target-replan state persist across restart.
 
 ## 7. Protection replacement logic
@@ -66,19 +66,21 @@ The dashboard now exposes position state, thesis validity, current R, entry/mark
 
 ## 9. Tests added
 
-Tests cover LONG/SHORT structure targets, range/counter-trend/low/extreme-volatility modes, deterministic fallback and ordering, LONG/SHORT recovery wait, opposite-structure early exit, stop tightening/no widening, add-size blocking, TP2 continuation/cooldown, profile split allocation, safe replacement ordering and failure preservation, closed-5M deduplication, IANA timezone use/raw epoch preservation, and backtest comparison modes.
+Tests cover LONG/SHORT structure targets, range/counter-trend/low/extreme-volatility modes, deterministic fallback and ordering, Chart Reader trend/volume normalization, unavailable-analysis fail-closed behavior, LONG/SHORT CHoCH weakening and confirmed invalidation, recovery telemetry with opposing momentum, stop tightening/no widening, add-size blocking, TP2 continuation/cooldown, profile split allocation, safe replacement ordering and failure preservation, closed-5M deduplication, IANA timezone use/raw epoch preservation, static target isolation, incompatible pipeline rejection, and adaptive backtest stop/TP2/HOLD transitions.
 
 ## 10. Tests passed
 
 - `python -m compileall -q .`: PASS
 - `python dashboard_server.py --self-test`: PASS
-- `pytest -q`: **240 passed, 0 failed**
+- `pytest -q`: **261 passed, 0 failed**
 - JavaScript syntax (`node --check` for changed dashboard scripts): PASS
 
 ## 11. Known limitations
 
 - Adaptive V1 is deterministic and telemetry-first; no profitability improvement is claimed.
-- Backtest adaptive behavior requires an explicit closed-candle management-context provider; default mode remains `STATIC_EXIT_BASELINE` for historical parity.
+- Backtest adaptive behavior requires an explicit closed-candle management-context provider. It applies early exits, tighter stops, TP2 replans, recovery waits, and holds to subsequent candles while preserving original initial risk separately. `TAKE_PARTIAL` is **NOT ACTIVE** in PositionManager V1.
+- Historical simulation does not model Binance API latency, exchange quantity/price quantization during later protection replacement, or replacement-request failure modes. Live TESTNET keeps the stricter create/verify/cancel/reconcile workflow.
+- `STATIC_EXIT_BASELINE` constructs its pipeline with dynamic targets disabled and no adaptive position-management transitions. `ADAPTIVE_MANAGEMENT_V1` enables both; incompatible injected pipelines fail explicitly.
 - TP2 extension is capped and cooldown-controlled. V1 does not repeatedly trail or endlessly extend targets.
 - Very small exchange positions can remain unsplittable and therefore use one final TP.
 - No live TESTNET adaptive-management cycle was run in this task.

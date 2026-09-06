@@ -251,7 +251,10 @@ class PositionManagementDecision(BaseModel):
     structure_valid: bool = True
     regime_support: bool = True
     momentum_support: bool = True
+    momentum_opposing: bool = False
+    momentum_available: bool = True
     volume_support: bool = True
+    volume_available: bool = True
     target_action: Dict[str, Any] = Field(default_factory=dict)
     stop_action: Dict[str, Any] = Field(default_factory=dict)
     management_profile: ManagementProfile = ManagementProfile.BALANCED
