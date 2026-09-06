@@ -59,6 +59,17 @@ Stop and TP replacement create and verify the new reduce-only conditional order 
 
 Partial exchange reductions are detected from the reconciled before/after position sizes. A known completed TP1 is removed from internal protection state and journaled; an unidentified reduction is labelled `UNKNOWN_PARTIAL_REDUCTION`. The original verified size, MFE/MAE, and target-replan counters are not reset. The remaining stop is resized through create → verify → cancel → final reconcile, and remaining TP quantity is required not to exceed the remaining position.
 
+Active-position startup and every management reconciliation also validate protection directly against the current exchange position. This covers a TP fill that occurs while the process is offline, where no before/after transition is observable. An oversized stop is replaced at the exact same trigger price with current remaining quantity, verified before the old stop is cancelled, and journaled as `RESTART_PROTECTION_QUANTITY_RECONCILED` during recovery. This operational repair is allowed when adaptive entry context is missing; it does not reconstruct risk or change any target/stop price.
+
+Target replacement now rolls back the newly created target if cancellation of the old target fails. A proven rollback records `TARGET_REPLACEMENT_ROLLED_BACK` and reports deterministic replacement failure without claiming a replan. If rollback cannot be proven, the executor persists `PROTECTION_RECONCILIATION_REQUIRED`, preserves the stop, and blocks further adaptive changes. Successful replacement requires correct close side, reduce-only status, requested quantity, disappearance of the old target, and cumulative open target quantity no greater than the current exchange position.
+
+Recovered exchange orders regain semantic roles only when deterministic: STOP is structural and two distinct directionally ordered targets are TP1/TP2. A lone target or otherwise ambiguous target set remains `UNKNOWN_TARGET` rather than receiving a fabricated TP identity.
+
+- **RESTART PARTIAL-FILL STOP RECONCILIATION: PASS**
+- **TARGET REPLACEMENT ROLLBACK: PASS**
+- **TARGET QUANTITY INVARIANT: PASS**
+- **MISSING CONTEXT OPERATIONAL PROTECTION: PASS**
+
 Early exit now submits the reduce-only close, requires a confirmed flat position, removes stale regular and algo reduce-only orders, re-fetches exchange state, and only then journals `EARLY_EXIT` as confirmed. Uncertain closure or cleanup emits `EARLY_EXIT_RECONCILIATION_FAILURE`; an open position must retain a verified stop or the emergency latch activates.
 
 Runtime order is: exchange reconciliation → real-time protection verification → dashboard closed-candle snapshot → pure management classification → at most one action for that closed 5M timestamp. Duplicate timestamps are rejected.
@@ -91,7 +102,7 @@ If an exchange position survives while its verified entry context does not, runt
 
 - `python -m compileall -q .`: PASS
 - `python dashboard_server.py --self-test`: PASS
-- `pytest -q`: **273 passed, 0 failed**
+- `pytest -q`: **279 passed, 0 failed**
 - JavaScript syntax (`node --check` for changed dashboard scripts): PASS
 
 ## 13. Known limitations

@@ -29,6 +29,8 @@ class SaferTestnetExecutor(TestnetExecutor):
         self.management_mae_r = float(persisted.get("management_mae_r") or 0.0)
         self.last_management_decision = persisted.get("position_intelligence") or {}
         self.protection_reconciliation_required = bool(persisted.get("protection_reconciliation_required", False))
+        self.protection_reconciliation_reason = persisted.get("protection_reconciliation_reason")
+        self.protection_reconciliation_expected_target_ids = list(persisted.get("protection_reconciliation_expected_target_ids") or [])
         self.last_partial_reconciliation = persisted.get("last_partial_reconciliation") or {}
         self._missing_context_warning_emitted = bool(persisted.get("missing_context_warning_emitted", False))
         self.position_manager = PositionManager(
@@ -237,6 +239,8 @@ class SaferTestnetExecutor(TestnetExecutor):
             self._capture_verified_exchange_baseline(snapshot, result)
             self._missing_context_warning_emitted = False
             self.protection_reconciliation_required = False
+            self.protection_reconciliation_reason = None
+            self.protection_reconciliation_expected_target_ids = []
             self.last_management_closed_5m_timestamp = None
             self.target_replan_count = 0
             self.last_target_replan_at = None
@@ -268,6 +272,8 @@ class SaferTestnetExecutor(TestnetExecutor):
             "position_intelligence": getattr(self, "last_management_decision", {}),
             "entry_context": getattr(self, "_entry_context", {}),
             "protection_reconciliation_required": getattr(self, "protection_reconciliation_required", False),
+            "protection_reconciliation_reason": getattr(self, "protection_reconciliation_reason", None),
+            "protection_reconciliation_expected_target_ids": getattr(self, "protection_reconciliation_expected_target_ids", []),
             "last_partial_reconciliation": getattr(self, "last_partial_reconciliation", {}),
             "missing_context_warning_emitted": getattr(self, "_missing_context_warning_emitted", False),
         })
@@ -293,20 +299,49 @@ class SaferTestnetExecutor(TestnetExecutor):
         tolerance = max(1e-12, expected_quantity * 1e-9)
         return all([
             self._order_type(order) == "STOP_MARKET",
+            self._trigger_price(order) is not None and self._trigger_price(order) > 0,
             str(order.get("side") or "").upper() == close_side,
             self._is_reduce_only(order),
             quantity is not None and abs(quantity - expected_quantity) <= tolerance,
         ])
 
+    def _validate_target(self, order: Dict[str, Any], position: Dict[str, Any]) -> bool:
+        close_side = "SELL" if float(position.get("position_amt") or 0) > 0 else "BUY"
+        quantity = self._order_quantity(order)
+        trigger = self._trigger_price(order)
+        return all([
+            self._order_type(order) == "TAKE_PROFIT_MARKET",
+            str(order.get("side") or "").upper() == close_side,
+            self._is_reduce_only(order),
+            quantity is not None and quantity > 0,
+            trigger is not None and trigger > 0,
+        ])
+
+    def _protection_invariants_hold(self, position: Dict[str, Any], orders: list[Dict[str, Any]]) -> bool:
+        quantity = abs(float(position.get("position_amt") or 0))
+        tolerance = max(1e-12, quantity * 1e-9)
+        stops = [row for row in orders if self._order_type(row) == "STOP_MARKET"]
+        targets = [row for row in orders if self._order_type(row) == "TAKE_PROFIT_MARKET"]
+        return all([
+            len(stops) == 1,
+            self._validate_stop(stops[0], position, quantity) if len(stops) == 1 else False,
+            bool(targets),
+            all(self._validate_target(row, position) for row in targets),
+            sum(self._order_quantity(row) or 0.0 for row in targets) <= quantity + tolerance,
+        ])
+
     def _mark_protection_reconciliation_required(self, position: Dict[str, Any], reason: str) -> None:
+        should_record = not self.protection_reconciliation_required or self.protection_reconciliation_reason != reason
         self.protection_reconciliation_required = True
-        self.execution_journal.record(
-            decision_id=self._entry_context.get("entry_decision_id"),
-            action="PROTECTION_RECONCILIATION_REQUIRED",
-            status="FAIL_CLOSED",
-            reason=reason,
-            position_after=position,
-        )
+        self.protection_reconciliation_reason = reason
+        if should_record:
+            self.execution_journal.record(
+                decision_id=self._entry_context.get("entry_decision_id"),
+                action="PROTECTION_RECONCILIATION_REQUIRED",
+                status="FAIL_CLOSED",
+                reason=reason,
+                position_after=position,
+            )
         self._write_runtime_state(last_execution_result="PROTECTION_RECONCILIATION_REQUIRED")
 
     def _replace_stop_safely(self, position: Dict[str, Any], new_stop: float) -> None:
@@ -336,7 +371,116 @@ class SaferTestnetExecutor(TestnetExecutor):
             raise ExecutionError("PROTECTION_RECONCILIATION_REQUIRED")
         new_order["role"] = "STOP"
         self._protective_orders = [row for row in self._protective_orders if row.get("role") != "STOP"] + [new_order]
-        self.protection_reconciliation_required = False
+
+    def _restore_protective_roles(self, position: Dict[str, Any], orders: list[Dict[str, Any]]) -> None:
+        """Restore only roles implied unambiguously by exchange order shape/price."""
+        targets = [row for row in orders if self._order_type(row) == "TAKE_PROFIT_MARKET"]
+        is_long = float(position.get("position_amt") or 0) > 0
+        role_by_id: Dict[Any, str] = {}
+        if len(targets) == 2:
+            prices = [self._trigger_price(row) for row in targets]
+            if all(price is not None for price in prices) and prices[0] != prices[1]:
+                ordered = sorted(targets, key=lambda row: self._trigger_price(row) or 0, reverse=not is_long)
+                role_by_id[ordered[0].get("algoId")] = "TP1"
+                role_by_id[ordered[1].get("algoId")] = "TP2"
+        restored = []
+        for row in orders:
+            order_type = self._order_type(row)
+            role = "STOP" if order_type == "STOP_MARKET" else role_by_id.get(row.get("algoId"), "UNKNOWN_TARGET")
+            restored.append({
+                "binance_order_id": row.get("algoId"),
+                "client_order_id": row.get("clientAlgoId"),
+                "type": order_type,
+                "side": row.get("side"),
+                "trigger_price": self._trigger_price(row),
+                "requested_quantity": self._order_quantity(row),
+                "reduce_only": self._is_reduce_only(row),
+                "status": row.get("algoStatus"),
+                "role": role,
+            })
+        self._protective_orders = restored
+
+    def _reconcile_active_protection(self, position: Dict[str, Any], *, restart: bool = False) -> Dict[str, Any]:
+        """Validate protection against current exchange size without strategy changes."""
+        quantity = abs(float(position.get("position_amt") or 0))
+        if quantity <= 0:
+            return {"status": "FLAT", "stop_resized": False}
+        orders = self.client.get_open_algo_orders("BTCUSDT")
+        stops = [row for row in orders if self._order_type(row) == "STOP_MARKET"]
+        stop_resized = False
+        if len(stops) != 1:
+            self._restore_protective_roles(position, orders)
+            self._mark_protection_reconciliation_required(position, "AUTHORITATIVE_STOP_SET_AMBIGUOUS")
+            return {"status": "PROTECTION_RECONCILIATION_REQUIRED", "stop_resized": False}
+        stop = stops[0]
+        trigger = self._trigger_price(stop)
+        if trigger is None or trigger <= 0:
+            self._restore_protective_roles(position, orders)
+            self._mark_protection_reconciliation_required(position, "STOP_TRIGGER_INVALID")
+            return {"status": "PROTECTION_RECONCILIATION_REQUIRED", "stop_resized": False}
+        if not self._validate_stop(stop, position, quantity):
+            old_trigger = trigger
+            self._replace_stop_safely(position, old_trigger)
+            orders = self.client.get_open_algo_orders("BTCUSDT")
+            final_stop = next((row for row in orders if self._order_type(row) == "STOP_MARKET"), None)
+            if final_stop is None or self._trigger_price(final_stop) != old_trigger:
+                self._mark_protection_reconciliation_required(position, "STOP_PRICE_CHANGED_DURING_QUANTITY_RECONCILIATION")
+                raise ExecutionError("PROTECTION_RECONCILIATION_REQUIRED")
+            stop_resized = True
+            self.execution_journal.record(
+                decision_id=self._entry_context.get("entry_decision_id"),
+                action="RESTART_PROTECTION_QUANTITY_RECONCILED" if restart else "PROTECTION_QUANTITY_RECONCILED",
+                status="CONFIRMED", reason="CURRENT_EXCHANGE_POSITION_QUANTITY",
+                position_after=position,
+                details={"stop_trigger_price": old_trigger, "remaining_quantity": quantity},
+            )
+        expected_target_ids = set(self.protection_reconciliation_expected_target_ids)
+        if expected_target_ids:
+            extra_targets = [
+                row for row in orders
+                if self._order_type(row) == "TAKE_PROFIT_MARKET"
+                and row.get("algoId") is not None
+                and row.get("algoId") not in expected_target_ids
+            ]
+            if extra_targets:
+                try:
+                    for target in extra_targets:
+                        self.client.cancel_algo_order(algo_id=int(target["algoId"]))
+                    orders = self.client.get_open_algo_orders("BTCUSDT")
+                    remaining_ids = {row.get("algoId") for row in orders}
+                    if any(target.get("algoId") in remaining_ids for target in extra_targets):
+                        raise ExecutionError("STALE_TARGET_CLEANUP_UNPROVEN")
+                except Exception:
+                    self._mark_protection_reconciliation_required(position, "STALE_TARGET_CLEANUP_FAILED")
+                    return {"status": "PROTECTION_RECONCILIATION_REQUIRED", "stop_resized": stop_resized}
+                self.execution_journal.record(
+                    decision_id=self._entry_context.get("entry_decision_id"),
+                    action="STALE_TARGET_RECONCILED", status="CONFIRMED", position_after=position,
+                    details={"cancelled_target_ids": [row.get("algoId") for row in extra_targets]},
+                )
+        self._restore_protective_roles(position, orders)
+        if not self._protection_invariants_hold(position, orders):
+            self._mark_protection_reconciliation_required(position, "TARGET_OR_STOP_QUANTITY_INVARIANT_FAILED")
+            return {"status": "PROTECTION_RECONCILIATION_REQUIRED", "stop_resized": stop_resized}
+        current_target_ids = sorted(
+            row.get("algoId") for row in orders
+            if self._order_type(row) == "TAKE_PROFIT_MARKET" and row.get("algoId") is not None
+        )
+        expected_target_ids = sorted(self.protection_reconciliation_expected_target_ids)
+        target_identity_reconciled = not expected_target_ids or current_target_ids == expected_target_ids
+        if self.protection_reconciliation_required and target_identity_reconciled:
+            self.protection_reconciliation_required = False
+            self.protection_reconciliation_reason = None
+            self.protection_reconciliation_expected_target_ids = []
+            self.execution_journal.record(
+                decision_id=self._entry_context.get("entry_decision_id"),
+                action="PROTECTION_RECONCILED", status="CONFIRMED", position_after=position,
+            )
+        self._write_runtime_state()
+        return {
+            "status": "PROTECTION_RECONCILIATION_REQUIRED" if self.protection_reconciliation_required else "PROTECTION_RECONCILED",
+            "stop_resized": stop_resized,
+        }
 
     def recover_from_exchange(self) -> Dict[str, Any]:
         result = super().recover_from_exchange()
@@ -345,8 +489,13 @@ class SaferTestnetExecutor(TestnetExecutor):
             self._entry_context = {}
             self._missing_context_warning_emitted = False
             self.protection_reconciliation_required = False
+            self.protection_reconciliation_reason = None
+            self.protection_reconciliation_expected_target_ids = []
             self._write_runtime_state()
-        elif not self._has_verified_exchange_baseline():
+        else:
+            protection = self._reconcile_active_protection(position, restart=True)
+            result["protection_reconciliation"] = protection
+        if float(position.get("position_amt") or 0) != 0 and not self._has_verified_exchange_baseline():
             self.last_management_decision = {
                 "state": "NO_CHANGE",
                 "reason_codes": ["RECOVERED_POSITION_CONTEXT_UNAVAILABLE"],
@@ -415,22 +564,16 @@ class SaferTestnetExecutor(TestnetExecutor):
             self._entry_context = {}
             self._missing_context_warning_emitted = False
             self.protection_reconciliation_required = False
+            self.protection_reconciliation_reason = None
+            self.protection_reconciliation_expected_target_ids = []
             self._write_runtime_state()
         return after
 
     def manage_existing_position(self, state) -> Dict[str, Any]:
         result = super().manage_existing_position(state)
         position = result.get("position") or {}
-        if self.protection_reconciliation_required and float(position.get("position_amt") or 0) != 0:
-            stops = [row for row in self.client.get_open_algo_orders("BTCUSDT") if self._order_type(row) == "STOP_MARKET"]
-            quantity = abs(float(position.get("position_amt") or 0))
-            if len(stops) == 1 and self._validate_stop(stops[0], position, quantity):
-                self.protection_reconciliation_required = False
-                self.execution_journal.record(
-                    decision_id=self._entry_context.get("entry_decision_id"),
-                    action="PROTECTION_RECONCILED", status="CONFIRMED", position_after=position,
-                )
-                self._write_runtime_state(last_execution_result="PROTECTION_RECONCILED")
+        if float(position.get("position_amt") or 0) != 0:
+            result["protection_reconciliation"] = self._reconcile_active_protection(position)
         if float(position.get("position_amt") or 0) != 0 and not self._has_verified_exchange_baseline():
             result["status"] = "RECOVERED_POSITION_CONTEXT_UNAVAILABLE"
             result["position_intelligence"] = self.last_management_decision or {
@@ -441,7 +584,8 @@ class SaferTestnetExecutor(TestnetExecutor):
     def _replace_target_safely(self, position: Dict[str, Any], new_target: float, role: str) -> None:
         orders = self.client.get_open_algo_orders("BTCUSDT")
         stops = [order for order in orders if self._order_type(order) == "STOP_MARKET"]
-        if not stops:
+        position_quantity = abs(float(position.get("position_amt") or 0))
+        if len(stops) != 1 or not self._validate_stop(stops[0], position, position_quantity):
             raise ExecutionError("UNPROTECTED_TESTNET_POSITION")
         targets = [order for order in orders if self._order_type(order) == "TAKE_PROFIT_MARKET"]
         if not targets:
@@ -450,17 +594,53 @@ class SaferTestnetExecutor(TestnetExecutor):
         ordered = sorted(targets, key=lambda row: self._trigger_price(row) or 0, reverse=not is_long)
         old_target = ordered[0] if role == "TP1" else ordered[-1]
         side = "SELL" if is_long else "BUY"
-        quantity = self._safe_float(old_target.get("quantity") or old_target.get("requested_quantity")) or abs(float(position["position_amt"]))
+        quantity = self._order_quantity(old_target) or position_quantity
         new_order = self.client.place_protective_order("BTCUSDT", side, "TAKE_PROFIT_MARKET", quantity, new_target)
         new_id = new_order.get("binance_order_id")
-        if new_id not in {row.get("algoId") for row in self.client.get_open_algo_orders("BTCUSDT")}:
+        verified = self.client.get_open_algo_orders("BTCUSDT")
+        verified_new = next((row for row in verified if row.get("algoId") == new_id), None)
+        quantity_tolerance = max(1e-12, quantity * 1e-9)
+        verified_quantity = self._order_quantity(verified_new or {})
+        if verified_new is None or not self._validate_target(verified_new, position) or verified_quantity is None or abs(verified_quantity - quantity) > quantity_tolerance:
+            try:
+                if new_id is not None:
+                    self.client.cancel_algo_order(algo_id=int(new_id))
+            except Exception:
+                self._mark_protection_reconciliation_required(position, "NEW_TARGET_VERIFICATION_ROLLBACK_FAILED")
+                raise ExecutionError("PROTECTION_RECONCILIATION_REQUIRED") from None
             raise ExecutionError("PROTECTION_REPLACEMENT_FAILED")
-        self.client.cancel_algo_order(algo_id=int(old_target["algoId"]))
+        try:
+            self.client.cancel_algo_order(algo_id=int(old_target["algoId"]))
+        except Exception:
+            try:
+                self.client.cancel_algo_order(algo_id=int(new_id))
+                rollback = self.client.get_open_algo_orders("BTCUSDT")
+                rollback_ids = {row.get("algoId") for row in rollback}
+                stop_valid = self._protection_invariants_hold(position, rollback)
+                if old_target.get("algoId") not in rollback_ids or new_id in rollback_ids or not stop_valid:
+                    raise ExecutionError("TARGET_ROLLBACK_UNPROVEN")
+            except Exception:
+                self.protection_reconciliation_expected_target_ids = [
+                    row.get("algoId") for row in targets if row.get("algoId") is not None
+                ]
+                self._mark_protection_reconciliation_required(position, "TARGET_REPLACEMENT_ROLLBACK_FAILED")
+                raise ExecutionError("PROTECTION_RECONCILIATION_REQUIRED") from None
+            self.execution_journal.record(
+                decision_id=self._entry_context.get("entry_decision_id"),
+                action="TARGET_REPLACEMENT_ROLLED_BACK", status="CONFIRMED",
+                reason="OLD_TARGET_CANCELLATION_FAILED", position_after=position,
+                details={"role": role, "old_target_id": old_target.get("algoId")},
+            )
+            raise ExecutionError("PROTECTION_REPLACEMENT_FAILED") from None
         final = self.client.get_open_algo_orders("BTCUSDT")
         final_ids = {row.get("algoId") for row in final}
-        if new_id not in final_ids or not any(self._order_type(row) == "STOP_MARKET" for row in final):
-            raise ExecutionError("PROTECTION_REPLACEMENT_FAILED")
+        final_new = next((row for row in final if row.get("algoId") == new_id), None)
+        final_quantity = self._order_quantity(final_new or {})
+        if old_target.get("algoId") in final_ids or final_new is None or not self._validate_target(final_new, position) or final_quantity is None or abs(final_quantity - quantity) > quantity_tolerance or not self._protection_invariants_hold(position, final):
+            self._mark_protection_reconciliation_required(position, "TARGET_REPLACEMENT_FINAL_SET_MISMATCH")
+            raise ExecutionError("PROTECTION_RECONCILIATION_REQUIRED")
         new_order["role"] = role
+        self.protection_reconciliation_expected_target_ids = []
         removed_roles = {role, "TP_FINAL"} if role == "TP2" else {role}
         self._protective_orders = [row for row in self._protective_orders if row.get("role") not in removed_roles] + [new_order]
 
@@ -505,6 +685,8 @@ class SaferTestnetExecutor(TestnetExecutor):
             self._protective_orders = []
             self._entry_context = {}
             self.protection_reconciliation_required = False
+            self.protection_reconciliation_reason = None
+            self.protection_reconciliation_expected_target_ids = []
             self.execution_journal.record(
                 decision_id=None, action="EARLY_EXIT", status="CONFIRMED", details=payload,
                 position_before=position, position_after=final_position,

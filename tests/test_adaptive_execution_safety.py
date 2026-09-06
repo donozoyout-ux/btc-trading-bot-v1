@@ -57,7 +57,7 @@ class ExchangeFake:
     testnet = True
     configured = True
 
-    def __init__(self, *, amount=.5, cancel_stop_fails=False):
+    def __init__(self, *, amount=.5, cancel_stop_fails=False, cancel_fail_ids=None):
         self.position = {"symbol": "BTCUSDT", "position_amt": amount, "side": "LONG" if amount > 0 else "SHORT", "entry_price": 100.02, "mark_price": 105, "unrealized_pnl": 2}
         close_side = "SELL" if amount > 0 else "BUY"
         self.orders = [
@@ -68,6 +68,7 @@ class ExchangeFake:
         self.calls = []
         self.next_id = 4
         self.cancel_stop_fails = cancel_stop_fails
+        self.cancel_fail_ids = set(cancel_fail_ids or [])
 
     def get_position(self, _symbol="BTCUSDT"):
         self.calls.append("get_position")
@@ -89,7 +90,7 @@ class ExchangeFake:
 
     def cancel_algo_order(self, *, algo_id):
         self.calls.append(("cancel_algo", algo_id))
-        if self.cancel_stop_fails and algo_id == 1:
+        if (self.cancel_stop_fails and algo_id == 1) or algo_id in self.cancel_fail_ids:
             raise RuntimeError("cancel unavailable")
         self.orders = [row for row in self.orders if row["algoId"] != algo_id]
 
@@ -243,14 +244,111 @@ def test_restart_with_active_position_and_empty_context_is_fail_closed():
     journal = MemoryJournal()
     client = ExchangeFake(amount=.5)
     executor = SaferTestnetExecutor(client, settings=settings(enabled=True), execution_journal=journal)
-    before = list(client.orders)
     recovered = executor.recover_from_exchange()
     assert recovered["status"] == "RECOVERED_POSITION_CONTEXT_UNAVAILABLE"
+    stop = next(row for row in client.orders if row["orderType"] == "STOP_MARKET")
+    assert float(stop["quantity"]) == .5
+    assert float(stop["triggerPrice"]) == 90
+    calls_after_recovery = list(client.calls)
     result = executor.manage_adaptive_position({"candles": {"5m": [{"time": 1}]}}, BotState(), client.position)
     assert result["status"] == "RECOVERED_POSITION_CONTEXT_UNAVAILABLE"
-    assert client.orders == before
-    assert not any(call == "close_position_market" or isinstance(call, tuple) and call[0] == "place" for call in client.calls)
+    assert client.calls == calls_after_recovery
+    assert not any(call == "close_position_market" for call in client.calls)
     assert [row["action"] for row in journal.records].count("RECOVERED_POSITION_CONTEXT_UNAVAILABLE") == 1
+
+
+def test_restart_repairs_offline_partial_fill_stop_with_surviving_context_and_is_idempotent():
+    context = baseline(size=1)
+    journal = MemoryJournal({"entry_context": context})
+    client = ExchangeFake(amount=.5)
+    executor = SaferTestnetExecutor(client, settings=settings(enabled=True), execution_journal=journal)
+
+    first = executor.recover_from_exchange()
+    stop = next(row for row in client.orders if row["orderType"] == "STOP_MARKET")
+    assert first["protection_reconciliation"]["stop_resized"] is True
+    assert float(stop["quantity"]) == .5
+    assert float(stop["triggerPrice"]) == 90
+    assert executor._entry_context["actual_initial_position_size"] == 1
+    place_count = len([call for call in client.calls if isinstance(call, tuple) and call[0] == "place"])
+
+    second = executor.recover_from_exchange()
+    assert second["protection_reconciliation"]["stop_resized"] is False
+    assert len([call for call in client.calls if isinstance(call, tuple) and call[0] == "place"]) == place_count
+    assert [row["action"] for row in journal.records].count("RESTART_PROTECTION_QUANTITY_RECONCILED") == 1
+
+
+def test_restart_correct_stop_quantity_is_untouched():
+    journal = MemoryJournal({"entry_context": baseline(size=.5)})
+    client = ExchangeFake(amount=.5)
+    client.orders[0]["quantity"] = ".5"
+    executor = SaferTestnetExecutor(client, settings=settings(enabled=True), execution_journal=journal)
+    result = executor.recover_from_exchange()
+    assert result["protection_reconciliation"]["stop_resized"] is False
+    assert not any(isinstance(call, tuple) and call[0] == "place" for call in client.calls)
+    assert next(row for row in executor._protective_orders if row["type"] == "TAKE_PROFIT_MARKET")["role"] == "UNKNOWN_TARGET"
+
+
+def test_target_cancel_failure_rolls_back_new_target_without_quantity_accumulation():
+    journal = MemoryJournal()
+    client = ExchangeFake(amount=.5, cancel_fail_ids={3})
+    client.orders[0]["quantity"] = ".5"
+    executor = SaferTestnetExecutor(client, settings=settings(), execution_journal=journal)
+    executor._entry_context = baseline(size=.5)
+    with pytest.raises(ExecutionError, match="PROTECTION_REPLACEMENT_FAILED"):
+        executor._replace_tp2_safely(client.position, 125)
+    targets = [row for row in client.orders if row["orderType"] == "TAKE_PROFIT_MARKET"]
+    assert [row["algoId"] for row in targets] == [3]
+    assert sum(float(row["quantity"]) for row in targets) == .5
+    assert executor.protection_reconciliation_required is False
+    assert any(row["action"] == "TARGET_REPLACEMENT_ROLLED_BACK" for row in journal.records)
+
+
+def test_target_cancel_and_rollback_failure_requires_reconciliation_lock():
+    journal = MemoryJournal()
+    client = ExchangeFake(amount=.5, cancel_fail_ids={3, 4})
+    client.orders[0]["quantity"] = ".5"
+    executor = SaferTestnetExecutor(client, settings=settings(), execution_journal=journal)
+    executor._entry_context = baseline(size=.5)
+    with pytest.raises(ExecutionError, match="PROTECTION_RECONCILIATION_REQUIRED"):
+        executor._replace_tp2_safely(client.position, 125)
+    assert executor.protection_reconciliation_required is True
+    assert any(row["action"] == "PROTECTION_RECONCILIATION_REQUIRED" for row in journal.records)
+    assert any(row["orderType"] == "STOP_MARKET" for row in client.orders)
+    calls = list(client.calls)
+    blocked = executor.manage_adaptive_position({"candles": {"5m": [{"time": 5}]}}, BotState(), client.position)
+    assert blocked["status"] == "PROTECTION_RECONCILIATION_REQUIRED"
+    assert client.calls == calls
+    client.cancel_fail_ids.clear()
+    reconciled = executor._reconcile_active_protection(client.position)
+    assert reconciled["status"] == "PROTECTION_RECONCILED"
+    assert executor.protection_reconciliation_required is False
+    assert [row["algoId"] for row in client.orders if row["orderType"] == "TAKE_PROFIT_MARKET"] == [3]
+
+
+def test_restart_excess_target_quantity_fails_closed_and_keeps_stop():
+    journal = MemoryJournal()
+    client = ExchangeFake(amount=.5)
+    client.orders[0]["quantity"] = ".5"
+    client.orders[1]["quantity"] = "1"
+    executor = SaferTestnetExecutor(client, settings=settings(enabled=True), execution_journal=journal)
+    result = executor.recover_from_exchange()
+    assert result["status"] == "RECOVERED_POSITION_CONTEXT_UNAVAILABLE"
+    assert result["protection_reconciliation"]["status"] == "PROTECTION_RECONCILIATION_REQUIRED"
+    assert executor.protection_reconciliation_required is True
+    assert any(row["orderType"] == "STOP_MARKET" for row in client.orders)
+
+
+def test_restart_restores_unambiguous_target_roles():
+    client = ExchangeFake(amount=1)
+    client.orders[0]["quantity"] = "1"
+    client.orders[1]["quantity"] = ".5"
+    client.orders.append({"algoId": 5, "orderType": "TAKE_PROFIT_MARKET", "side": "SELL", "triggerPrice": "110", "quantity": ".5", "reduceOnly": True})
+    executor = SaferTestnetExecutor(client, settings=settings(enabled=True), execution_journal=MemoryJournal({"entry_context": baseline(size=1)}))
+    executor.recover_from_exchange()
+    roles = {row["binance_order_id"]: row["role"] for row in executor._protective_orders}
+    assert roles[1] == "STOP"
+    assert roles[5] == "TP1"
+    assert roles[3] == "TP2"
 
 
 def test_adaptive_backtest_disables_legacy_auto_be_but_static_baseline_keeps_it():

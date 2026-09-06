@@ -28,6 +28,8 @@ class ActivePositionClient:
                 "orderType": "STOP_MARKET",
                 "algoStatus": "NEW",
                 "triggerPrice": "79000",
+                "side": "SELL",
+                "quantity": "0.001",
                 "reduceOnly": True,
             },
             {
@@ -36,6 +38,8 @@ class ActivePositionClient:
                 "orderType": "TAKE_PROFIT_MARKET",
                 "algoStatus": "NEW",
                 "triggerPrice": "81000",
+                "side": "SELL",
+                "quantity": "0.001",
                 "reduceOnly": True,
             },
         ]
