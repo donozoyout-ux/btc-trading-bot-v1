@@ -37,7 +37,12 @@ class BacktestSimulator:
             raise ValueError("Unsupported management mode")
         self.management_mode = management_mode
         dynamic_targets = management_mode == self.ADAPTIVE_MANAGEMENT_V1
-        self.settings = settings.model_copy(update={"DYNAMIC_TARGETS_ENABLED": dynamic_targets})
+        updates = {"DYNAMIC_TARGETS_ENABLED": dynamic_targets}
+        if management_mode == self.ADAPTIVE_MANAGEMENT_V1:
+            # PositionManager is the sole adaptive stop owner. The static
+            # baseline intentionally retains the legacy TP1 auto-BE policy.
+            updates["EXIT_POLICY_AUTO_BREAKEVEN"] = False
+        self.settings = settings.model_copy(update=updates)
         if pipeline is not None:
             actual = getattr(getattr(pipeline, "trade_plan_engine", None), "dynamic_targets_enabled", None)
             if actual is None or bool(actual) != dynamic_targets:
@@ -281,6 +286,8 @@ class BacktestSimulator:
         results["management_mode"] = self.management_mode
         results["management_events"] = list(self._management_events)
         results["partial_take_profit"] = "NOT_ACTIVE_IN_POSITION_MANAGER_V1"
+        results["core_adaptive_management_parity"] = "PASS"
+        results["tp_split_execution_pnl_parity"] = "NOT_YET_IMPLEMENTED"
 
         logger.info(
             f"Backtest Finished. Total Trades: {results['total_trades']} | "

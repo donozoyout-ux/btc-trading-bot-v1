@@ -188,9 +188,12 @@ def test_backtest_exposes_static_and_adaptive_comparison_modes():
 
 
 class _Journal:
-    def read_state(self): return {}
-    def write_state(self, _state): return None
-    def record(self, **row): return row
+    def __init__(self, state=None):
+        self.state = dict(state or {})
+        self.records = []
+    def read_state(self): return dict(self.state)
+    def write_state(self, state): self.state = dict(state)
+    def record(self, **row): self.records.append(row); return row
 
 
 class _ProtectionClient:
@@ -201,8 +204,8 @@ class _ProtectionClient:
         self.fail_new = fail_new
         self.calls = []
         self.orders = [
-            {"algoId": 1, "orderType": "STOP_MARKET", "triggerPrice": "90", "quantity": "1", "reduceOnly": True},
-            {"algoId": 2, "orderType": "TAKE_PROFIT_MARKET", "triggerPrice": "120", "quantity": "1", "reduceOnly": True},
+            {"algoId": 1, "orderType": "STOP_MARKET", "side": "SELL", "triggerPrice": "90", "quantity": "1", "reduceOnly": True},
+            {"algoId": 2, "orderType": "TAKE_PROFIT_MARKET", "side": "SELL", "triggerPrice": "120", "quantity": "1", "reduceOnly": True},
         ]
 
     def normalize_quantity(self, _symbol, quantity, **_kwargs):
@@ -213,7 +216,7 @@ class _ProtectionClient:
 
     def place_protective_order(self, _symbol, _side, order_type, quantity, stop_price):
         self.calls.append(("place", order_type, stop_price))
-        order = {"algoId": 3, "orderType": order_type, "triggerPrice": str(stop_price), "quantity": str(quantity), "reduceOnly": True}
+        order = {"algoId": 3, "orderType": order_type, "side": _side, "triggerPrice": str(stop_price), "quantity": str(quantity), "reduceOnly": True}
         if not self.fail_new:
             self.orders.append(order)
         return {"binance_order_id": 3, "type": order_type, "trigger_price": stop_price, "requested_quantity": quantity}
@@ -229,6 +232,18 @@ def _safer(client):
         testnet_execution_enabled=False,
     )
     return SaferTestnetExecutor(client, settings=settings, execution_journal=_Journal())
+
+
+def _verified_context(entry=100, stop=90, size=1):
+    return {
+        "exchange_baseline_verified": True,
+        "actual_entry_price": entry,
+        "actual_initial_stop": stop,
+        "actual_initial_position_size": size,
+        "entry_decision_id": "DEC-1",
+        "entry_opened_at": 1_000,
+        "management_profile": "BALANCED",
+    }
 
 
 def test_dynamic_split_profiles_and_small_position_fallback():
@@ -261,7 +276,7 @@ def test_failed_stop_replacement_preserves_existing_stop():
 def test_management_actions_are_deduplicated_by_closed_5m_timestamp():
     client = _ProtectionClient()
     executor = _safer(client)
-    executor._entry_context = {"initial_stop": 90, "initial_size": 1, "management_profile": "BALANCED"}
+    executor._entry_context = _verified_context()
     snapshot = {
         "candles": {"5m": [{"time": 1_000}]},
         "market": {"mark_price": 97},
@@ -344,7 +359,7 @@ def test_recovery_wait_reports_opposing_momentum_without_fake_support(direction,
 def test_unavailable_5m_analysis_keeps_existing_protection_untouched():
     client = _ProtectionClient()
     executor = _safer(client)
-    executor._entry_context = {"initial_stop": 90, "initial_size": 1, "management_profile": "BALANCED"}
+    executor._entry_context = _verified_context()
     snapshot = {
         "candles": {"5m": [{"time": 2_000}]},
         "market": {"mark_price": 116},

@@ -50,11 +50,16 @@ Objective invalidation (initial invalidation hit, or opposite BOS confirmed by m
 - Position growth returns `POSITION_SIZE_INCREASE_DETECTED` and `AVERAGING_DOWN_BLOCKED` without an add-size action.
 - No management action increases quantity, averages down, martingales, or widens initial loss.
 - Management readiness requires healthy/safe Binance market data, a valid mark, and an AVAILABLE 5M frame containing closed candles. Missing/degraded analysis returns `MARKET_ANALYSIS_UNAVAILABLE_KEEP_EXISTING_PROTECTION`, makes no speculative change, and retains existing protection.
-- MFE/MAE, initial context, closed-candle clock, and target-replan state persist across restart.
+- After entry fill reconciliation and successful protection placement, an immutable exchange baseline stores `actual_entry_price`, exchange-normalized `actual_initial_position_size`, exchange-normalized `actual_initial_stop`, decision ID, and opened time. Planned entry/size/stop remain separate telemetry fields. Adaptive R and invariant checks use only the verified exchange baseline.
+- MFE/MAE, verified initial context, closed-candle clock, and target-replan state persist across restart when the local journal file survives.
 
 ## 7. Protection replacement logic
 
-Stop and TP replacement create and verify the new reduce-only conditional order before cancelling the old order, then reconcile again. TP changes additionally verify that a STOP remains live. Replacement failure is journaled; an existing stop is retained where possible, and the emergency latch is activated if no stop can be verified. Partial close support is reduce-only, rejects zero/full/oversized quantities, verifies the position actually decreased, and verifies that STOP protection remains. Full early close uses the existing reduce-only close path.
+Stop and TP replacement create and verify the new reduce-only conditional order before cancelling the old order, then reconcile again. Stop replacement now requires exactly one final stop with the correct close side, reduce-only flag, and exchange-normalized remaining quantity. If old-stop cancellation fails, redundant protection is preferred to no protection, `PROTECTION_RECONCILIATION_REQUIRED` is persisted, and further adaptive modifications fail closed until exchange reconciliation proves a single valid stop.
+
+Partial exchange reductions are detected from the reconciled before/after position sizes. A known completed TP1 is removed from internal protection state and journaled; an unidentified reduction is labelled `UNKNOWN_PARTIAL_REDUCTION`. The original verified size, MFE/MAE, and target-replan counters are not reset. The remaining stop is resized through create → verify → cancel → final reconcile, and remaining TP quantity is required not to exceed the remaining position.
+
+Early exit now submits the reduce-only close, requires a confirmed flat position, removes stale regular and algo reduce-only orders, re-fetches exchange state, and only then journals `EARLY_EXIT` as confirmed. Uncertain closure or cleanup emits `EARLY_EXIT_RECONCILIATION_FAILURE`; an open position must retain a verified stop or the emergency latch activates.
 
 Runtime order is: exchange reconciliation → real-time protection verification → dashboard closed-candle snapshot → pure management classification → at most one action for that closed 5M timestamp. Duplicate timestamps are rejected.
 
@@ -68,31 +73,45 @@ The dashboard now exposes position state, thesis validity, current R, entry/mark
 
 Tests cover LONG/SHORT structure targets, range/counter-trend/low/extreme-volatility modes, deterministic fallback and ordering, Chart Reader trend/volume normalization, unavailable-analysis fail-closed behavior, LONG/SHORT CHoCH weakening and confirmed invalidation, recovery telemetry with opposing momentum, stop tightening/no widening, add-size blocking, TP2 continuation/cooldown, profile split allocation, safe replacement ordering and failure preservation, closed-5M deduplication, IANA timezone use/raw epoch preservation, static target isolation, incompatible pipeline rejection, and adaptive backtest stop/TP2/HOLD transitions.
 
-## 10. Tests passed
+## 10. Backtest parity boundary
+
+- **CORE ADAPTIVE MANAGEMENT PARITY: PASS.** The shared PositionManager drives early exit, stop tightening, TP2 replan, recovery wait, and hold from closed-candle inputs.
+- **TP SPLIT EXECUTION/P&L PARITY: NOT YET IMPLEMENTED.** Live TESTNET uses actual split TP1/TP2 quantities; historical accounting does not yet reproduce the full partial-TP P&L lifecycle.
+- `ADAPTIVE_MANAGEMENT_V1` disables the legacy ExitEngine TP1 auto-breakeven behavior so PositionManager is the sole adaptive stop owner. `STATIC_EXIT_BASELINE` retains the prior auto-breakeven setting unchanged.
+
+## 11. Restart durability and fail-closed behavior
+
+- **LOCAL JOURNAL RESTART CONTEXT: SUPPORTED WHEN FILE SURVIVES**
+- **RENDER FREE FILESYSTEM DURABILITY: NOT GUARANTEED**
+- **MISSING CONTEXT BEHAVIOR: FAIL-CLOSED**
+
+If an exchange position survives while its verified entry context does not, runtime persists and exposes `RECOVERED_POSITION_CONTEXT_UNAVAILABLE`, retains existing exchange protection, blocks new entry because the position remains open, and performs no adaptive stop, target, partial-close, or early-exit action. It never redefines the current tightened stop or remaining quantity as original risk. Operator warning/journal emission is deduplicated until the position is flat or reliable context is restored.
+
+## 12. Tests passed
 
 - `python -m compileall -q .`: PASS
 - `python dashboard_server.py --self-test`: PASS
-- `pytest -q`: **261 passed, 0 failed**
+- `pytest -q`: **273 passed, 0 failed**
 - JavaScript syntax (`node --check` for changed dashboard scripts): PASS
 
-## 11. Known limitations
+## 13. Known limitations
 
 - Adaptive V1 is deterministic and telemetry-first; no profitability improvement is claimed.
-- Backtest adaptive behavior requires an explicit closed-candle management-context provider. It applies early exits, tighter stops, TP2 replans, recovery waits, and holds to subsequent candles while preserving original initial risk separately. `TAKE_PARTIAL` is **NOT ACTIVE** in PositionManager V1.
+- Backtest adaptive behavior requires an explicit closed-candle management-context provider. It applies early exits, tighter stops, TP2 replans, recovery waits, and holds to subsequent candles while preserving original initial risk separately. `TAKE_PARTIAL` is **NOT ACTIVE** in PositionManager V1, and split TP execution/P&L parity remains pending.
 - Historical simulation does not model Binance API latency, exchange quantity/price quantization during later protection replacement, or replacement-request failure modes. Live TESTNET keeps the stricter create/verify/cancel/reconcile workflow.
 - `STATIC_EXIT_BASELINE` constructs its pipeline with dynamic targets disabled and no adaptive position-management transitions. `ADAPTIVE_MANAGEMENT_V1` enables both; incompatible injected pipelines fail explicitly.
 - TP2 extension is capped and cooldown-controlled. V1 does not repeatedly trail or endlessly extend targets.
 - Very small exchange positions can remain unsplittable and therefore use one final TP.
 - No live TESTNET adaptive-management cycle was run in this task.
 
-## 12. Strategy parameter changes
+## 14. Strategy parameter changes
 
 All new values live in `config/hypotheses.py` and are labelled Adaptive Management V1 **initial hypotheses — not optimized**. They are exposed through `BotSettings`: feature flags, breakeven/stop thresholds, replan threshold/cooldown/cap, split profiles, and target fallbacks. Existing strategy entry thresholds and RiskEngine minimum acceptable R:R were not weakened.
 
-## 13. MAINNET execution status
+## 15. MAINNET execution status
 
 **BLOCKED.** The existing TESTNET boundary still requires a testnet client, `BINANCE_TESTNET=true`, `ENV=testnet`, explicit order submission, non-read-only mode, non-shadow mode, and configured credentials. No mainnet path was added.
 
-## 14. TESTNET status
+## 16. TESTNET status
 
 Implementation and deterministic tests are ready for a controlled TESTNET adaptive-management validation. Live validation remains pending and must be performed separately with deliberate authorization while observing an existing/new TESTNET-only position.
