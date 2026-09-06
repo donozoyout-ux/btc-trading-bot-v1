@@ -63,7 +63,7 @@
       ? (x.patterns || []).map(p => `<span class="ci-pattern">${esc(text(p))}</span>`).join('')
       : '<span class="ci-pattern muted">NO ACTIVE CANDLE PATTERN</span>';
     const lastClosed = x.last_closed_at
-      ? new Date(Number(x.last_closed_at)).toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })
+      ? formatIstanbulChartTime(Number(x.last_closed_at))
       : '—';
 
     return `<article class="ci-tf-card ${tone}">

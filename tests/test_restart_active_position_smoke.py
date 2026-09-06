@@ -28,6 +28,8 @@ class ActivePositionClient:
                 "orderType": "STOP_MARKET",
                 "algoStatus": "NEW",
                 "triggerPrice": "79000",
+                "side": "SELL",
+                "quantity": "0.001",
                 "reduceOnly": True,
             },
             {
@@ -36,6 +38,8 @@ class ActivePositionClient:
                 "orderType": "TAKE_PROFIT_MARKET",
                 "algoStatus": "NEW",
                 "triggerPrice": "81000",
+                "side": "SELL",
+                "quantity": "0.001",
                 "reduceOnly": True,
             },
         ]
@@ -99,4 +103,5 @@ def test_restart_with_active_position_skips_smoke_and_enters_management(tmp_path
     assert snapshot_calls == []
     state = runtime.executor.execution_journal.read_state()
     assert state["smoke_test"] == "SKIPPED_ACTIVE_POSITION"
-    assert state["last_execution_result"] == "POSITION_MANAGEMENT"
+    assert state["last_execution_result"] == "RECOVERED_POSITION_CONTEXT_UNAVAILABLE"
+    assert state["position_intelligence"]["reason_codes"] == ["RECOVERED_POSITION_CONTEXT_UNAVAILABLE"]

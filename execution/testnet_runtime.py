@@ -153,6 +153,24 @@ class TestnetExecutionRuntime:
     def run_cycle(self) -> Dict[str, Any]:
         managed = self.executor.manage_existing_position(self.state)
         if managed["status"] != "FLAT":
+            # Reconciliation and real-time exchange protection always run
+            # first.  Thesis management is deliberately clocked by the most
+            # recent CLOSED 5M candle and the executor deduplicates that
+            # timestamp, so dashboard/poll cadence cannot repeat an action.
+            if managed["status"] == "POSITION_MANAGEMENT":
+                # Lightweight test/recovery dashboards without the strategy
+                # pipeline can reconcile protection, but cannot safely form a
+                # thesis-management decision.
+                if not hasattr(self.dashboard, "pipeline"):
+                    return managed
+                snapshot = self.dashboard.snapshot(force=True)
+                if not isinstance(snapshot, dict):
+                    return managed
+                return self.executor.manage_adaptive_position(
+                    snapshot,
+                    self.state,
+                    managed["position"],
+                )
             return managed
         snapshot = self.dashboard.snapshot(force=True)
         result = self.executor.process_snapshot(snapshot, self.state)

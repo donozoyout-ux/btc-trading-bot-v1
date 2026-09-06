@@ -141,7 +141,7 @@
   function renderAccount(account) {
     const positions = Array.isArray(account.positions) ? account.positions : [];
     const position = positions.find(row => String(row.symbol || '').toUpperCase() === 'BTCUSDT') || positions[0];
-    $('tradeTrackUpdated').textContent = new Date().toLocaleTimeString('tr-TR');
+    $('tradeTrackUpdated').textContent = formatIstanbulTime(Date.now());
 
     if (!account.connected || String(account.status || '').toUpperCase() !== 'CONNECTED') {
       renderFlat(`Hesap verisi alınamadı · ${account.error_category || account.status || 'ACCOUNT_UNAVAILABLE'}`);

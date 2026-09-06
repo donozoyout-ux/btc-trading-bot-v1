@@ -17,6 +17,23 @@ class TradeDirection(str, Enum):
     WAIT = "WAIT"
 
 
+class PositionManagementState(str, Enum):
+    HOLD = "HOLD"
+    RECOVERY_WAIT = "RECOVERY_WAIT"
+    PROTECT = "PROTECT"
+    TIGHTEN_STOP = "TIGHTEN_STOP"
+    TAKE_PARTIAL = "TAKE_PARTIAL"
+    TARGET_REPLAN = "TARGET_REPLAN"
+    EXIT_EARLY = "EXIT_EARLY"
+    NO_CHANGE = "NO_CHANGE"
+
+
+class ManagementProfile(str, Enum):
+    CONSERVATIVE = "CONSERVATIVE"
+    BALANCED = "BALANCED"
+    TREND_RUNNER = "TREND_RUNNER"
+
+
 class DecisionStatus(str, Enum):
     LONG_ENTRY = "LONG_ENTRY"
     SHORT_ENTRY = "SHORT_ENTRY"

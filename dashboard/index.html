@@ -73,6 +73,12 @@
     </section>
 
     <section class="metrics-grid">
+      <article class="metric glass"><span>Position State</span><strong id="positionState">NO CHANGE</strong><small id="positionThesis">THESIS —</small></article>
+      <article class="metric glass"><span>Current R</span><strong id="positionCurrentR">—</strong><small id="positionLastAction">NO ACTION</small></article>
+      <article class="metric glass"><span>Initial / Current Stop</span><strong id="positionCurrentStop">—</strong><small id="positionInitialStop">INITIAL —</small></article>
+      <article class="metric glass"><span>Managed TP1 / TP2</span><strong id="positionIntelTp1">—</strong><small id="positionIntelTp2">TP2 —</small></article>
+      <article class="metric glass"><span>Management Profile</span><strong id="positionManagementProfile">—</strong><small id="positionLastReason">NO CLOSED 5M DECISION</small></article>
+      <article class="metric glass"><span>Entry / Mark</span><strong id="positionIntelEntry">—</strong><small id="positionIntelMark">MARK —</small></article>
       <article class="metric glass"><span>Open Interest</span><strong id="openInterest">—</strong><small>Binance</small></article>
       <article class="metric glass"><span>Funding</span><strong id="funding">—</strong><small id="fundingTone">8h rate</small></article>
       <article class="metric glass"><span>Long / Short</span><strong id="longShort">—</strong><small>Account ratio</small></article>
@@ -82,7 +88,7 @@
     </section>
 
     <section class="workbench glass">
-      <div class="workbench-head"><div><div class="eyebrow">SMART CHART</div><h2>Price + EMA + Bollinger + S/R</h2></div><div class="tf-tabs" id="tfTabs"><button data-tf="5m" class="active">5M</button><button data-tf="15m">15M</button><button data-tf="1h">1H</button><button data-tf="4h">4H</button></div></div>
+      <div class="workbench-head"><div><div class="eyebrow">SMART CHART · TSİ · Europe/Istanbul</div><h2>Price + EMA + Bollinger + S/R</h2></div><div class="tf-tabs" id="tfTabs"><button data-tf="5m" class="active">5M</button><button data-tf="15m">15M</button><button data-tf="1h">1H</button><button data-tf="4h">4H</button></div></div>
       <div class="legend"><span><i class="dot ema20"></i>EMA20</span><span><i class="dot ema50"></i>EMA50</span><span><i class="dot ema200"></i>EMA200</span><span><i class="dot bb"></i>Bollinger</span><span><i class="dot sr"></i>S/R zone</span></div>
       <div class="chart-wrap"><canvas id="priceChart"></canvas><div id="chartTooltip" class="chart-tooltip hidden"></div></div>
       <div class="rsi-wrap"><div class="rsi-title"><span>RSI 14</span><span id="rsiChartValue">—</span></div><canvas id="rsiChart"></canvas></div>
@@ -118,6 +124,7 @@
     <section class="glass panel event-panel"><div class="section-head"><span>System Events</span><span id="lastUpdate" class="muted tiny">—</span></div><div id="eventLog" class="event-log"></div></section>
     <footer><span>Binance Futures TESTNET only · REAL MONEY DISABLED</span><span>Predict less. Filter better. Risk less. Measure everything.</span></footer>
   </main>
+  <script src="/timezone.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/chart-intelligence.js" defer></script>
 </body>
