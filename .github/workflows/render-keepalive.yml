@@ -1,0 +1,64 @@
+name: Render Keepalive
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-keepalive
+  cancel-in-progress: true
+
+jobs:
+  ping-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Wake and ping Render service
+        shell: bash
+        run: |
+          set -u
+
+          URL="https://btc-trading-bot-v1.onrender.com/api/bootstrap"
+          echo "Pinging Render bootstrap endpoint: ${URL}"
+
+          if curl \
+            --silent \
+            --show-error \
+            --location \
+            --fail-with-body \
+            --connect-timeout 15 \
+            --max-time 90 \
+            --retry 2 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            --header "User-Agent: btc-trading-bot-render-keepalive/1.0" \
+            --output /tmp/render-bootstrap.json \
+            "${URL}"; then
+            echo "Render service responded successfully."
+            python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('/tmp/render-bootstrap.json')
+          try:
+              data = json.loads(path.read_text(encoding='utf-8'))
+          except Exception:
+              print('Bootstrap response received (non-JSON or unreadable).')
+          else:
+              safe = {
+                  'ok': data.get('ok'),
+                  'ui': data.get('ui'),
+                  'bot_status': data.get('bot_status'),
+                  'execution_thread': data.get('execution_thread'),
+                  'orders_enabled': data.get('orders_enabled'),
+                  'market_data_source': data.get('market_data_source'),
+              }
+              print(json.dumps(safe, ensure_ascii=False))
+          PY
+          else
+            echo "::warning::Render did not respond after retries. The next scheduled run will try again."
+          fi
