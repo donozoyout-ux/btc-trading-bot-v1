@@ -27,6 +27,7 @@ from core.models import (
     TradeRecord,
     DerivativesField,
     EntryQualityAssessment,
+    TargetContext,
 )
 from core.state import BotState
 from engines.data_health import DataHealthEngine
@@ -98,7 +99,15 @@ class MasterPipeline:
             min_body_ratio=self.settings.DIRECTIONAL_BODY_RATIO,
             volume_rvol_threshold=self.settings.VOLUME_RVOL_THRESHOLD,
         )
-        self.trade_plan_engine = TradePlanEngine(atr_buffer_factor=0.20)
+        self.trade_plan_engine = TradePlanEngine(
+            atr_buffer_factor=0.20,
+            dynamic_targets_enabled=settings.DYNAMIC_TARGETS_ENABLED,
+            minimum_rr=settings.MIN_RISK_REWARD,
+            fallback_tp1_r=settings.TARGET_FALLBACK_TP1_R,
+            conservative_tp2_r=settings.TARGET_FALLBACK_TP2_CONSERVATIVE_R,
+            balanced_tp2_r=settings.TARGET_FALLBACK_TP2_BALANCED_R,
+            trend_tp2_r=settings.TARGET_FALLBACK_TP2_TREND_R,
+        )
         self.risk_engine = RiskEngine(settings)
         self.exit_engine = ExitEngine(
             taker_fee_pct=settings.TAKER_FEE_PCT,
@@ -299,6 +308,22 @@ class MasterPipeline:
                 setup=setup_signal,
                 trigger=trigger_result,
                 current_atr=current_atr,
+                context=TargetContext(
+                    direction=setup_signal.direction,
+                    setup_type=setup_signal.setup_type,
+                    entry=trigger_result.trigger_price,
+                    structural_invalidation=setup_signal.invalidation_level,
+                    regime=regime_result.regime,
+                    regime_confidence=regime_result.confidence,
+                    volatility=regime_result.volatility,
+                    atr=current_atr,
+                    support_levels=[z.center for z in zones if "SUPPORT" in z.level_type.upper()],
+                    resistance_levels=[z.center for z in zones if "RESISTANCE" in z.level_type.upper()],
+                    breakout_level=setup_signal.breakout_level,
+                    overextended=regime_result.overextended_up if setup_signal.direction == TradeDirection.LONG else regime_result.overextended_down,
+                    momentum_quality="CONFIRMED" if trigger_result.is_triggered else "WEAK",
+                    volume_quality="EXPANSION" if "VOLUME_EXPANSION" in trigger_result.pattern else "NORMAL",
+                ),
             )
             entry_quality_assessment = self.entry_quality_engine.evaluate(
                 setup_signal.direction, trade_plan, setup_signal, location_result,

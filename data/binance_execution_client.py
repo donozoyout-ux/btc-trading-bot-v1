@@ -365,3 +365,21 @@ class BinanceFuturesExecutionClient:
         side = "SELL" if amount > 0 else "BUY"
         quantity = self.normalize_quantity(symbol, abs(amount), market=True, price=position.get("mark_price"))
         return self.place_market_order(symbol, side, quantity, reduce_only=True)
+
+    def reduce_position_market(self, symbol: str, quantity: float) -> Dict[str, Any]:
+        """Reduce, but never increase or reverse, an existing position."""
+        position = self.get_position(symbol)
+        amount = float(position.get("position_amt") or 0)
+        requested = float(quantity)
+        if amount == 0 or requested <= 0 or requested > abs(amount) * (1 + 1e-9):
+            raise ExecutionError("INVALID_REDUCE_ONLY_QUANTITY")
+        side = "SELL" if amount > 0 else "BUY"
+        normalized = self.normalize_quantity(
+            symbol,
+            min(requested, abs(amount)),
+            market=True,
+            price=position.get("mark_price"),
+        )
+        if normalized <= 0 or normalized > abs(amount) * (1 + 1e-9):
+            raise ExecutionError("INVALID_REDUCE_ONLY_QUANTITY")
+        return self.place_market_order(symbol, side, normalized, reduce_only=True)

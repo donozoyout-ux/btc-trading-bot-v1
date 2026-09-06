@@ -34,6 +34,26 @@ INITIAL_HYPOTHESES: Dict[str, Any] = {
     "derivatives_bullish_taker_ratio": 1.20,      # Taker buy/sell at or above = bullish participation
     # Initial hypothesis only: reject entries stretched >= 2 ATR from 20-bar mean.
     "entry_max_atr_extension": 2.0,
+
+    # Adaptive Management V1 initial hypotheses — not optimized.
+    "adaptive_management_enabled": True,
+    "recovery_wait_enabled": True,
+    "early_exit_enabled": True,
+    "dynamic_targets_enabled": True,
+    "target_replan_enabled": True,
+    "breakeven_min_r": 1.00,
+    "stop_tighten_min_r": 1.50,
+    "stop_lock_r": 0.25,
+    "target_replan_min_r": 1.50,
+    "target_replan_cooldown_bars": 3,
+    "max_target_replans": 2,
+    "tp_split_conservative": 0.70,
+    "tp_split_balanced": 0.50,
+    "tp_split_trend_runner": 0.35,
+    "target_fallback_tp1_r": 1.50,
+    "target_fallback_tp2_conservative_r": 2.00,
+    "target_fallback_tp2_balanced_r": 2.50,
+    "target_fallback_tp2_trend_r": 3.00,
     
     # Risk & Sizing hypotheses (Section 37, 38, 40)
     "min_risk_reward_ratio": 1.50,         # Minimum acceptable structural R:R filter

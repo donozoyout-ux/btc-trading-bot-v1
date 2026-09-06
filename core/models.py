@@ -18,6 +18,8 @@ from config.constants import (
     SourceHealthStatus,
     DataSafetyStatus,
     DataSource,
+    ManagementProfile,
+    PositionManagementState,
     FundingClass,
     CrowdingStatus,
     RiskDecision,
@@ -206,8 +208,56 @@ class TradePlan(BaseModel):
     tp2: float
     invalidation: float
     risk_reward: float
+    risk_reward_tp1: float = 0.0
+    risk_reward_tp2: float = 0.0
+    target_mode: str = "STATIC_EXIT_BASELINE"
+    tp1_source: str = "LEGACY"
+    tp2_source: str = "LEGACY"
+    stop_source: str = "STRUCTURAL_INVALIDATION"
+    target_confidence: str = "LOW"
+    target_reasons: List[str] = Field(default_factory=list)
+    management_profile: ManagementProfile = ManagementProfile.BALANCED
     is_valid: bool = True
     invalidation_reason: str = ""
+
+
+class TargetContext(BaseModel):
+    direction: Optional[TradeDirection] = None
+    setup_type: Optional[SetupType] = None
+    entry: Optional[float] = None
+    structural_invalidation: Optional[float] = None
+    regime: MarketRegime = MarketRegime.RANGE
+    regime_confidence: str = "LOW"
+    volatility: VolatilityLevel = VolatilityLevel.NORMAL
+    atr: float = 0.0
+    support_levels: List[float] = Field(default_factory=list)
+    resistance_levels: List[float] = Field(default_factory=list)
+    support_levels_by_timeframe: Dict[str, List[float]] = Field(default_factory=dict)
+    resistance_levels_by_timeframe: Dict[str, List[float]] = Field(default_factory=dict)
+    breakout_level: Optional[float] = None
+    overextended: bool = False
+    momentum_quality: str = "UNKNOWN"
+    volume_quality: str = "UNKNOWN"
+
+
+class PositionManagementDecision(BaseModel):
+    state: PositionManagementState
+    reason_codes: List[str] = Field(default_factory=list)
+    confidence: str = "LOW"
+    current_r: float = 0.0
+    mfe_r: float = 0.0
+    mae_r: float = 0.0
+    thesis_valid: bool = True
+    structure_valid: bool = True
+    regime_support: bool = True
+    momentum_support: bool = True
+    volume_support: bool = True
+    target_action: Dict[str, Any] = Field(default_factory=dict)
+    stop_action: Dict[str, Any] = Field(default_factory=dict)
+    management_profile: ManagementProfile = ManagementProfile.BALANCED
+    target_replan_count: int = 0
+    last_target_replan_at: Optional[int] = None
+    target_replan_reason: Optional[str] = None
 
 
 class RiskAssessment(BaseModel):

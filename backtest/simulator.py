@@ -1,15 +1,24 @@
 """Backtest Simulator implementing strict zero-lookahead chronological event simulation."""
 
 import uuid
-from typing import Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from loguru import logger
 
 from core.models import Candle, TradeRecord
 from config.settings import BotSettings
-from config.constants import DecisionStatus, TradeDirection
+from config.constants import (
+    DecisionStatus,
+    ManagementProfile,
+    MarketRegime,
+    PositionManagementState,
+    StructureType,
+    TradeDirection,
+    VolatilityLevel,
+)
 from core.state import BotState
 from runner import MasterPipeline
 from journal.metrics import MetricsCalculator
+from engines.position_manager import PositionManager
 
 
 class BacktestSimulator:
@@ -18,9 +27,59 @@ class BacktestSimulator:
     Models trading friction (0.04% taker fee, 0.02% slippage).
     """
 
-    def __init__(self, settings: BotSettings, pipeline: Optional[MasterPipeline] = None):
+    STATIC_EXIT_BASELINE = "STATIC_EXIT_BASELINE"
+    ADAPTIVE_MANAGEMENT_V1 = "ADAPTIVE_MANAGEMENT_V1"
+
+    def __init__(self, settings: BotSettings, pipeline: Optional[MasterPipeline] = None,
+                 *, management_mode: str = STATIC_EXIT_BASELINE,
+                 management_context_provider: Optional[Callable[[TradeRecord, Candle], Dict[str, Any]]] = None):
         self.settings = settings
         self.pipeline = pipeline or MasterPipeline(settings)
+        if management_mode not in {self.STATIC_EXIT_BASELINE, self.ADAPTIVE_MANAGEMENT_V1}:
+            raise ValueError("Unsupported management mode")
+        self.management_mode = management_mode
+        self.management_context_provider = management_context_provider
+        self.position_manager = PositionManager(
+            recovery_wait_enabled=settings.RECOVERY_WAIT_ENABLED,
+            early_exit_enabled=settings.EARLY_EXIT_ENABLED,
+            breakeven_min_r=settings.BREAKEVEN_MIN_R,
+            stop_tighten_min_r=settings.STOP_TIGHTEN_MIN_R,
+            stop_lock_r=settings.STOP_LOCK_R,
+            target_replan_enabled=settings.TARGET_REPLAN_ENABLED,
+            target_replan_min_r=settings.TARGET_REPLAN_MIN_R,
+            target_replan_cooldown_bars=settings.TARGET_REPLAN_COOLDOWN_BARS,
+            max_target_replans=settings.MAX_TARGET_REPLANS,
+        )
+
+    def _adaptive_decision(self, trade: TradeRecord, candle: Candle):
+        """Evaluate the shared manager using only the supplied closed candle."""
+        if self.management_mode != self.ADAPTIVE_MANAGEMENT_V1 or self.management_context_provider is None:
+            return None
+        context = dict(self.management_context_provider(trade, candle) or {})
+        return self.position_manager.evaluate(
+            direction=trade.direction,
+            entry=trade.entry_price,
+            initial_stop=trade.stop_loss,
+            current_stop=float(context.pop("current_stop", trade.stop_loss)),
+            mark=candle.close,
+            initial_size=trade.size_btc,
+            current_size=float(context.pop("current_size", trade.size_btc)),
+            structure=context.pop("structure", StructureType.MIXED),
+            last_bos=context.pop("last_bos", None),
+            last_choch=context.pop("last_choch", None),
+            regime=context.pop("regime", MarketRegime.RANGE),
+            volatility=context.pop("volatility", VolatilityLevel.NORMAL),
+            momentum_support=bool(context.pop("momentum_support", True)),
+            volume_support=bool(context.pop("volume_support", True)),
+            data_healthy=bool(context.pop("data_healthy", True)),
+            candle_closed=True,
+            candle_timestamp=candle.timestamp,
+            current_tp2=float(context.pop("current_tp2", trade.tp2)),
+            candidate_tp2=context.pop("candidate_tp2", None),
+            target_replan_count=int(context.pop("target_replan_count", 0)),
+            last_target_replan_at=context.pop("last_target_replan_at", None),
+            management_profile=context.pop("management_profile", ManagementProfile.BALANCED),
+        )
 
     def run(
         self,
@@ -60,6 +119,14 @@ class BacktestSimulator:
                     )
                     state.register_trade_closed(finalized)
                     completed_trades.append(finalized)
+                elif self.management_mode == self.ADAPTIVE_MANAGEMENT_V1:
+                    management = self._adaptive_decision(trade, curr_5m)
+                    if management and management.state == PositionManagementState.EXIT_EARLY:
+                        finalized = self.pipeline.exit_engine.finalize_trade(
+                            trade, curr_5m.timestamp, curr_5m.close, "ADAPTIVE_EARLY_EXIT"
+                        )
+                        state.register_trade_closed(finalized)
+                        completed_trades.append(finalized)
 
             # 2. Slice strictly past closed candles up to current_ts (Zero Lookahead Guarantee)
             sub_5m = candles_5m[: i + 1]
@@ -124,6 +191,7 @@ class BacktestSimulator:
         results = MetricsCalculator.calculate_metrics(completed_trades, self.settings.INITIAL_CAPITAL_USDT)
         results["final_balance_usdt"] = round(state.account_balance_usdt, 2)
         results["completed_trades_list"] = completed_trades
+        results["management_mode"] = self.management_mode
 
         logger.info(
             f"Backtest Finished. Total Trades: {results['total_trades']} | "
