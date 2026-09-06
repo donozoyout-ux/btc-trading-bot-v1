@@ -56,6 +56,12 @@ class BotSettings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-5"
 
+    # Local tabular Entry AI V1. Phase 1 output is shadow telemetry only.
+    AI_ENTRY_MODEL_PATH: Optional[str] = None
+    AI_ENTRY_ACCEPT_PROBABILITY: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["ai_entry_accept_probability"])
+    AI_ENTRY_MIN_EXPECTED_R: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["ai_entry_min_expected_r"])
+    AI_ENTRY_UNCERTAIN_BAND: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["ai_entry_uncertain_band"])
+
     # Kept only for backwards-compatible env parsing. Interactive dashboard auth
     # is intentionally disabled for the unattended 24/7 TESTNET runtime.
     DASHBOARD_ADMIN_TOKEN: Optional[str] = None

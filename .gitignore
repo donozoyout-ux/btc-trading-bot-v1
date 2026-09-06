@@ -37,3 +37,9 @@ venv/
 
 # Regenerable Binance 5M parquet cache (59MB, use --use-cache to rebuild)
 data_cache/
+
+# Regenerable Entry AI datasets and model artifacts
+ai_outputs/
+models/*.json
+reports/ai/datasets/
+reports/ai/models/

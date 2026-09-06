@@ -54,6 +54,12 @@ INITIAL_HYPOTHESES: Dict[str, Any] = {
     "target_fallback_tp2_conservative_r": 2.00,
     "target_fallback_tp2_balanced_r": 2.50,
     "target_fallback_tp2_trend_r": 3.00,
+
+    # Entry AI V1 shadow thresholds — initial hypotheses, not optimized.
+    # Phase 1 has permanently zero execution authority regardless of these values.
+    "ai_entry_accept_probability": 0.60,
+    "ai_entry_min_expected_r": 0.20,
+    "ai_entry_uncertain_band": 0.05,
     
     # Risk & Sizing hypotheses (Section 37, 38, 40)
     "min_risk_reward_ratio": 1.50,         # Minimum acceptable structural R:R filter

@@ -36,6 +36,7 @@ class ShadowDecisionJournal:
                 "kill_switch": decision.get("kill_switch_active"),
             },
             "ai_explanation": snapshot.get("ai_analyst", {}),
+            "ai_entry_shadow": snapshot.get("ai_entry_shadow", {}),
             "account_state": snapshot.get("account", {}),
             "final_decision": snapshot.get("final_decision", "NO_TRADE"),
         }

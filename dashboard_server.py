@@ -24,6 +24,7 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 from loguru import logger
 
+from ai.shadow_entry_ai import ShadowEntryAI
 from config.settings import get_settings
 from core.security import SecurityManager
 from core.models import Candle
@@ -214,6 +215,7 @@ class DashboardRuntime:
         telegram_client=None,
         news_engine=None,
         ai_analyst=None,
+        shadow_entry_ai=None,
         shadow_journal=None,
     ):
         self.settings = settings or get_settings()
@@ -263,6 +265,12 @@ class DashboardRuntime:
             api_key=self.settings.OPENAI_API_KEY,
             model=self.settings.OPENAI_MODEL,
             enabled=self.settings.AI_ENABLED,
+        )
+        self.shadow_entry_ai = shadow_entry_ai or ShadowEntryAI(
+            model_path=self.settings.AI_ENTRY_MODEL_PATH,
+            accept_probability=self.settings.AI_ENTRY_ACCEPT_PROBABILITY,
+            min_expected_r=self.settings.AI_ENTRY_MIN_EXPECTED_R,
+            uncertain_band=self.settings.AI_ENTRY_UNCERTAIN_BAND,
         )
         self.chart_reader = ChartReadingEngineV3(
             volume_expansion_threshold=self.settings.VOLUME_RVOL_THRESHOLD,
@@ -534,6 +542,7 @@ class DashboardRuntime:
                         "low": c.low,
                         "close": c.close,
                         "volume": c.volume,
+                        "is_closed": c.is_closed,
                     }
                     for c in rows
                 ]
@@ -593,6 +602,7 @@ class DashboardRuntime:
 
             snapshot = {
                 "decision_id": decision_id,
+                "candidate_timestamp": closed_5m_timestamp,
                 "final_decision": self.strategy_orchestrator.final_decision(report),
                 "meta": {
                     "mode": "TESTNET AUTO EXECUTION" if self.execution_enabled else "DEMO / SHADOW / READ ONLY",
@@ -623,6 +633,7 @@ class DashboardRuntime:
                 "strategy": strategy,
                 "news": news,
                 "ai_analyst": self._last_ai_result,
+                "ai_entry_shadow": ShadowEntryAI.unavailable("NOT_EVALUATED"),
                 "derivatives": {
                     "status": _jsonable(report.derivatives),
                     "open_interest": derivatives_input["open_interest"],
@@ -712,6 +723,12 @@ class DashboardRuntime:
                 snapshot["ai_analyst"] = self._last_ai_result
             snapshot["final_decision"] = self.strategy_orchestrator.final_decision(report, snapshot["ai_analyst"])
             snapshot["system_state"]["last_decision"] = snapshot["final_decision"]
+            # Entry AI is post-decision telemetry only. Its output is never
+            # passed back into strategy, risk sizing, or TESTNET execution.
+            snapshot["ai_entry_shadow"] = self.shadow_entry_ai.evaluate(
+                snapshot,
+                candle_closed=bool(candles["5m"][-1].is_closed),
+            )
             self.shadow_journal.record(snapshot)
             if self.telegram.configured:
                 snapshot["telegram_notification"] = self.notify_current_decision(snapshot)
