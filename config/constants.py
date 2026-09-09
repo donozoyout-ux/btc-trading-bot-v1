@@ -26,6 +26,10 @@ class PositionManagementState(str, Enum):
     TARGET_REPLAN = "TARGET_REPLAN"
     EXIT_EARLY = "EXIT_EARLY"
     NO_CHANGE = "NO_CHANGE"
+    PROFIT_HOLD = "PROFIT_HOLD"
+    PROFIT_PROTECT = "PROFIT_PROTECT"
+    PROFIT_TRAIL = "PROFIT_TRAIL"
+    EXIT_PROFIT_FADE = "EXIT_PROFIT_FADE"
 
 
 class ManagementProfile(str, Enum):

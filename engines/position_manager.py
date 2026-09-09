@@ -11,7 +11,14 @@ class PositionManager:
                  breakeven_min_r: float = 1.0, stop_tighten_min_r: float = 1.5,
                  stop_lock_r: float = 0.25, target_replan_enabled: bool = True,
                  target_replan_min_r: float = 1.5, target_replan_cooldown_bars: int = 3,
-                 max_target_replans: int = 2):
+                 max_target_replans: int = 2, profit_protection_enabled: bool = False,
+                 profit_arm_r: float = 0.60, breakeven_trigger_r: float = 0.75,
+                 profit_lock_1_trigger_r: float = 1.0, profit_lock_1_r: float = 0.20,
+                 profit_lock_2_trigger_r: float = 1.5, profit_lock_2_r: float = 0.60,
+                 profit_lock_3_trigger_r: float = 2.0, profit_lock_3_r: float = 1.10,
+                 mfe_giveback_enabled: bool = True, mfe_giveback_arm_r: float = 0.80,
+                 mfe_giveback_warn_r: float = 0.35, mfe_giveback_exit_r: float = 0.55,
+                 profit_fade_partial_min_r: float = 0.80, profit_fade_partial_fraction: float = 0.35):
         self.recovery_wait_enabled = recovery_wait_enabled
         self.early_exit_enabled = early_exit_enabled
         self.breakeven_min_r = breakeven_min_r
@@ -21,6 +28,20 @@ class PositionManager:
         self.target_replan_min_r = target_replan_min_r
         self.target_replan_cooldown_bars = target_replan_cooldown_bars
         self.max_target_replans = max_target_replans
+        self.profit_protection_enabled = profit_protection_enabled
+        self.profit_arm_r = profit_arm_r
+        self.breakeven_trigger_r = breakeven_trigger_r
+        self.profit_locks = (
+            (profit_lock_3_trigger_r, profit_lock_3_r),
+            (profit_lock_2_trigger_r, profit_lock_2_r),
+            (profit_lock_1_trigger_r, profit_lock_1_r),
+        )
+        self.mfe_giveback_enabled = mfe_giveback_enabled
+        self.mfe_giveback_arm_r = mfe_giveback_arm_r
+        self.mfe_giveback_warn_r = mfe_giveback_warn_r
+        self.mfe_giveback_exit_r = mfe_giveback_exit_r
+        self.profit_fade_partial_min_r = profit_fade_partial_min_r
+        self.profit_fade_partial_fraction = profit_fade_partial_fraction
 
     @staticmethod
     def normalize_momentum(direction: TradeDirection, trend: Optional[str]) -> tuple[bool, bool, bool]:
@@ -50,13 +71,17 @@ class PositionManager:
                  candle_timestamp: Optional[int] = None, current_tp2: Optional[float] = None,
                  candidate_tp2: Optional[float] = None, target_replan_count: int = 0,
                  last_target_replan_at: Optional[int] = None, mfe_r: float = 0.0,
-                 mae_r: float = 0.0, management_profile: ManagementProfile = ManagementProfile.BALANCED) -> PositionManagementDecision:
+                 mae_r: float = 0.0, management_profile: ManagementProfile = ManagementProfile.BALANCED,
+                 profit_fade_partial_taken: bool = False,
+                 confirmed_swing_stop: Optional[float] = None) -> PositionManagementDecision:
         risk = abs(entry - initial_stop)
         if risk <= 0 or not candle_closed or not data_healthy:
             return self._decision(PositionManagementState.NO_CHANGE, ["MARKET_ANALYSIS_UNAVAILABLE_KEEP_EXISTING_PROTECTION"], 0, mfe_r, mae_r,
                                   True, True, True, momentum_support, momentum_opposing, momentum_available,
                                   volume_support, volume_available, management_profile, target_replan_count, last_target_replan_at)
         current_r = ((mark - entry) if direction == TradeDirection.LONG else (entry - mark)) / risk
+        giveback_r = max(0.0, mfe_r - current_r)
+        protected_r = ((current_stop - entry) if direction == TradeDirection.LONG else (entry - current_stop)) / risk
         opposite_structure = StructureType.BEARISH if direction == TradeDirection.LONG else StructureType.BULLISH
         opposite_bos = "BEARISH_BOS" if direction == TradeDirection.LONG else "BULLISH_BOS"
         opposite_choch = "BEARISH_CHOCH" if direction == TradeDirection.LONG else "BULLISH_CHOCH"
@@ -110,6 +135,86 @@ class PositionManager:
         strong_regime = regime in ({MarketRegime.STRONG_BULL} if direction == TradeDirection.LONG else {MarketRegime.STRONG_BEAR})
         cooldown_ok = last_target_replan_at is None or candle_timestamp is None or candle_timestamp - last_target_replan_at >= self.target_replan_cooldown_bars * 300_000
         target_extends = current_tp2 is not None and candidate_tp2 is not None and (candidate_tp2 > current_tp2 if direction == TradeDirection.LONG else candidate_tp2 < current_tp2)
+        continuation_healthy = regime_support and momentum_support and volume_support and not opposite_choch_seen and not opposite_bos_confirmed
+        fade_signals = sum([
+            bool(momentum_available and momentum_opposing),
+            bool(volume_available and not volume_support),
+            bool(opposite_choch_seen),
+            bool(not regime_support),
+        ])
+        giveback_warn = (
+            self.profit_protection_enabled and self.mfe_giveback_enabled
+            and mfe_r >= self.mfe_giveback_arm_r and giveback_r >= self.mfe_giveback_warn_r
+        )
+
+        if self.profit_protection_enabled and mfe_r >= self.profit_arm_r:
+            locked_r = None
+            for trigger_r, lock_r in self.profit_locks:
+                if mfe_r >= trigger_r:
+                    locked_r = lock_r
+                    break
+            if locked_r is None and mfe_r >= self.breakeven_trigger_r:
+                locked_r = 0.0
+
+            desired_stop = current_stop
+            if locked_r is not None:
+                ladder_stop = entry + risk * locked_r * (1 if direction == TradeDirection.LONG else -1)
+                desired_stop = max(desired_stop, ladder_stop) if direction == TradeDirection.LONG else min(desired_stop, ladder_stop)
+            if confirmed_swing_stop is not None:
+                # The caller supplies only a confirmed closed-5M swing with its ATR buffer.
+                desired_stop = max(desired_stop, confirmed_swing_stop) if direction == TradeDirection.LONG else min(desired_stop, confirmed_swing_stop)
+            desired_protected_r = ((desired_stop - entry) if direction == TradeDirection.LONG else (entry - desired_stop)) / risk
+
+            if giveback_warn and fade_signals:
+                reasons = ["MFE_GIVEBACK_WARNING", "PROFIT_FADE_CONFIRMED", "TARGET_EXTENSION_BLOCKED_PROFIT_FADE", "STOP_NEVER_WIDENS"]
+                if fade_signals >= 2 and giveback_r >= self.mfe_giveback_exit_r and profit_fade_partial_taken:
+                    return self._decision(PositionManagementState.EXIT_PROFIT_FADE, reasons + ["PROFIT_FADE_EXIT"], current_r, mfe_r, mae_r,
+                                          True, structure_valid, regime_support, momentum_support, momentum_opposing, momentum_available,
+                                          volume_support, volume_available, management_profile, target_replan_count, last_target_replan_at,
+                                          target_action={"action": "CLOSE_FULL", "quantity_increase": 0},
+                                          profit_giveback_r=giveback_r, protected_r=protected_r)
+                target_action = {}
+                if current_r >= self.profit_fade_partial_min_r and not profit_fade_partial_taken:
+                    target_action = {"action": "CLOSE_PARTIAL", "fraction": self.profit_fade_partial_fraction, "quantity_increase": 0}
+                    reasons.append("PROFIT_FADE_PARTIAL")
+                stop_action = {}
+                if desired_stop != current_stop:
+                    stop_action = {"action": "TIGHTEN_STOP", "new_stop": desired_stop, "quantity_increase": 0}
+                return self._decision(PositionManagementState.PROFIT_PROTECT, reasons, current_r, mfe_r, mae_r,
+                                      True, structure_valid, regime_support, momentum_support, momentum_opposing, momentum_available,
+                                      volume_support, volume_available, management_profile, target_replan_count, last_target_replan_at,
+                                      target_action=target_action, stop_action=stop_action,
+                                      profit_giveback_r=giveback_r, protected_r=desired_protected_r)
+
+            if continuation_healthy:
+                stop_action = {}
+                if desired_stop != current_stop:
+                    stop_action = {"action": "TIGHTEN_STOP", "new_stop": desired_stop, "quantity_increase": 0}
+                target_action = {}
+                next_replan_count, next_replan_at = target_replan_count, last_target_replan_at
+                reasons = ["STRONG_CONTINUATION", "PROFIT_RUNNER", "STOP_NEVER_WIDENS"]
+                if (self.target_replan_enabled and current_r >= self.target_replan_min_r and strong_regime
+                        and target_extends and cooldown_ok and target_replan_count < self.max_target_replans):
+                    target_action = {"action": "REPLACE_TP2", "new_tp2": candidate_tp2, "quantity_increase": 0}
+                    next_replan_count, next_replan_at = target_replan_count + 1, candle_timestamp
+                    reasons.append("STRONG_TREND_CONTINUATION")
+                return self._decision(PositionManagementState.PROFIT_TRAIL, reasons, current_r, mfe_r, mae_r,
+                                      True, structure_valid, regime_support, momentum_support, momentum_opposing, momentum_available,
+                                      volume_support, volume_available, management_profile, next_replan_count, next_replan_at,
+                                      target_action=target_action, stop_action=stop_action,
+                                      profit_giveback_r=giveback_r, protected_r=desired_protected_r)
+
+            if desired_stop != current_stop:
+                return self._decision(PositionManagementState.PROFIT_PROTECT, ["PROFIT_LOCK_LADDER", "STOP_NEVER_WIDENS"], current_r, mfe_r, mae_r,
+                                      True, structure_valid, regime_support, momentum_support, momentum_opposing, momentum_available,
+                                      volume_support, volume_available, management_profile, target_replan_count, last_target_replan_at,
+                                      stop_action={"action": "TIGHTEN_STOP", "new_stop": desired_stop, "quantity_increase": 0},
+                                      profit_giveback_r=giveback_r, protected_r=desired_protected_r)
+            return self._decision(PositionManagementState.PROFIT_HOLD, ["PROFIT_ARMED", "NO_OBJECTIVE_MANAGEMENT_CHANGE"], current_r, mfe_r, mae_r,
+                                  True, structure_valid, regime_support, momentum_support, momentum_opposing, momentum_available,
+                                  volume_support, volume_available, management_profile, target_replan_count, last_target_replan_at,
+                                  profit_giveback_r=giveback_r, protected_r=protected_r)
+
         if (self.target_replan_enabled and current_r >= self.target_replan_min_r and strong_regime and momentum_support and volume_support
                 and not opposite_choch_seen
                 and target_extends and cooldown_ok and target_replan_count < self.max_target_replans):
@@ -143,7 +248,8 @@ class PositionManager:
     @staticmethod
     def _decision(state, reasons, current_r, mfe_r, mae_r, thesis, structure, regime,
                   momentum, momentum_opposing, momentum_available, volume, volume_available,
-                  profile, replan_count, last_replan, target_action=None, stop_action=None, target_replan_reason=None):
+                  profile, replan_count, last_replan, target_action=None, stop_action=None, target_replan_reason=None,
+                  profit_giveback_r=0.0, protected_r=None):
         return PositionManagementDecision(
             state=state, reason_codes=reasons,
             confidence="HIGH" if thesis and structure and "THESIS_WEAKENING_CHOCH" not in reasons else "MEDIUM",
@@ -154,4 +260,5 @@ class PositionManager:
             target_action=target_action or {}, stop_action=stop_action or {},
             management_profile=profile, target_replan_count=replan_count,
             last_target_replan_at=last_replan, target_replan_reason=target_replan_reason,
+            profit_giveback_r=round(profit_giveback_r, 4), protected_r=None if protected_r is None else round(protected_r, 4),
         )

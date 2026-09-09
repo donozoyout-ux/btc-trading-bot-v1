@@ -72,6 +72,9 @@ renderExecution=function renderExecutionWithPositionIntelligence(d){
   $('positionState').textContent=state;
   $('positionThesis').textContent=`THESIS ${intel.thesis_valid===true?'VALID':intel.thesis_valid===false?'INVALIDATED':'—'}`;
   $('positionCurrentR').textContent=intel.current_r==null?'—':`${fmt(intel.current_r,2)}R`;
+  $('positionMfeR').textContent=intel.mfe_r==null?'—':`${fmt(intel.mfe_r,2)}R`;
+  $('positionGivebackR').textContent=intel.profit_giveback_r==null?'GIVEBACK —':`GIVEBACK ${fmt(intel.profit_giveback_r,2)}R`;
+  $('positionProtectedR').textContent=intel.protected_r==null?'—':`${fmt(intel.protected_r,2)}R`;
   $('positionIntelEntry').textContent=priceFmt(intel.entry);
   $('positionIntelMark').textContent=`MARK ${priceFmt(intel.mark)}`;
   $('positionInitialStop').textContent=`INITIAL ${priceFmt(intel.initial_stop)}`;

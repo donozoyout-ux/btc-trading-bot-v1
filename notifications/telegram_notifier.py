@@ -17,6 +17,8 @@ class TelegramEventNotifier:
         "SYSTEM_STARTED", "BINANCE_CONNECTED", "ORDER_OPENED", "ORDER_CLOSED",
         "TAKE_PROFIT", "ORDER_REJECTED", "PROTECTION_FAILURE", "SMOKE_TEST_PASS",
         "SMOKE_TEST_FAIL", "ERROR",
+        "PROTECTION_RECOVERED", "PROFIT_PROTECTION", "PROFIT_PARTIAL_TAKEN",
+        "PROFIT_RUNNER", "PROFIT_FADE", "OPERATOR_WARNING",
     }
 
     def __init__(self, client: TelegramClient, dedupe_ttl_seconds: int = 3600):
@@ -184,6 +186,32 @@ class TelegramEventNotifier:
                 "",
                 self._footer(),
             ])
+
+        if event == "PROTECTION_RECOVERED":
+            return "\n".join(["✅ POZİSYON KORUMASI DÜZELDİ", "", "Exchange STOP ve hedef koruması yeniden doğrulandı.", "", self._footer()])
+
+        if event in {"PROFIT_PROTECTION", "PROFIT_PARTIAL_TAKEN", "PROFIT_RUNNER", "PROFIT_FADE"}:
+            headings = {
+                "PROFIT_PROTECTION": "💰 KÂR KORUMA AKTİF",
+                "PROFIT_PARTIAL_TAKEN": "✂️ KISMİ KÂR ALINDI",
+                "PROFIT_RUNNER": "🏃 RUNNER DEVAM",
+                "PROFIT_FADE": "📉 KÂR MOMENTUMU BOZULDU",
+            }
+            lines = [headings[event], ""]
+            if event == "PROFIT_PARTIAL_TAKEN":
+                lines.extend([
+                    f"Kapatılan: {self._number(p.get('closed_quantity'), 6)} BTC",
+                    f"Kalan: {self._number(p.get('remaining_quantity'), 6)} BTC",
+                    f"Realized PnL: {self._number(p.get('realized_pnl'))} USDT",
+                ])
+            else:
+                lines.extend([
+                    f"MFE: {self._number(p.get('mfe_r'))}R",
+                    f"Current R: {self._number(p.get('current_r'))}R",
+                    f"Locked R: {self._number(p.get('protected_r'))}R",
+                ])
+            lines.extend([f"Action: {self._value(p.get('state'))}", "", self._footer()])
+            return "\n".join(lines)
 
         if event == "ERROR":
             return "\n".join([

@@ -33,6 +33,12 @@ class SaferTestnetExecutor(TestnetExecutor):
         self.protection_reconciliation_expected_target_ids = list(persisted.get("protection_reconciliation_expected_target_ids") or [])
         self.last_partial_reconciliation = persisted.get("last_partial_reconciliation") or {}
         self._missing_context_warning_emitted = bool(persisted.get("missing_context_warning_emitted", False))
+        self.profit_fade_partial_taken = bool(persisted.get("profit_fade_partial_taken", False))
+        self.last_alert_type = persisted.get("last_alert_type")
+        self.last_alert_reason = persisted.get("last_alert_reason")
+        self.last_alert_sent_at = persisted.get("last_alert_sent_at")
+        self.active_alert_state = persisted.get("active_alert_state") or "HEALTHY"
+        self.last_management_alert_key = persisted.get("last_management_alert_key")
         self.position_manager = PositionManager(
             recovery_wait_enabled=getattr(self.settings, "RECOVERY_WAIT_ENABLED", True),
             early_exit_enabled=getattr(self.settings, "EARLY_EXIT_ENABLED", True),
@@ -43,6 +49,21 @@ class SaferTestnetExecutor(TestnetExecutor):
             target_replan_min_r=getattr(self.settings, "TARGET_REPLAN_MIN_R", 1.5),
             target_replan_cooldown_bars=getattr(self.settings, "TARGET_REPLAN_COOLDOWN_BARS", 3),
             max_target_replans=getattr(self.settings, "MAX_TARGET_REPLANS", 2),
+            profit_protection_enabled=getattr(self.settings, "PROFIT_PROTECTION_ENABLED", True),
+            profit_arm_r=getattr(self.settings, "PROFIT_ARM_R", .60),
+            breakeven_trigger_r=getattr(self.settings, "BREAKEVEN_TRIGGER_R", .75),
+            profit_lock_1_trigger_r=getattr(self.settings, "PROFIT_LOCK_1_TRIGGER_R", 1.0),
+            profit_lock_1_r=getattr(self.settings, "PROFIT_LOCK_1_R", .20),
+            profit_lock_2_trigger_r=getattr(self.settings, "PROFIT_LOCK_2_TRIGGER_R", 1.5),
+            profit_lock_2_r=getattr(self.settings, "PROFIT_LOCK_2_R", .60),
+            profit_lock_3_trigger_r=getattr(self.settings, "PROFIT_LOCK_3_TRIGGER_R", 2.0),
+            profit_lock_3_r=getattr(self.settings, "PROFIT_LOCK_3_R", 1.10),
+            mfe_giveback_enabled=getattr(self.settings, "MFE_GIVEBACK_ENABLED", True),
+            mfe_giveback_arm_r=getattr(self.settings, "MFE_GIVEBACK_ARM_R", .80),
+            mfe_giveback_warn_r=getattr(self.settings, "MFE_GIVEBACK_WARN_R", .35),
+            mfe_giveback_exit_r=getattr(self.settings, "MFE_GIVEBACK_EXIT_R", .55),
+            profit_fade_partial_min_r=getattr(self.settings, "PROFIT_FADE_PARTIAL_MIN_R", .80),
+            profit_fade_partial_fraction=getattr(self.settings, "PROFIT_FADE_PARTIAL_FRACTION", .35),
         )
 
     @staticmethod
@@ -225,6 +246,9 @@ class SaferTestnetExecutor(TestnetExecutor):
         return orders
 
     def process_snapshot(self, snapshot: Dict[str, Any], state) -> Optional[Dict[str, Any]]:
+        if self.protection_reconciliation_required:
+            self._write_runtime_state(last_execution_result="PROTECTION_RECONCILIATION_REQUIRED")
+            return {"status": "PROTECTION_RECONCILIATION_REQUIRED"}
         previous_context = dict(self._entry_context)
         self._entry_context = self._capture_context(snapshot)
         risk = (snapshot.get("decision") or {}).get("risk_assessment") or {}
@@ -247,6 +271,7 @@ class SaferTestnetExecutor(TestnetExecutor):
             self.management_mfe_r = 0.0
             self.management_mae_r = 0.0
             self.last_management_decision = {}
+            self.profit_fade_partial_taken = False
             self._write_runtime_state(last_execution_result="OPENED")
             result["protection_plan"] = {
                 "mode": "SPLIT_TP_WHEN_EXCHANGE_ALLOWS",
@@ -276,6 +301,12 @@ class SaferTestnetExecutor(TestnetExecutor):
             "protection_reconciliation_expected_target_ids": getattr(self, "protection_reconciliation_expected_target_ids", []),
             "last_partial_reconciliation": getattr(self, "last_partial_reconciliation", {}),
             "missing_context_warning_emitted": getattr(self, "_missing_context_warning_emitted", False),
+            "profit_fade_partial_taken": getattr(self, "profit_fade_partial_taken", False),
+            "last_alert_type": getattr(self, "last_alert_type", None),
+            "last_alert_reason": getattr(self, "last_alert_reason", None),
+            "last_alert_sent_at": getattr(self, "last_alert_sent_at", None),
+            "active_alert_state": getattr(self, "active_alert_state", "HEALTHY"),
+            "last_management_alert_key": getattr(self, "last_management_alert_key", None),
         })
         self.execution_journal.write_state(persisted)
 
@@ -434,6 +465,30 @@ class SaferTestnetExecutor(TestnetExecutor):
                 position_after=position,
                 details={"stop_trigger_price": old_trigger, "remaining_quantity": quantity},
             )
+        orders = self.client.get_open_algo_orders("BTCUSDT")
+        targets = [row for row in orders if self._order_type(row) == "TAKE_PROFIT_MARKET"]
+        if not targets:
+            if self.protection_reconciliation_reason != "TARGET_PROTECTION_MISSING":
+                self.execution_journal.record(
+                    decision_id=self._entry_context.get("entry_decision_id"),
+                    action="TARGET_PROTECTION_MISSING", status="DEGRADED",
+                    reason="Valid exchange stop retained during reconciliation", position_after=position,
+                )
+            self.protection_reconciliation_required = True
+            self.protection_reconciliation_reason = "TARGET_PROTECTION_MISSING"
+            try:
+                repaired = self._repair_missing_target(position, orders)
+            except Exception:
+                repaired = False
+            if not repaired:
+                self.execution_journal.record(
+                    decision_id=self._entry_context.get("entry_decision_id"),
+                    action="TARGET_PROTECTION_REPAIR_FAILED", status="FAIL_CLOSED",
+                    reason="Restart/reconciliation target repair could not be verified", position_after=position,
+                )
+                self._write_runtime_state(last_execution_result="PROTECTION_DEGRADED_TARGET_MISSING")
+                return {"status": "PROTECTION_DEGRADED_TARGET_MISSING", "stop_resized": stop_resized}
+            orders = self.client.get_open_algo_orders("BTCUSDT")
         expected_target_ids = set(self.protection_reconciliation_expected_target_ids)
         if expected_target_ids:
             extra_targets = [
@@ -566,13 +621,161 @@ class SaferTestnetExecutor(TestnetExecutor):
             self.protection_reconciliation_required = False
             self.protection_reconciliation_reason = None
             self.protection_reconciliation_expected_target_ids = []
+            self.profit_fade_partial_taken = False
             self._write_runtime_state()
         return after
 
+    def _transition_protection_alert(self, state, reason: Optional[str]) -> None:
+        """Persist protection alert transitions so restarts cannot repeat Telegram spam."""
+        if reason:
+            changed = self.active_alert_state != "UNPROTECTED" or self.last_alert_reason != reason
+            if changed:
+                state.activate_emergency_latch(reason)
+                self._notify(
+                    "KILL_SWITCH",
+                    {"reason": f"{reason}; active TESTNET position has no verified exchange stop"},
+                    f"KILL_SWITCH:{reason}:{int(time.time())}",
+                )
+                self.last_alert_type = "KILL_SWITCH"
+                self.last_alert_reason = reason
+                self.last_alert_sent_at = int(time.time())
+                self.active_alert_state = "UNPROTECTED"
+            self._write_runtime_state(last_execution_result=reason)
+            return
+        if self.active_alert_state == "UNPROTECTED":
+            self._notify(
+                "PROTECTION_RECOVERED",
+                {"message": "✅ POZİSYON KORUMASI DÜZELDİ"},
+                f"PROTECTION_RECOVERED:{self.last_alert_reason}:{int(time.time())}",
+            )
+            self.execution_journal.record(
+                decision_id=self._entry_context.get("entry_decision_id"),
+                action="PROTECTION_RECOVERED", status="CONFIRMED",
+                reason=self.last_alert_reason,
+            )
+            # Clear only the operational latch owned by this protection fault.
+            if getattr(state, "emergency_latch_active", False) and getattr(state, "kill_switch_reason", "") == self.last_alert_reason:
+                state.emergency_latch_active = False
+                state.kill_switch_activated = bool(state.daily_loss_guard_active or state.consecutive_loss_cooldown_active)
+                if not state.kill_switch_activated:
+                    state.kill_switch_reason = ""
+            self.last_alert_type = "PROTECTION_RECOVERED"
+            self.last_alert_sent_at = int(time.time())
+            self.active_alert_state = "HEALTHY"
+            self._write_runtime_state(last_execution_result="PROTECTION_RECOVERED")
+
+    def _repair_missing_target(self, position: Dict[str, Any], orders: list[Dict[str, Any]]) -> bool:
+        quantity = abs(float(position.get("position_amt") or 0))
+        is_long = float(position.get("position_amt") or 0) > 0
+        entry = self._safe_float(self._entry_context.get("actual_entry_price"))
+        mark = self._safe_float(position.get("mark_price"))
+        candidates = [
+            self._safe_float((self.last_management_decision or {}).get("new_tp2")),
+            self._safe_float((self.last_management_decision or {}).get("old_tp2")),
+            self._safe_float(self._entry_context.get("tp2")),
+        ]
+        reference_values = [value for value in (entry, mark) if value is not None]
+        if not reference_values:
+            return False
+        boundary = max(reference_values) if is_long else min(reference_values)
+        target = next((value for value in candidates if value is not None and (value > boundary if is_long else 0 < value < boundary)), None)
+        if quantity <= 0 or target is None:
+            return False
+        side = "SELL" if is_long else "BUY"
+        new_order = self.client.place_protective_order("BTCUSDT", side, "TAKE_PROFIT_MARKET", quantity, target)
+        new_id = new_order.get("binance_order_id")
+        verified = self.client.get_open_algo_orders("BTCUSDT")
+        verified_target = next((row for row in verified if row.get("algoId") == new_id), None)
+        target_quantity = self._order_quantity(verified_target or {})
+        tolerance = max(1e-12, quantity * 1e-9)
+        stop_still_valid = any(self._validate_stop(row, position, quantity) for row in verified)
+        if (verified_target is None or not self._validate_target(verified_target, position)
+                or target_quantity is None or target_quantity > quantity + tolerance or not stop_still_valid):
+            try:
+                if new_id is not None:
+                    self.client.cancel_algo_order(algo_id=int(new_id))
+            except Exception:
+                pass
+            return False
+        new_order["role"] = "TP_FINAL"
+        self._restore_protective_roles(position, verified)
+        self.protection_reconciliation_required = False
+        self.protection_reconciliation_reason = None
+        self.protection_reconciliation_expected_target_ids = []
+        self.execution_journal.record(
+            decision_id=self._entry_context.get("entry_decision_id"),
+            action="TARGET_PROTECTION_REPAIRED", status="CONFIRMED",
+            position_after=position,
+            details={"target": target, "quantity": quantity, "target_order_id": new_id},
+        )
+        self._write_runtime_state(last_execution_result="TARGET_PROTECTION_REPAIRED")
+        return True
+
+    def _assess_and_repair_protection(self, position: Dict[str, Any], state) -> Dict[str, Any]:
+        orders = self.client.get_open_algo_orders("BTCUSDT")
+        quantity = abs(float(position.get("position_amt") or 0))
+        stops = [row for row in orders if self._order_type(row) == "STOP_MARKET"]
+        targets = [row for row in orders if self._order_type(row) == "TAKE_PROFIT_MARKET"]
+        valid_stop = len(stops) == 1 and self._validate_stop(stops[0], position, quantity)
+        valid_targets = [row for row in targets if self._validate_target(row, position)]
+        target_total = sum(self._order_quantity(row) or 0.0 for row in valid_targets)
+        valid_target_set = bool(valid_targets) and target_total <= quantity + max(1e-12, quantity * 1e-9)
+        if not valid_stop:
+            reason = "UNPROTECTED_TESTNET_POSITION"
+            should_record = self.active_alert_state != "UNPROTECTED" or self.last_alert_reason != reason
+            if should_record:
+                self.execution_journal.record(
+                    decision_id=self._entry_context.get("entry_decision_id"), action="UNPROTECTED_POSITION",
+                    status="KILL_SWITCH", reason="Missing or invalid exchange STOP_MARKET", position_after=position,
+                )
+            self.protection_reconciliation_required = True
+            self.protection_reconciliation_reason = "STOP_MISSING_OR_INVALID"
+            self._transition_protection_alert(state, reason)
+            return {"status": "UNPROTECTED_POSITION", "position": position, "open_orders": orders}
+        if targets and not valid_target_set:
+            self._mark_protection_reconciliation_required(position, "TARGET_SET_INVALID")
+            return {"status": "PROTECTION_RECONCILIATION_REQUIRED", "position": position, "open_orders": orders}
+        if not valid_target_set:
+            first_detection = self.protection_reconciliation_reason != "TARGET_PROTECTION_MISSING"
+            self.protection_reconciliation_required = True
+            self.protection_reconciliation_reason = "TARGET_PROTECTION_MISSING"
+            if first_detection:
+                self.execution_journal.record(
+                    decision_id=self._entry_context.get("entry_decision_id"), action="TARGET_PROTECTION_MISSING",
+                    status="DEGRADED", reason="Valid exchange stop retained; target repair required", position_after=position,
+                )
+            try:
+                repaired = self._repair_missing_target(position, orders)
+            except Exception:
+                repaired = False
+            if not repaired:
+                self.execution_journal.record(
+                    decision_id=self._entry_context.get("entry_decision_id"), action="TARGET_PROTECTION_REPAIR_FAILED",
+                    status="FAIL_CLOSED", reason="Safe deterministic target could not be verified", position_after=position,
+                )
+                self._write_runtime_state(last_execution_result="PROTECTION_DEGRADED_TARGET_MISSING")
+                return {"status": "PROTECTION_DEGRADED_TARGET_MISSING", "position": position, "open_orders": orders}
+            orders = self.client.get_open_algo_orders("BTCUSDT")
+        self._transition_protection_alert(state, None)
+        self._restore_protective_roles(position, orders)
+        self._write_runtime_state(last_execution_result="POSITION_MANAGEMENT")
+        return {"status": "POSITION_MANAGEMENT", "position": position, "open_orders": orders}
+
     def manage_existing_position(self, state) -> Dict[str, Any]:
-        result = super().manage_existing_position(state)
-        position = result.get("position") or {}
-        if float(position.get("position_amt") or 0) != 0:
+        try:
+            position = self.reconcile_position()
+        except Exception:
+            self._transition_protection_alert(state, "EXCHANGE_RECONCILIATION_FAILURE")
+            raise
+        if float(position.get("position_amt") or 0) == 0:
+            cleanup = self.cleanup_flat_reduce_only_orders()
+            if cleanup["remaining"]:
+                self._transition_protection_alert(state, "UNEXPECTED_OPEN_ORDERS")
+                return {"status": "OPEN_ORDERS_PRESENT", "position": position, "open_orders": cleanup["remaining"]}
+            self._transition_protection_alert(state, None)
+            return {"status": "FLAT", "position": position, "stale_orders_cancelled": cleanup["cancelled"]}
+        result = self._assess_and_repair_protection(position, state)
+        if result["status"] == "POSITION_MANAGEMENT":
             result["protection_reconciliation"] = self._reconcile_active_protection(position)
         if float(position.get("position_amt") or 0) != 0 and not self._has_verified_exchange_baseline():
             result["status"] = "RECOVERED_POSITION_CONTEXT_UNAVAILABLE"
@@ -667,6 +870,43 @@ class SaferTestnetExecutor(TestnetExecutor):
             raise ExecutionError("UNPROTECTED_TESTNET_POSITION")
         return {"order": order, "position": after}
 
+    def _reconcile_profit_partial_protection(self, position: Dict[str, Any]) -> None:
+        """Resize protection after a discretionary partial while retaining STOP authority."""
+        quantity = abs(float(position.get("position_amt") or 0))
+        orders = self.client.get_open_algo_orders("BTCUSDT")
+        stops = [row for row in orders if self._order_type(row) == "STOP_MARKET"]
+        if not stops or self._trigger_price(stops[0]) is None:
+            raise ExecutionError("UNPROTECTED_TESTNET_POSITION")
+        if len(stops) != 1 or not self._validate_stop(stops[0], position, quantity):
+            self._replace_stop_safely(position, float(self._trigger_price(stops[0])))
+        orders = self.client.get_open_algo_orders("BTCUSDT")
+        targets = [row for row in orders if self._order_type(row) == "TAKE_PROFIT_MARKET"]
+        target_total = sum(self._order_quantity(row) or 0.0 for row in targets)
+        if target_total > quantity + max(1e-12, quantity * 1e-9):
+            try:
+                for target in targets:
+                    self.client.cancel_algo_order(algo_id=int(target["algoId"]))
+            except Exception:
+                self._mark_protection_reconciliation_required(position, "TARGET_CANCEL_AFTER_PROFIT_PARTIAL_FAILED")
+                raise ExecutionError("PROTECTION_RECONCILIATION_REQUIRED") from None
+            if not self._repair_missing_target(position, self.client.get_open_algo_orders("BTCUSDT")):
+                self._mark_protection_reconciliation_required(position, "TARGET_REPAIR_AFTER_PROFIT_PARTIAL_FAILED")
+                raise ExecutionError("PROTECTION_RECONCILIATION_REQUIRED")
+        final = self.client.get_open_algo_orders("BTCUSDT")
+        if not self._protection_invariants_hold(position, final):
+            self._mark_protection_reconciliation_required(position, "PROFIT_PARTIAL_PROTECTION_INVARIANT_FAILED")
+            raise ExecutionError("PROTECTION_RECONCILIATION_REQUIRED")
+
+    def _notify_management_transition(self, event: str, payload: Dict[str, Any]) -> None:
+        # State/action identity deliberately excludes candle time and decision id.
+        # Repeated closed-5M evaluations in the same state must stay silent.
+        action = (payload.get("target_action") or {}).get("action") or (payload.get("stop_action") or {}).get("action") or "NONE"
+        key = f"{event}:{payload.get('state')}:{action}:{','.join(payload.get('reason_codes') or [])}"
+        if key == self.last_management_alert_key:
+            return
+        self._notify(event, payload, key)
+        self.last_management_alert_key = key
+
     def _early_exit_and_reconcile(self, position: Dict[str, Any], state, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Close, clean and prove a flat exchange state before confirmation."""
         try:
@@ -737,7 +977,10 @@ class SaferTestnetExecutor(TestnetExecutor):
         candles = snapshot.get("candles", {}).get("5m") or []
         if not candles:
             return {"status": "MANAGEMENT_NO_CHANGE", "position": position}
-        candle_ts = int(candles[-1]["time"] * 1000)
+        closed_candle = candles[-1]
+        if closed_candle.get("is_closed") is False:
+            return {"status": "MANAGEMENT_NO_CHANGE", "position": position, "position_intelligence": self.last_management_decision}
+        candle_ts = int(closed_candle["time"] * 1000)
         if candle_ts == self.last_management_closed_5m_timestamp:
             return {"status": "DUPLICATE_MANAGEMENT_CANDLE", "position": position, "position_intelligence": self.last_management_decision}
         self.last_management_closed_5m_timestamp = candle_ts
@@ -756,9 +999,11 @@ class SaferTestnetExecutor(TestnetExecutor):
         mark = float(position.get("mark_price") or snapshot.get("market", {}).get("mark_price") or snapshot.get("market", {}).get("price") or 0)
         risk = abs(entry - float(initial_stop))
         observed_r = ((mark - entry) if is_long else (entry - mark)) / risk if risk > 0 and mark > 0 else 0.0
-        if mark > 0:
-            self.management_mfe_r = max(self.management_mfe_r, observed_r)
-            self.management_mae_r = min(self.management_mae_r, observed_r)
+        closed_price = self._safe_float(closed_candle.get("close"))
+        closed_r = ((closed_price - entry) if is_long else (entry - closed_price)) / risk if risk > 0 and closed_price is not None and closed_price > 0 else 0.0
+        if closed_price is not None and closed_price > 0:
+            self.management_mfe_r = max(self.management_mfe_r, closed_r)
+            self.management_mae_r = min(self.management_mae_r, closed_r)
         frame = snapshot.get("chart_intelligence", {}).get("timeframes", {}).get("5m", {})
         direction = TradeDirection.LONG if is_long else TradeDirection.SHORT
         momentum_support, momentum_opposing, momentum_available = self.position_manager.normalize_momentum(
@@ -773,6 +1018,18 @@ class SaferTestnetExecutor(TestnetExecutor):
         levels = [float(z.get("center") or 0) for z in zones]
         structural = sorted([x for x in levels if x > (current_tp2 or entry)]) if is_long else sorted([x for x in levels if 0 < x < (current_tp2 or entry)], reverse=True)
         source = snapshot.get("sources", {}).get("binance", {})
+        atr = self._safe_float(frame.get("atr")) or 0.0
+        swing_key = "swing_lows" if is_long else "swing_highs"
+        confirmed_swings = [
+            row for row in (frame.get(swing_key) or [])
+            if self._safe_float(row.get("price")) is not None
+            and int(row.get("confirmed_at") or 0) <= candle_ts
+        ]
+        confirmed_swing_stop = None
+        if confirmed_swings and atr > 0:
+            raw_swing = float(confirmed_swings[-1]["price"]) + (-.20 * atr if is_long else .20 * atr)
+            if (is_long and raw_swing < mark) or (not is_long and raw_swing > mark):
+                confirmed_swing_stop = raw_swing
         decision = self.position_manager.evaluate(
             direction=direction, entry=entry, initial_stop=float(initial_stop), current_stop=float(current_stop or initial_stop),
             mark=mark,
@@ -788,6 +1045,8 @@ class SaferTestnetExecutor(TestnetExecutor):
             target_replan_count=self.target_replan_count, last_target_replan_at=self.last_target_replan_at,
             mfe_r=self.management_mfe_r, mae_r=self.management_mae_r,
             management_profile=ManagementProfile(str(self._entry_context.get("management_profile") or ManagementProfile.BALANCED.value)),
+            profit_fade_partial_taken=self.profit_fade_partial_taken,
+            confirmed_swing_stop=confirmed_swing_stop,
         )
         tp1 = (min(prices) if is_long else max(prices)) if prices else None
         new_stop = decision.stop_action.get("new_stop")
@@ -812,14 +1071,38 @@ class SaferTestnetExecutor(TestnetExecutor):
         })
         self.last_management_decision = payload
         try:
-            if decision.state == PositionManagementState.EXIT_EARLY:
+            if decision.state in {PositionManagementState.EXIT_EARLY, PositionManagementState.EXIT_PROFIT_FADE}:
                 self.execution_journal.record(decision_id=None, action="THESIS_INVALIDATED", status="CONFIRMED", details=payload)
                 reconciled = self._early_exit_and_reconcile(position, state, payload)
                 position = reconciled["position"]
-                event = "EARLY_EXIT"
+                event = "PROFIT_FADE_EXIT" if decision.state == PositionManagementState.EXIT_PROFIT_FADE else "EARLY_EXIT"
+            elif decision.target_action.get("action") == "CLOSE_PARTIAL":
+                before_size = abs(float(position.get("position_amt") or 0))
+                raw_quantity = before_size * float(decision.target_action.get("fraction") or 0)
+                quantity = self.client.normalize_quantity("BTCUSDT", raw_quantity, market=True, price=mark)
+                if quantity <= 0 or quantity >= before_size:
+                    raise ExecutionError("INVALID_REDUCE_ONLY_QUANTITY")
+                partial = self._take_partial_safely(position, quantity)
+                position = partial["position"]
+                self._known_position = position
+                self._reconcile_profit_partial_protection(position)
+                self.profit_fade_partial_taken = True
+                partial_order = partial.get("order") or {}
+                fill_price = self._safe_float(partial_order.get("average_fill_price"))
+                realized_pnl = partial_order.get("realized_pnl")
+                if realized_pnl is None and fill_price is not None:
+                    realized_pnl = ((fill_price - entry) if is_long else (entry - fill_price)) * quantity
+                payload.update({
+                    "closed_quantity": quantity,
+                    "remaining_quantity": abs(float(position.get("position_amt") or 0)),
+                    "realized_pnl": realized_pnl,
+                })
+                event = "PROFIT_PARTIAL_TAKEN"
+                if decision.stop_action.get("action") == "TIGHTEN_STOP":
+                    self._replace_stop_safely(position, float(decision.stop_action["new_stop"]))
             elif decision.stop_action.get("action") == "TIGHTEN_STOP":
                 self._replace_stop_safely(position, float(decision.stop_action["new_stop"]))
-                event = "STOP_TIGHTENED"
+                event = "PROFIT_PROTECTION" if decision.state in {PositionManagementState.PROFIT_PROTECT, PositionManagementState.PROFIT_TRAIL} else "STOP_TIGHTENED"
             elif decision.target_action.get("action") == "REPLACE_TP2":
                 self._replace_tp2_safely(position, float(decision.target_action["new_tp2"]))
                 self.target_replan_count = decision.target_replan_count
@@ -828,7 +1111,7 @@ class SaferTestnetExecutor(TestnetExecutor):
             else:
                 event = "RECOVERY_WAIT" if decision.state == PositionManagementState.RECOVERY_WAIT else "POSITION_HOLD" if decision.state == PositionManagementState.HOLD else "MANAGEMENT_NO_CHANGE"
         except Exception as exc:
-            if decision.state == PositionManagementState.EXIT_EARLY:
+            if decision.state in {PositionManagementState.EXIT_EARLY, PositionManagementState.EXIT_PROFIT_FADE}:
                 raise
             if self.protection_reconciliation_required:
                 raise ExecutionError("PROTECTION_RECONCILIATION_REQUIRED") from None
@@ -847,5 +1130,16 @@ class SaferTestnetExecutor(TestnetExecutor):
             raise ExecutionError("PROTECTION_REPLACEMENT_FAILED") from None
         if event != "EARLY_EXIT":
             self.execution_journal.record(decision_id=None, action=event, status="CONFIRMED", details=payload)
+        telegram_event = {
+            "PROFIT_PROTECTION": "PROFIT_PROTECTION",
+            "PROFIT_PARTIAL_TAKEN": "PROFIT_PARTIAL_TAKEN",
+            "PROFIT_FADE_EXIT": "PROFIT_FADE",
+        }.get(event)
+        if telegram_event:
+            self._notify_management_transition(telegram_event, payload)
+        elif decision.state == PositionManagementState.PROFIT_TRAIL:
+            self._notify_management_transition("PROFIT_RUNNER", payload)
+        else:
+            self.last_management_alert_key = f"STATE:{decision.state.value}"
         self._write_runtime_state(last_execution_result=decision.state.value)
         return {"status": decision.state.value, "position": position, "position_intelligence": payload}
