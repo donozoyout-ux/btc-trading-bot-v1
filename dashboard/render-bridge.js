@@ -19,20 +19,20 @@
 
   function applyMarketAuthority() {
     if (marketTradingSafe === false) {
-      setText('renderMarketState', 'TESTNET FALLBACK');
-      badge('ENTRY BLOCKED', 'warning');
+      setText('renderMarketState', 'TESTNET YEDEK');
+      badge('GİRİŞ ENGELLİ', 'warning');
       setMessage('Market data TESTNET fallback üzerinden geliyor. Dashboard ve mevcut pozisyon yönetimi çalışır; yeni girişler MARKET_DATA_NOT_TRADING_SAFE nedeniyle bloklanır.');
       return true;
     }
     if (marketSource === 'BINANCE_SPOT_PUBLIC_PROXY') {
-      setText('renderMarketState', 'REAL SPOT PROXY');
-      badge('FORWARD TEST', 'good');
+      setText('renderMarketState', 'GERÇEK SPOT VEKİLİ');
+      badge('İLERİ TEST', 'good');
       setMessage('Binance Futures public REST Render üzerinde kısıtlı. Strateji fiyat/mum verisi gerçek Binance Spot BTCUSDT proxy üzerinden geliyor; execution hâlâ yalnızca Futures TESTNET.');
       return true;
     }
     if (marketSource === 'PRODUCTION_FUTURES_PUBLIC') {
-      setText('renderMarketState', 'FUTURES LIVE');
-      badge('ONLINE', 'good');
+      setText('renderMarketState', 'FUTURES CANLI');
+      badge('ÇEVRİMİÇİ', 'good');
       setMessage('Binance production Futures public market feed aktif. TESTNET otomatik execution canlı strateji verisini kullanabilir.');
       return true;
     }
@@ -44,21 +44,21 @@
     const pill = byId('connectionPill');
     if (!pill) return;
     const text = String(pill.textContent || '').toUpperCase();
-    if (text.includes('LIVE DATA')) {
-      setText('renderMarketState', 'LIVE');
-      badge('ONLINE', 'good');
+    if (text.includes('CANLI VERİ')) {
+      setText('renderMarketState', 'CANLI');
+      badge('ÇEVRİMİÇİ', 'good');
       setMessage('Render backend ve public market feed aktif. Dashboard canlı veriyi gösteriyor.');
       return;
     }
     if (text.includes('BAĞLANTI HATASI') || text.includes('ERROR')) {
-      setText('renderMarketState', 'ERROR');
-      badge('DEGRADED', 'bad');
+      setText('renderMarketState', 'HATA');
+      badge('KISITLI', 'bad');
       setMessage('Web arayüzü çalışıyor fakat canlı snapshot alınamadı. Render loglarında market bağlantı hatasını kontrol et.');
       return;
     }
-    if (text.includes('DEGRADED')) {
-      setText('renderMarketState', 'DEGRADED');
-      badge('DEGRADED', 'warning');
+    if (text.includes('KISITLI')) {
+      setText('renderMarketState', 'KISITLI');
+      badge('KISITLI', 'warning');
       setMessage('Arayüz çalışıyor; bazı dış veri kaynakları kullanılamıyor. Sistem sahte veri üretmeden eksik alanları UNAVAILABLE bırakıyor.');
     }
   }
@@ -71,39 +71,39 @@
       marketTradingSafe = data.market_data_trading_safe !== false;
       marketSource = String(data.market_data_source || 'UNKNOWN');
       marketBasis = String(data.market_basis || 'UNKNOWN');
-      setText('renderBackendState', 'ONLINE');
-      setText('renderUiState', data.ui || 'READY');
+      setText('renderBackendState', 'ÇEVRİMİÇİ');
+      setText('renderUiState', data.ui === 'READY' ? 'HAZIR' : safeText(data.ui));
       setText(
         'renderAccountState',
         data.orders_enabled
-          ? 'TESTNET AUTO'
-          : data.binance_credentials_configured ? 'READ ONLY' : 'NOT CONFIGURED'
+          ? 'TESTNET OTOMATİK'
+          : data.binance_credentials_configured ? 'SALT OKUNUR' : 'YAPILANDIRILMADI'
       );
       if (applyMarketAuthority()) return;
-      badge('ONLINE', 'good');
+      badge('ÇEVRİMİÇİ', 'good');
       const account = data.orders_enabled
         ? 'Testnet execution bayrakları doğrulandı; otomatik döngü aktif.'
         : data.binance_credentials_configured
         ? 'Testnet credentials bulundu; yürütme bayrakları kapalı olduğu için signed erişim salt okunur.'
         : 'Testnet credentials yok; public piyasa ekranı çalışır, hesap alanları UNAVAILABLE kalır.';
-      setMessage(`Render backend online. ${account} Market basis: ${marketBasis}.`);
+      setMessage(`Render sunucusu çevrimiçi. ${account} Piyasa temeli: ${marketBasis}.`);
     } catch (_) {
-      setText('renderBackendState', 'OFFLINE');
-      setText('renderMarketState', 'UNKNOWN');
-      badge('BACKEND ERROR', 'bad');
+      setText('renderBackendState', 'ÇEVRİMDIŞI');
+      setText('renderMarketState', 'BİLİNMİYOR');
+      badge('SUNUCU HATASI', 'bad');
       setMessage('HTML yüklendi ancak /api/bootstrap erişilemiyor. Render servisinin Web Service olarak çalıştığını ve Start Command değerini kontrol et.');
     }
   }
 
   window.addEventListener('error', event => {
     if (!byId('renderRuntimePanel')) return;
-    badge('UI ERROR', 'bad');
+    badge('ARAYÜZ HATASI', 'bad');
     setMessage(`Tarayıcı arayüz hatası: ${event.message || 'UNKNOWN_UI_ERROR'}`);
   });
 
   window.addEventListener('unhandledrejection', () => {
     if (!byId('renderRuntimePanel')) return;
-    badge('API ERROR', 'bad');
+    badge('API HATASI', 'bad');
     setMessage('Bir API isteği tamamlanamadı. Web arayüzü açık kalacak ve otomatik yeniden deneyecek.');
   });
 

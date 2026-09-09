@@ -37,7 +37,7 @@ def test_render_index_injects_visible_runtime_panel_and_bridge():
     assert 'id="renderRuntimePanel"' in html
     assert 'id="renderBootBadge"' in html
     assert 'src="/render-bridge.js"' in html
-    assert "BTC Intelligence Console" in html
+    assert "BTC İşlem Konsolu" in html
     assert 'id="botRuntimeStatus"' in html
     assert 'id="lastExecutionResult"' in html
 
