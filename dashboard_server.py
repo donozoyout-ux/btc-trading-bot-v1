@@ -87,6 +87,20 @@ def _empty_account(
         "balances": [],
         "positions": [],
         "open_orders": [],
+        "daily_performance": {
+            "status": "UNAVAILABLE",
+            "source": "BINANCE_TESTNET_INCOME_HISTORY",
+            "timezone": "Europe/Istanbul",
+            "date_istanbul": None,
+            "realized_pnl_usdt": None,
+            "commission_usdt": None,
+            "funding_usdt": None,
+            "net_pnl_usdt": None,
+            "closed_trades": None,
+            "winning_trades": None,
+            "losing_trades": None,
+            "observed_at": None,
+        },
         "updated_at": int(time.time() * 1000),
     }
 
@@ -352,6 +366,8 @@ class DashboardRuntime:
                     "balances": raw.get("balances", []),
                     "positions": raw.get("positions", []),
                     "open_orders": raw.get("open_orders", []),
+                    "daily_performance": raw.get("daily_performance")
+                    or _empty_account()["daily_performance"],
                     "updated_at": int(time.time() * 1000),
                 }
                 self._account_snapshot = result
@@ -820,6 +836,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not self._allow_private_get():
                 return
             self._send_json(RUNTIME.account())
+            return
+
+        if path == "/api/daily-performance":
+            if not self._allow_private_get():
+                return
+            self._send_json(RUNTIME.account().get("daily_performance", {}))
             return
 
         if path == "/api/telegram":

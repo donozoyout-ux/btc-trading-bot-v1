@@ -9,8 +9,10 @@ submission capabilities.
 import time
 import hmac
 import hashlib
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 import requests
 from loguru import logger
 
@@ -580,6 +582,92 @@ class BinanceFuturesAccountClient:
             for item in payload
         ]
 
+    @staticmethod
+    def _istanbul_day_bounds_ms(now: Optional[datetime] = None) -> tuple[int, int]:
+        """Return the current Europe/Istanbul calendar-day bounds in UTC ms."""
+        timezone = ZoneInfo("Europe/Istanbul")
+        current = now.astimezone(timezone) if now is not None else datetime.now(timezone)
+        start = current.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(days=1)
+        return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+
+    def get_daily_performance(
+        self,
+        symbol: str = "BTCUSDT",
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Read today's realized PnL, commission and funding from TESTNET.
+
+        Empty history is intentionally unavailable rather than a fabricated
+        zero. The endpoint is USER_DATA/read-only and this client exposes no
+        order submission method.
+        """
+        start_ms, end_ms = self._istanbul_day_bounds_ms(now)
+        date_istanbul = datetime.fromtimestamp(start_ms / 1000, ZoneInfo("Europe/Istanbul")).date().isoformat()
+        payload = self._signed_get(
+            "/fapi/v1/income",
+            {
+                "symbol": symbol,
+                "startTime": start_ms,
+                "endTime": end_ms - 1,
+                "limit": 1000,
+            },
+        )
+        if not isinstance(payload, list):
+            raise BinanceAccountError("ACCOUNT_UNAVAILABLE")
+
+        rows = [
+            item
+            for item in payload
+            if item.get("symbol") in (None, "", symbol)
+            and start_ms <= int(item.get("time", -1)) < end_ms
+        ]
+        if not rows:
+            return {
+                "status": "UNAVAILABLE",
+                "source": "BINANCE_TESTNET_INCOME_HISTORY",
+                "timezone": "Europe/Istanbul",
+                "date_istanbul": date_istanbul,
+                "day_start_ms": start_ms,
+                "day_end_ms": end_ms,
+                "realized_pnl_usdt": None,
+                "commission_usdt": None,
+                "funding_usdt": None,
+                "net_pnl_usdt": None,
+                "closed_trades": None,
+                "winning_trades": None,
+                "losing_trades": None,
+                "observed_at": int(time.time() * 1000),
+            }
+
+        def total(income_type: str) -> float:
+            return sum(
+                self._number(item.get("income")) or 0.0
+                for item in rows
+                if item.get("incomeType") == income_type
+            )
+
+        realized_rows = [item for item in rows if item.get("incomeType") == "REALIZED_PNL"]
+        realized = total("REALIZED_PNL")
+        commission = total("COMMISSION")
+        funding = total("FUNDING_FEE")
+        return {
+            "status": "AVAILABLE",
+            "source": "BINANCE_TESTNET_INCOME_HISTORY",
+            "timezone": "Europe/Istanbul",
+            "date_istanbul": date_istanbul,
+            "day_start_ms": start_ms,
+            "day_end_ms": end_ms,
+            "realized_pnl_usdt": realized,
+            "commission_usdt": commission,
+            "funding_usdt": funding,
+            "net_pnl_usdt": realized + commission + funding,
+            "closed_trades": len(realized_rows),
+            "winning_trades": sum(1 for item in realized_rows if (self._number(item.get("income")) or 0.0) > 0),
+            "losing_trades": sum(1 for item in realized_rows if (self._number(item.get("income")) or 0.0) < 0),
+            "observed_at": int(time.time() * 1000),
+        }
+
     def get_account_summary(self) -> Dict[str, Any]:
         """Return the complete read-only USD-M testnet account snapshot."""
         self._assert_access_allowed()
@@ -588,6 +676,24 @@ class BinanceFuturesAccountClient:
         usdt = next((item for item in balances if item.get("asset") == "USDT"), {})
         positions = self.get_open_positions()
         orders = self.get_open_orders() + self.get_open_algo_orders()
+        try:
+            daily_performance = self.get_daily_performance()
+        except BinanceAccountError as exc:
+            daily_performance = {
+                "status": "UNAVAILABLE",
+                "source": "BINANCE_TESTNET_INCOME_HISTORY",
+                "timezone": "Europe/Istanbul",
+                "date_istanbul": datetime.now(ZoneInfo("Europe/Istanbul")).date().isoformat(),
+                "error_category": exc.category,
+                "realized_pnl_usdt": None,
+                "commission_usdt": None,
+                "funding_usdt": None,
+                "net_pnl_usdt": None,
+                "closed_trades": None,
+                "winning_trades": None,
+                "losing_trades": None,
+                "observed_at": None,
+            }
         return {
             "account_type": "USD-M FUTURES",
             "environment": "TESTNET",
@@ -609,4 +715,5 @@ class BinanceFuturesAccountClient:
             "balances": balances,
             "positions": positions,
             "open_orders": orders,
+            "daily_performance": daily_performance,
         }

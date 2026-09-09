@@ -235,24 +235,24 @@ def _render_index_html() -> bytes:
 
     html = (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8")
     panel = """
-    <section id="renderRuntimePanel" class="glass panel event-panel">
+    <section id="renderRuntimePanel" class="glass render-runtime-strip">
       <div class="section-head">
-        <span>Render Runtime</span>
-        <span id="renderBootBadge" class="badge warning">BOOTING</span>
+        <span>Render Çalışma Durumu</span>
+        <span id="renderBootBadge" class="badge warning">BAŞLIYOR</span>
       </div>
       <div class="intelligence-grid">
-        <div><span>Web UI</span><strong id="renderUiState">READY</strong></div>
-        <div><span>Backend</span><strong id="renderBackendState">CHECKING</strong></div>
-        <div><span>Market Feed</span><strong id="renderMarketState">LOADING</strong></div>
-        <div><span>Testnet Account</span><strong id="renderAccountState">CHECKING</strong></div>
+        <div><span>Web Arayüzü</span><strong id="renderUiState">HAZIR</strong></div>
+        <div><span>Sunucu</span><strong id="renderBackendState">KONTROL EDİLİYOR</strong></div>
+        <div><span>Piyasa Verisi</span><strong id="renderMarketState">YÜKLENİYOR</strong></div>
+        <div><span>TESTNET Hesabı</span><strong id="renderAccountState">KONTROL EDİLİYOR</strong></div>
       </div>
       <div class="reason-box">
-        <span>Runtime Status</span>
+        <span>Çalışma Durumu</span>
         <p id="renderRuntimeMessage">Render servisi açıldı. Canlı piyasa verisi yükleniyor…</p>
       </div>
     </section>
     """
-    html = html.replace('<main class="shell">', '<main class="shell">' + panel, 1)
+    html = html.replace('<!-- RENDER_RUNTIME_SLOT -->', panel, 1)
     html = html.replace('</body>', '  <script src="/render-bridge.js" defer></script>\n</body>', 1)
     return html.encode("utf-8")
 

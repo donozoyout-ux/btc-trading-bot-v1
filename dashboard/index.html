@@ -1,133 +1,80 @@
 <!doctype html>
 <html lang="tr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#07111f" />
-  <title>BTC Intelligence Console</title>
-  <link rel="stylesheet" href="/styles.css" />
-  <link rel="stylesheet" href="/account.css" />
-  <link rel="stylesheet" href="/chart-intelligence.css" />
-  <link rel="stylesheet" href="/clarity.css" />
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07111f">
+  <title>BTC İşlem Konsolu</title>
+  <link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/account.css"><link rel="stylesheet" href="/chart-intelligence.css"><link rel="stylesheet" href="/clarity.css"><link rel="stylesheet" href="/ui-v2.css">
 </head>
-<body>
-  <div class="ambient ambient-a"></div>
-  <div class="ambient ambient-b"></div>
-  <main class="shell">
-    <header class="topbar glass">
-      <div class="brand-wrap"><div class="logo-orbit"><span>₿</span></div><div><div class="eyebrow">BTC TRADING BOT</div><h1>Intelligence Console</h1></div></div>
-      <div class="top-actions"><div id="modePill" class="mode-pill"><span class="pulse-dot"></span> DEMO · READ ONLY</div><div id="connectionPill" class="connection-pill warning">Bağlanıyor…</div><button id="refreshBtn" class="icon-btn" title="Veriyi yenile">↻</button></div>
-    </header>
+<body><main class="shell console-v2">
+  <header class="topbar glass compact-header">
+    <div class="brand-wrap"><div class="logo-orbit"><span>₿</span></div><div><div class="eyebrow">BTCUSDT · TESTNET</div><h1>İşlem Konsolu</h1></div></div>
+    <div class="live-price"><strong id="price">—</strong><span id="change24h" class="change neutral">—</span></div><div class="header-signal"><span>SON KARAR <b id="headerDecision">—</b></span><span>REJİM <b id="headerRegime">—</b></span><span>GÜVEN <b id="headerConfidence">—</b></span></div>
+    <div class="top-actions"><div id="modePill" class="mode-pill"><span class="pulse-dot"></span> TESTNET</div><div id="connectionPill" class="connection-pill warning">Bağlanıyor…</div><button id="refreshBtn" class="icon-btn" title="Veriyi yenile" aria-label="Veriyi yenile">↻</button></div>
+  </header>
 
-    <section class="hero-grid">
-      <article class="hero-card glass">
-        <div class="hero-top"><div><div class="muted">BTCUSDT · Binance Futures</div><div class="price-line"><span id="price">—</span><span id="change24h" class="change neutral">—</span></div></div><div class="decision-core" id="decisionCore"><div class="decision-orb"></div><div><div class="muted tiny">FINAL DECISION</div><strong id="finalDecision">WAIT</strong></div></div></div>
-        <div class="mini-strip"><div><span>Mark</span><strong id="markPrice">—</strong></div><div><span>Regime</span><strong id="regime">—</strong></div><div><span>Confidence</span><strong id="confidence">—</strong></div><div><span>Volatility</span><strong id="volatility">—</strong></div></div>
-      </article>
-      <article class="glass risk-card"><div class="section-head"><span>Risk Core</span><span id="killSwitchBadge" class="badge good">SAFE</span></div><div class="risk-ring-wrap"><div class="risk-ring" id="riskRing"><span id="riskRR">WAIT</span><small id="riskRRLabel">SETUP</small></div><div class="risk-meta"><div><span>Trend Risk</span><strong id="trendRisk">—</strong></div><div><span>Counter Risk</span><strong id="counterRisk">—</strong></div><div><span>Daily Limit</span><strong id="dailyLimit">—</strong></div></div></div><p id="riskStateMessage" class="risk-state-message">Risk limits are active; waiting for an eligible trade setup.</p></article>
-    </section>
+  <section class="summary-grid" aria-label="Hesap özeti">
+    <article class="summary-card glass"><span>TOPLAM BAKİYE</span><strong id="summaryBalance">—</strong><small>USDT</small></article>
+    <article class="summary-card glass"><span>BUGÜNKÜ NET KÂR</span><strong id="dailyNetPnl">VERİ YOK</strong><small id="dailyPnlBreakdown">Binance TESTNET geçmişi</small></article>
+    <article class="summary-card glass"><span>AÇIK KÂR/ZARAR</span><strong id="summaryOpenPnl">—</strong><small>USDT</small></article>
+    <article class="summary-card glass"><span>AKTİF İŞLEM</span><strong id="summaryPosition">YOK</strong><small id="summaryPositionMeta">Pozisyon bekleniyor</small></article>
+    <article class="summary-card glass"><span>BOT DURUMU</span><strong id="summaryBotStatus">DURDU</strong><small id="summaryBotMeta">TESTNET</small></article>
+    <article class="summary-card glass"><span>BUGÜNKÜ İŞLEM</span><strong id="summaryTodayTrades">VERİ YOK</strong><small id="dailyTradeMeta">Kazanan / kaybeden: —</small></article>
+  </section>
+  <!-- RENDER_RUNTIME_SLOT -->
 
-    <section class="account-console glass">
-      <div class="account-head">
-        <div><div class="eyebrow">SECURED USER_DATA CHANNEL</div><h2>Binance Demo Account</h2></div>
-        <div class="account-badges"><span class="badge testnet">TESTNET</span><span id="accountStatus" class="badge warning">CONNECTING</span></div>
-      </div>
-      <div id="accountMessage" class="account-message">Demo account not connected</div>
-      <div class="account-balance-row">
-        <div class="wallet-balance"><span>WALLET BALANCE</span><strong id="walletBalance">—</strong><small>USDT</small></div>
-        <div class="account-stat"><span>AVAILABLE</span><strong id="availableBalance">—</strong><small>USDT</small></div>
-        <div class="account-stat"><span>UNREALIZED PNL</span><strong id="accountPnl">—</strong><small>USDT</small></div>
-        <div class="account-stat"><span>MARGIN USED</span><strong id="marginUsed">—</strong><small>USDT</small></div>
-        <div class="account-stat"><span>MARGIN BALANCE</span><strong id="marginBalance">—</strong><small>USDT</small></div>
-        <div class="account-stat"><span>MAINT. MARGIN</span><strong id="maintMargin">—</strong><small>USDT</small></div>
-        <div class="account-stat"><span>POSITION MARGIN</span><strong id="positionMargin">—</strong><small>USDT</small></div>
-        <div class="account-stat"><span>ORDER MARGIN</span><strong id="orderMargin">—</strong><small>USDT</small></div>
-        <div class="account-stat"><span>POSITIONS</span><strong id="positionCount">—</strong><small>OPEN</small></div>
-        <div class="account-stat"><span>ORDERS</span><strong id="orderCount">—</strong><small>OPEN</small></div>
-      </div>
-      <div class="account-table-wrap">
-        <div class="account-table-title"><span>LIVE POSITIONS</span><small>USDⓈ-M FUTURES TESTNET · READ ONLY</small></div>
-        <table class="account-table"><thead><tr><th>SYMBOL</th><th>SIDE</th><th>SIZE</th><th>ENTRY</th><th>BREAK-EVEN</th><th>MARK</th><th>LEV.</th><th>MARGIN TYPE</th><th>NOTIONAL</th><th>UPNL</th><th>LIQUIDATION</th></tr></thead><tbody id="positionsBody"><tr><td colspan="11" class="empty-cell">Waiting for testnet account data</td></tr></tbody></table>
-      </div>
-      <div class="account-table-wrap orders-table-wrap">
-        <div class="account-table-title"><span>OPEN ORDERS</span><small>NO CANCEL OR TRADE ACTIONS</small></div>
-        <table class="account-table"><thead><tr><th>SYMBOL</th><th>SIDE</th><th>TYPE</th><th>QUANTITY</th><th>PRICE</th><th>STOP</th><th>STATUS</th><th>REDUCE ONLY</th><th>ORDER ID</th></tr></thead><tbody id="ordersBody"><tr><td colspan="9" class="empty-cell">Waiting for testnet account data</td></tr></tbody></table>
-      </div>
-    </section>
+  <section id="activeTradePanel" class="active-trade glass" hidden>
+    <div class="section-head active-head"><span>AKTİF İŞLEM</span><span>Kâr Koruması: <b id="positionState" class="badge info">PASİF</b></span></div>
+    <div class="active-trade-grid">
+      <div><span>YÖN</span><strong id="activeTradeSide">—</strong></div><div><span>GİRİŞ</span><strong id="positionIntelEntry">—</strong></div><div><span>ANLIK FİYAT</span><strong id="positionIntelMark">—</strong></div><div><span>MİKTAR</span><strong id="activeTradeSize">—</strong></div>
+      <div><span>AÇIK K/Z</span><strong id="activeTradePnl">—</strong></div><div><span>KALDIRAÇ</span><strong id="activeTradeLeverage">—</strong></div><div><span>LİKİDASYON</span><strong id="activeTradeLiquidation">—</strong></div><div><span>MEVCUT R</span><strong id="positionCurrentR">—</strong></div><div><span>STOP</span><strong id="positionCurrentStop">—</strong><small id="positionInitialStop">İlk stop —</small></div><div><span>TP1 / TP2</span><strong id="positionIntelTp1">—</strong><small id="positionIntelTp2">TP2 —</small></div>
+    </div>
+    <div class="management-line"><div><span>YÖNETİM</span><strong id="positionManagementProfile">—</strong></div><div><span>TEZ</span><strong id="positionThesis">—</strong></div><div><span>KORUNAN R</span><strong id="positionProtectedR">—</strong></div><div><span>MFE / GERİ VERME</span><strong id="positionMfeR">—</strong><small id="positionGivebackR">—</small></div></div>
+    <p id="positionLastReason" class="trade-reason">Kapalı 5 dakikalık mum kararı bekleniyor.</p><span id="positionLastAction" class="visually-hidden">—</span>
+  </section>
 
-    <section class="account-console glass">
-      <div class="account-head"><div><div class="eyebrow">TESTNET EXECUTION CONTROL</div><h2>Automatic Execution</h2></div><div class="account-badges"><span class="badge bad">REAL MONEY: DISABLED</span><span id="executionStatus" class="badge neutral">DISABLED</span></div></div>
-      <div class="account-balance-row">
-        <div class="account-stat"><span>POSITION</span><strong id="executionPosition">NONE</strong><small>BINANCE SOURCE OF TRUTH</small></div>
-        <div class="account-stat"><span>ENTRY</span><strong id="executionEntry">—</strong><small>USDT</small></div>
-        <div class="account-stat"><span>MARK</span><strong id="executionMark">—</strong><small>USDT</small></div>
-        <div class="account-stat"><span>SIZE</span><strong id="executionSize">—</strong><small>BTC</small></div>
-        <div class="account-stat"><span>LEVERAGE</span><strong id="executionLeverage">—</strong><small>TESTNET</small></div>
-        <div class="account-stat"><span>UPNL</span><strong id="executionPnl">—</strong><small>USDT</small></div>
-        <div class="account-stat"><span>BOT</span><strong id="botRuntimeStatus">STOPPED</strong><small id="executionThreadStatus">THREAD DISABLED</small></div>
-        <div class="account-stat"><span>SMOKE TEST</span><strong id="smokeTestStatus">NOT RUN</strong><small>OPEN → CLOSE</small></div>
-        <div class="account-stat"><span>LAST RESULT</span><strong id="lastExecutionResult">—</strong><small>EXECUTION LOOP</small></div>
-        <div class="account-stat"><span>LAST ORDER</span><strong id="lastOrderStatus">—</strong><small id="lastOrderDetail">NONE</small></div>
-        <div class="account-stat"><span>LAST TELEGRAM</span><strong id="lastTelegramStatus">—</strong><small>DEDUPLICATED</small></div>
-      </div>
-    </section>
+  <section id="flatStatePanel" class="flat-state glass">
+    <div><span class="flat-icon">◇</span><strong>Açık TESTNET pozisyonu yok</strong><small>Bot piyasayı ve uygun giriş koşullarını izliyor.</small></div>
+    <div class="flat-decision"><span>GÜNCEL KARAR</span><strong id="finalDecision">BEKLE</strong><small id="decisionReason">Veri bekleniyor…</small><div class="flat-meta"><b id="flatSetup">Kurulum: —</b><b id="flatRegime">Rejim: —</b><b id="flatNextEval">Son mum: —</b></div></div>
+  </section>
 
-    <section class="metrics-grid">
-      <article class="metric glass"><span>Position State</span><strong id="positionState">NO CHANGE</strong><small id="positionThesis">THESIS —</small></article>
-      <article class="metric glass"><span>Current R</span><strong id="positionCurrentR">—</strong><small id="positionLastAction">NO ACTION</small></article>
-      <article class="metric glass"><span>MFE / Giveback</span><strong id="positionMfeR">—</strong><small id="positionGivebackR">GIVEBACK —</small></article>
-      <article class="metric glass"><span>Protected R</span><strong id="positionProtectedR">—</strong><small>EXCHANGE STOP BASIS</small></article>
-      <article class="metric glass"><span>Initial / Current Stop</span><strong id="positionCurrentStop">—</strong><small id="positionInitialStop">INITIAL —</small></article>
-      <article class="metric glass"><span>Managed TP1 / TP2</span><strong id="positionIntelTp1">—</strong><small id="positionIntelTp2">TP2 —</small></article>
-      <article class="metric glass"><span>Management Profile</span><strong id="positionManagementProfile">—</strong><small id="positionLastReason">NO CLOSED 5M DECISION</small></article>
-      <article class="metric glass"><span>Entry / Mark</span><strong id="positionIntelEntry">—</strong><small id="positionIntelMark">MARK —</small></article>
-      <article class="metric glass"><span>Open Interest</span><strong id="openInterest">—</strong><small>Binance</small></article>
-      <article class="metric glass"><span>Funding</span><strong id="funding">—</strong><small id="fundingTone">8h rate</small></article>
-      <article class="metric glass"><span>Long / Short</span><strong id="longShort">—</strong><small>Account ratio</small></article>
-      <article class="metric glass"><span>Taker Flow</span><strong id="takerRatio">—</strong><small>Buy / Sell ratio</small></article>
-      <article class="metric glass"><span>RSI 14</span><strong id="rsiValue">—</strong><small id="rsiTone">Momentum</small></article>
-      <article class="metric glass"><span>ADX 14</span><strong id="adxValue">—</strong><small id="adxTone">Trend strength</small></article>
-    </section>
+  <section class="workbench glass chart-primary">
+    <div class="workbench-head"><div><div class="eyebrow">AKILLI GRAFİK · TSİ · Europe/Istanbul</div><h2>Fiyat ve Teknik Seviyeler</h2></div><div class="tf-tabs" id="tfTabs"><button data-tf="5m" class="active">5D</button><button data-tf="15m">15D</button><button data-tf="1h">1S</button><button data-tf="4h">4S</button></div></div>
+    <div class="legend"><span><i class="dot ema20"></i>EMA20</span><span><i class="dot ema50"></i>EMA50</span><span><i class="dot ema200"></i>EMA200</span><span><i class="dot bb"></i>Bollinger</span><span><i class="dot sr"></i>D/D bölgesi</span></div>
+    <div class="chart-wrap"><canvas id="priceChart"></canvas><div id="chartTooltip" class="chart-tooltip hidden"></div></div><div class="rsi-wrap"><div class="rsi-title"><span>RSI 14</span><span id="rsiChartValue">—</span></div><canvas id="rsiChart"></canvas></div>
+  </section>
 
-    <section class="workbench glass">
-      <div class="workbench-head"><div><div class="eyebrow">SMART CHART · TSİ · Europe/Istanbul</div><h2>Price + EMA + Bollinger + S/R</h2></div><div class="tf-tabs" id="tfTabs"><button data-tf="5m" class="active">5M</button><button data-tf="15m">15M</button><button data-tf="1h">1H</button><button data-tf="4h">4H</button></div></div>
-      <div class="legend"><span><i class="dot ema20"></i>EMA20</span><span><i class="dot ema50"></i>EMA50</span><span><i class="dot ema200"></i>EMA200</span><span><i class="dot bb"></i>Bollinger</span><span><i class="dot sr"></i>S/R zone</span></div>
-      <div class="chart-wrap"><canvas id="priceChart"></canvas><div id="chartTooltip" class="chart-tooltip hidden"></div></div>
-      <div class="rsi-wrap"><div class="rsi-title"><span>RSI 14</span><span id="rsiChartValue">—</span></div><canvas id="rsiChart"></canvas></div>
-    </section>
+  <section class="market-strategy-grid">
+    <article class="glass panel compact-panel"><div class="section-head"><span>PİYASA ANALİZİ</span><span id="mtfBias" class="badge info">HESAPLANIYOR</span></div><div class="compact-metrics">
+      <div><span>REJİM</span><strong id="regime">—</strong></div><div><span>4S TREND / YAPI</span><strong id="market4h">—</strong><small id="structure4h">—</small></div><div><span>1S TREND / YAPI</span><strong id="market1h">—</strong><small id="structure1h">—</small></div><div><span>15D TREND / YAPI</span><strong id="market15m">—</strong></div><div><span>5D MOMENTUM / TETİK</span><strong id="market5m">—</strong></div><div><span>KONUM</span><strong id="location">—</strong></div><div><span>RSI / ADX</span><strong><i id="rsiValue">—</i> / <i id="adxValue">—</i></strong><small><i id="rsiTone">Momentum</i> · <i id="adxTone">Trend gücü</i></small></div><div><span>ATR / HACİM</span><strong id="marketAtr">—</strong><small id="marketVolume">—</small></div><div><span>FONLAMA</span><strong id="funding">—</strong><small id="fundingTone">8 saatlik oran</small></div><div><span>AÇIK POZİSYON</span><strong id="openInterest">—</strong></div>
+    </div></article>
+    <article class="glass panel compact-panel"><div class="section-head"><span>BOT ŞU AN NE DÜŞÜNÜYOR?</span><span id="strategyEligible" class="badge neutral">UYGUN DEĞİL</span></div><div class="strategy-result"><div><span>KARAR</span><strong id="strategyDecision">—</strong></div><div><span>REJİM</span><strong id="strategyRegime">—</strong></div><div><span>KURULUM</span><strong id="strategySetup">—</strong></div><div><span>YÖN</span><strong id="strategyDirection">—</strong></div><div><span>TETİK</span><strong id="strategyTrigger">—</strong></div><div><span>RİSK</span><strong id="strategyRisk">—</strong></div><div><span>PUAN</span><strong id="strategyScore">—</strong></div></div><div class="reason-box"><span>SEBEP</span><p id="strategyBlockers">—</p></div></article>
+  </section>
 
-    <section class="dual-grid">
-      <article class="glass panel"><div class="section-head"><span>Decision Pipeline</span><span class="badge info">LIVE LOGIC</span></div><div id="pipeline" class="pipeline"></div></article>
-      <article class="glass panel"><div class="section-head"><span>Signal Intelligence</span><span id="setupBadge" class="badge neutral">NO SETUP</span></div><div class="intelligence-grid"><div><span>4H Structure</span><strong id="structure4h">—</strong></div><div><span>1H Structure</span><strong id="structure1h">—</strong></div><div><span>Location</span><strong id="location">—</strong></div><div><span>Setup</span><strong id="setup">—</strong></div><div><span>Trigger</span><strong id="trigger">—</strong></div><div><span>Derivatives</span><strong id="derivatives">—</strong></div><div><span>Overextended Up</span><strong id="oeUp">—</strong></div><div><span>Overextended Down</span><strong id="oeDown">—</strong></div></div><div class="reason-box"><span>Neden?</span><p id="decisionReason">Veri bekleniyor…</p></div></article>
-    </section>
+  <section class="detail-stack" aria-label="Ayrıntılı bilgiler">
+    <details class="glass console-detail"><summary>Gelişmiş Analiz <span>Teknik yapı, karar hattı ve işlem planı</span></summary><div class="detail-content">
+      <div class="hidden-data"><span id="decisionCore"></span><span id="markPrice">—</span><span id="confidence">—</span><span id="volatility">—</span><span id="longShort">—</span><span id="takerRatio">—</span></div>
+      <div class="dual-grid no-margin"><article class="subpanel"><div class="section-head"><span>KARAR HATTI</span><span class="badge info">CANLI MANTIK</span></div><div id="pipeline" class="pipeline"></div></article><article class="subpanel"><div class="section-head"><span>SİNYAL AYRINTISI</span><span id="setupBadge" class="badge neutral">KURULUM YOK</span></div><div class="intelligence-grid"><div><span>KURULUM</span><strong id="setup">—</strong></div><div><span>TETİK</span><strong id="trigger">—</strong></div><div><span>TÜREVLER</span><strong id="derivatives">—</strong></div><div><span>YUKARI AŞIRI</span><strong id="oeUp">—</strong></div><div><span>AŞAĞI AŞIRI</span><strong id="oeDown">—</strong></div></div></article></div>
+      <div class="subpanel"><div class="section-head"><span>GRAFİK OKUYUCU V3</span></div><div class="tf-intelligence" id="tfIntelligence"></div><div class="reason-box"><span>ÇOKLU ZAMAN DİLİ</span><p id="mtfState">Kapalı mumlar değerlendiriliyor…</p><small id="mtfConflicts" class="muted">—</small></div></div>
+      <div class="dual-grid no-margin"><article class="subpanel"><div class="section-head"><span>İŞLEM PLANI</span><span id="tradePlanBadge" class="badge neutral">KURULUM BEKLENİYOR</span></div><div class="trade-plan"><div><span>GİRİŞ</span><strong id="entryPrice">BEKLE</strong></div><div><span>STOP</span><strong id="stopLoss">BEKLE</strong></div><div><span>TP1</span><strong id="tp1">BEKLE</strong></div><div><span>TP2</span><strong id="tp2">BEKLE</strong></div><div><span>POZİSYON</span><strong id="positionSize">DÜZ</strong></div><div><span>RİSK $</span><strong id="riskAmount">AYRILMADI</strong></div></div><div class="reason-box"><span>PLAN DURUMU</span><p id="tradePlanMessage">Uygun kurulum bekleniyor.</p></div></article><article class="subpanel"><div class="section-head"><span>RİSK MERKEZİ</span><span id="killSwitchBadge" class="badge good">GÜVENLİ</span></div><div class="compact-metrics"><div><span id="riskRRLabel">R:R</span><strong id="riskRR">BEKLE</strong></div><div><span>TREND RİSKİ</span><strong id="trendRisk">—</strong></div><div><span>KARŞI TREND</span><strong id="counterRisk">—</strong></div><div><span>GÜNLÜK SINIR</span><strong id="dailyLimit">—</strong></div></div><p id="riskStateMessage" class="trade-reason">Risk sınırları etkin.</p></article></div>
+    </div></details>
 
-    <section class="glass panel intelligence-console">
-      <div class="section-head"><span>Chart Reading V3</span><span id="mtfBias" class="badge info">CALCULATING</span></div>
-      <div class="tf-intelligence" id="tfIntelligence"></div>
-      <div class="reason-box"><span>MTF Interpretation</span><p id="mtfState">Closed OHLCV candles are being evaluated…</p><small id="mtfConflicts" class="muted">—</small></div>
-    </section>
+    <details class="glass console-detail"><summary>Hesap Ayrıntıları <span>Salt okunur Binance Futures TESTNET verileri</span></summary><div class="detail-content">
+      <div class="account-head"><div><div class="eyebrow">İMZALI USER_DATA KANALI</div><h2>Binance Demo Hesabı</h2></div><div class="account-badges"><span class="badge testnet">TESTNET</span><span id="accountStatus" class="badge warning">BAĞLANIYOR</span></div></div><div id="accountMessage" class="account-message">Demo hesabı bekleniyor</div>
+      <div class="account-balance-row compact-account"><div class="wallet-balance"><span>CÜZDAN</span><strong id="walletBalance">—</strong><small>USDT</small></div><div class="account-stat"><span>KULLANILABİLİR</span><strong id="availableBalance">—</strong></div><div class="account-stat"><span>AÇIK K/Z</span><strong id="accountPnl">—</strong></div><div class="account-stat"><span>KULLANILAN MARJ</span><strong id="marginUsed">—</strong></div><div class="account-stat"><span>MARJ BAKİYESİ</span><strong id="marginBalance">—</strong></div><div class="account-stat"><span>BAKIM MARJI</span><strong id="maintMargin">—</strong></div><div class="account-stat"><span>POZİSYON MARJI</span><strong id="positionMargin">—</strong></div><div class="account-stat"><span>EMİR MARJI</span><strong id="orderMargin">—</strong></div><div class="account-stat"><span>POZİSYON</span><strong id="positionCount">—</strong></div><div class="account-stat"><span>EMİR</span><strong id="orderCount">—</strong></div></div>
+    </div></details>
 
-    <section class="dual-grid">
-      <article class="glass panel"><div class="section-head"><span>Strategy Orchestrator</span><span id="strategyEligible" class="badge neutral">NOT ELIGIBLE</span></div><div class="intelligence-grid"><div><span>Setup</span><strong id="strategySetup">—</strong></div><div><span>Direction</span><strong id="strategyDirection">—</strong></div><div><span>Score</span><strong id="strategyScore">—</strong></div><div><span>Trigger</span><strong id="strategyTrigger">—</strong></div></div><div class="reason-box"><span>Blocking Reasons</span><p id="strategyBlockers">—</p></div></article>
-      <article class="glass panel"><div class="section-head"><span>System State</span><span id="systemMode" class="badge testnet">SHADOW</span></div><div class="intelligence-grid"><div><span>Kill Switch</span><strong id="systemKill">—</strong></div><div><span>Daily Loss Guard</span><strong id="dailyGuard">—</strong></div><div><span>Loss Streak Guard</span><strong id="streakGuard">—</strong></div><div><span>Active Position</span><strong id="activePosition">—</strong></div><div><span>Final Decision</span><strong id="systemDecision">—</strong></div><div><span>Orders</span><strong id="systemOrders">DISABLED</strong></div></div></article>
-    </section>
+    <details class="glass console-detail"><summary>Pozisyonlar ve Emirler <span>Borsa kaynaklı açık kayıtlar</span></summary><div class="detail-content">
+      <div class="account-table-wrap"><div class="account-table-title"><span>AÇIK POZİSYONLAR</span><small>SALT OKUNUR</small></div><table class="account-table"><thead><tr><th>SEMBOL</th><th>YÖN</th><th>MİKTAR</th><th>GİRİŞ</th><th>BAŞABAŞ</th><th>ANLIK</th><th>KALDIRAÇ</th><th>MARJ</th><th>DEĞER</th><th>AÇIK K/Z</th><th>LİKİDASYON</th></tr></thead><tbody id="positionsBody"><tr><td colspan="11" class="empty-cell">TESTNET verisi bekleniyor</td></tr></tbody></table></div>
+      <div class="account-table-wrap orders-table-wrap"><div class="account-table-title"><span>AÇIK EMİRLER</span><small>İPTAL / İŞLEM EYLEMİ YOK</small></div><table class="account-table"><thead><tr><th>SEMBOL</th><th>YÖN</th><th>TÜR</th><th>MİKTAR</th><th>FİYAT</th><th>STOP</th><th>DURUM</th><th>SADECE AZALT</th><th>EMİR NO</th></tr></thead><tbody id="ordersBody"><tr><td colspan="9" class="empty-cell">TESTNET verisi bekleniyor</td></tr></tbody></table></div>
+    </div></details>
 
-    <section class="dual-grid">
-      <article class="glass panel"><div class="section-head"><span>News Intelligence</span><span id="newsRisk" class="badge neutral">UNAVAILABLE</span></div><div class="intelligence-grid"><div><span>Status</span><strong id="newsStatus">—</strong></div><div><span>Sentiment</span><strong id="newsSentiment">—</strong></div></div><div id="newsEvents" class="event-log compact-events"><div class="event muted">No normalized events yet</div></div></article>
-      <article class="glass panel"><div class="section-head"><span>AI Analyst</span><span class="badge warning">ADVISORY ONLY</span></div><div class="intelligence-grid"><div><span>Status</span><strong id="aiStatus">—</strong></div><div><span>Confidence</span><strong id="aiConfidence">—</strong></div></div><div class="reason-box"><span>Market View</span><p id="aiView">AI is optional; deterministic logic remains active.</p></div><div class="reason-box"><span>Risk Notes</span><p id="aiRiskNotes">—</p></div></article>
-    </section>
-
-    <section class="dual-grid">
-      <article class="glass panel"><div class="section-head"><span>Trade Plan</span><span id="tradePlanBadge" class="badge neutral">WAITING SETUP</span></div><div class="trade-plan"><div><span>Entry</span><strong id="entryPrice">WAIT</strong></div><div><span>Stop</span><strong id="stopLoss">WAIT</strong></div><div><span>TP1</span><strong id="tp1">WAIT</strong></div><div><span>TP2</span><strong id="tp2">WAIT</strong></div><div><span>Position</span><strong id="positionSize">FLAT</strong></div><div><span>Risk $</span><strong id="riskAmount">NOT ALLOCATED</strong></div></div><div class="reason-box"><span>Plan Status</span><p id="tradePlanMessage">No eligible setup. Values will be calculated only after strategy and risk approval.</p></div></article>
-      <article class="glass panel"><div class="section-head"><span>Data Sources</span><span class="badge info">LIVE STATUS</span></div><div class="sources"><div class="source-row"><div><b>Binance Market Data</b><small>Price · OI · Funding; derivatives limited on testnet</small></div><span id="binanceStatus" class="source-status">—</span></div><div class="source-row"><div><b>Binance Testnet Account</b><small>Signed USER_DATA · source of truth</small></div><span id="binanceAccountStatus" class="source-status">—</span></div><div class="source-row optional-source"><div><b>CoinGlass</b><small>Optional · requires COINGLASS_API_KEY</small></div><span id="coinglassStatus" class="source-status">—</span></div><div class="source-row optional-source"><div><b>CoinMarketCap</b><small>Optional · requires COINMARKETCAP_API_KEY</small></div><span id="cmcStatus" class="source-status">—</span></div><div class="source-row"><div><b>News RSS</b><small>Context and risk filter only</small></div><span id="newsSourceStatus" class="source-status">—</span></div><div class="source-row"><div><b>Telegram</b><small>Outbound events · deduplicated</small></div><span id="telegramStatus" class="source-status">—</span></div><div class="source-row optional-source"><div><b>OpenAI Analyst</b><small>Optional · deterministic engine remains active</small></div><span id="aiSourceStatus" class="source-status">—</span></div></div></article>
-    </section>
-
-    <section class="glass panel external-context"><div class="section-head"><span>External Market Context</span><span class="badge info">CACHED LIVE DATA</span></div><div class="source-metrics"><div><span>CoinGlass Aggregate OI</span><strong id="cgAggregateOi">—</strong></div><div><span>CoinGlass 24h Liquidations</span><strong id="cgLiquidations">—</strong></div><div><span>Binance Open Interest</span><strong id="binanceOpenInterest">—</strong></div><div><span>Binance Funding</span><strong id="binanceFunding">—</strong></div><div><span>Binance Long / Short</span><strong id="binanceLongShort">—</strong></div><div><span>Binance Taker Buy / Sell</span><strong id="binanceTaker">—</strong></div><div><span>BTC Dominance</span><strong id="cmcDominance">—</strong></div><div><span>Total Market Cap</span><strong id="cmcMarketCap">—</strong></div><div><span>24h Market Volume</span><strong id="cmcVolume">—</strong></div><div><span>Last External Update</span><strong id="externalObservedAt">—</strong></div></div></section>
-    <section class="glass panel event-panel"><div class="section-head"><span>System Events</span><span id="lastUpdate" class="muted tiny">—</span></div><div id="eventLog" class="event-log"></div></section>
-    <footer><span>Binance Futures TESTNET only · REAL MONEY DISABLED</span><span>Predict less. Filter better. Risk less. Measure everything.</span></footer>
-  </main>
-  <script src="/timezone.js" defer></script>
-  <script src="/app.js" defer></script>
-  <script src="/chart-intelligence.js" defer></script>
-</body>
-</html>
+    <details class="glass console-detail"><summary>Sistem ve Kaynaklar <span>Çalışma durumu, haberler ve bağlantılar</span></summary><div class="detail-content">
+      <div class="hidden-runtime" aria-hidden="true"><span id="executionStatus">—</span><span id="executionPosition">—</span><span id="executionEntry">—</span><span id="executionMark">—</span><span id="executionSize">—</span><span id="executionLeverage">—</span><span id="executionPnl">—</span><span id="botRuntimeStatus">—</span><span id="executionThreadStatus">—</span><span id="smokeTestStatus">—</span><span id="lastExecutionResult">—</span><span id="lastOrderStatus">—</span><span id="lastOrderDetail">—</span><span id="lastTelegramStatus">—</span></div>
+      <div class="dual-grid no-margin"><article class="subpanel"><div class="section-head"><span>SİSTEM DURUMU</span><span id="systemMode" class="badge testnet">GÖLGE</span></div><div class="intelligence-grid"><div><span>ACİL DURDURMA</span><strong id="systemKill">—</strong></div><div><span>GÜNLÜK KAYIP KORUMASI</span><strong id="dailyGuard">—</strong></div><div><span>KAYIP SERİSİ KORUMASI</span><strong id="streakGuard">—</strong></div><div><span>AKTİF POZİSYON</span><strong id="activePosition">—</strong></div><div><span>SON KARAR</span><strong id="systemDecision">—</strong></div><div><span>EMİRLER</span><strong id="systemOrders">KAPALI</strong></div></div></article><article class="subpanel"><div class="section-head"><span>HABER ANALİZİ</span><span id="newsRisk" class="badge neutral">VERİ YOK</span></div><div class="intelligence-grid"><div><span>DURUM</span><strong id="newsStatus">—</strong></div><div><span>DUYGU</span><strong id="newsSentiment">—</strong></div></div><div id="newsEvents" class="event-log compact-events"><div class="event muted">Haber bekleniyor</div></div></article></div>
+      <div class="dual-grid no-margin"><article class="subpanel"><div class="section-head"><span>YAPAY ZEKÂ ANALİSTİ</span><span class="badge warning">YALNIZCA DANIŞMAN</span></div><div class="intelligence-grid"><div><span>DURUM</span><strong id="aiStatus">—</strong></div><div><span>GÜVEN</span><strong id="aiConfidence">—</strong></div></div><div class="reason-box"><span>PİYASA GÖRÜŞÜ</span><p id="aiView">Deterministik mantık etkin.</p></div><div class="reason-box"><span>RİSK NOTLARI</span><p id="aiRiskNotes">—</p></div></article><article class="subpanel"><div class="section-head"><span>VERİ KAYNAKLARI</span><span class="badge info">CANLI DURUM</span></div><div class="sources"><div class="source-row"><div><b>Binance Piyasa</b><small>Fiyat · OI · fonlama</small></div><span id="binanceStatus" class="source-status">—</span></div><div class="source-row"><div><b>Binance TESTNET Hesap</b><small>İmzalı ve salt okunur</small></div><span id="binanceAccountStatus" class="source-status">—</span></div><div class="source-row"><div><b>CoinGlass</b><small>İsteğe bağlı</small></div><span id="coinglassStatus" class="source-status">—</span></div><div class="source-row"><div><b>CoinMarketCap</b><small>İsteğe bağlı</small></div><span id="cmcStatus" class="source-status">—</span></div><div class="source-row"><div><b>Haber RSS</b><small>Risk bağlamı</small></div><span id="newsSourceStatus" class="source-status">—</span></div><div class="source-row"><div><b>Telegram</b><small>Tekilleştirilmiş bildirimler</small></div><span id="telegramStatus" class="source-status">—</span></div><div class="source-row"><div><b>OpenAI Analisti</b><small>İsteğe bağlı</small></div><span id="aiSourceStatus" class="source-status">—</span></div></div></article></div>
+      <article class="subpanel"><div class="section-head"><span>DIŞ PİYASA BAĞLAMI</span><span id="externalObservedAt" class="muted tiny">—</span></div><div class="source-metrics"><div><span>CoinGlass Toplam OI</span><strong id="cgAggregateOi">—</strong></div><div><span>CoinGlass 24s Likidasyon</span><strong id="cgLiquidations">—</strong></div><div><span>Binance Açık Pozisyon</span><strong id="binanceOpenInterest">—</strong></div><div><span>Binance Fonlama</span><strong id="binanceFunding">—</strong></div><div><span>Binance Uzun / Kısa</span><strong id="binanceLongShort">—</strong></div><div><span>Binance Alıcı / Satıcı</span><strong id="binanceTaker">—</strong></div><div><span>BTC Hakimiyeti</span><strong id="cmcDominance">—</strong></div><div><span>Toplam Piyasa Değeri</span><strong id="cmcMarketCap">—</strong></div><div><span>24s Piyasa Hacmi</span><strong id="cmcVolume">—</strong></div></div></article>
+      <article class="subpanel"><div class="section-head"><span>SİSTEM OLAYLARI</span><span id="lastUpdate" class="muted tiny">—</span></div><div id="eventLog" class="event-log"></div></article>
+    </div></details>
+  </section>
+  <footer><div class="footer-status"><span>BINANCE: <b id="footerBinance">—</b></span><span>TESTNET: <b>AKTİF</b></span><span>ANA PARA: <b>YOK</b></span><span>EMİR MOTORU: <b id="footerExecution">—</b></span><span>MAINNET: <b>KAPALI</b></span><span>TELEGRAM: <b id="footerTelegram">—</b></span></div><span>Risk önce, işlem sonra.</span></footer>
+</main><script src="/timezone.js" defer></script><script src="/app.js" defer></script><script src="/chart-intelligence.js" defer></script></body></html>
