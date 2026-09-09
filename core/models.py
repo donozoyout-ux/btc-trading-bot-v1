@@ -247,6 +247,8 @@ class PositionManagementDecision(BaseModel):
     current_r: float = 0.0
     mfe_r: float = 0.0
     mae_r: float = 0.0
+    profit_giveback_r: float = 0.0
+    protected_r: Optional[float] = None
     thesis_valid: bool = True
     structure_valid: bool = True
     regime_support: bool = True

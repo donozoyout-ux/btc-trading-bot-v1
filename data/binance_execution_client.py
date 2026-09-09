@@ -288,6 +288,13 @@ class BinanceFuturesExecutionClient:
             raise ExecutionError("INVALID_EXCHANGE_FILTER")
         return float((Decimal(str(price)) / tick).to_integral_value(rounding=ROUND_DOWN) * tick)
 
+    def price_tick_size(self, symbol: str) -> float:
+        """Return the authoritative exchange tick used for trigger-price safety gaps."""
+        tick = Decimal(str(self._filters(symbol).get("PRICE_FILTER", {}).get("tickSize", "0")))
+        if tick <= 0:
+            raise ExecutionError("INVALID_EXCHANGE_FILTER")
+        return float(tick)
+
     @staticmethod
     def _order_record(order: Dict[str, Any], requested_quantity: float, reduce_only: bool) -> Dict[str, Any]:
         return {

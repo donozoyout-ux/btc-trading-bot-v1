@@ -29,16 +29,17 @@ class BacktestSimulator:
 
     STATIC_EXIT_BASELINE = "STATIC_EXIT_BASELINE"
     ADAPTIVE_MANAGEMENT_V1 = "ADAPTIVE_MANAGEMENT_V1"
+    PROFIT_PROTECTION_V2 = "PROFIT_PROTECTION_V2"
 
     def __init__(self, settings: BotSettings, pipeline: Optional[MasterPipeline] = None,
                  *, management_mode: str = STATIC_EXIT_BASELINE,
                  management_context_provider: Optional[Callable[[TradeRecord, Candle], Dict[str, Any]]] = None):
-        if management_mode not in {self.STATIC_EXIT_BASELINE, self.ADAPTIVE_MANAGEMENT_V1}:
+        if management_mode not in {self.STATIC_EXIT_BASELINE, self.ADAPTIVE_MANAGEMENT_V1, self.PROFIT_PROTECTION_V2}:
             raise ValueError("Unsupported management mode")
         self.management_mode = management_mode
-        dynamic_targets = management_mode == self.ADAPTIVE_MANAGEMENT_V1
+        dynamic_targets = management_mode in {self.ADAPTIVE_MANAGEMENT_V1, self.PROFIT_PROTECTION_V2}
         updates = {"DYNAMIC_TARGETS_ENABLED": dynamic_targets}
-        if management_mode == self.ADAPTIVE_MANAGEMENT_V1:
+        if management_mode in {self.ADAPTIVE_MANAGEMENT_V1, self.PROFIT_PROTECTION_V2}:
             # PositionManager is the sole adaptive stop owner. The static
             # baseline intentionally retains the legacy TP1 auto-BE policy.
             updates["EXIT_POLICY_AUTO_BREAKEVEN"] = False
@@ -63,6 +64,21 @@ class BacktestSimulator:
             target_replan_min_r=settings.TARGET_REPLAN_MIN_R,
             target_replan_cooldown_bars=settings.TARGET_REPLAN_COOLDOWN_BARS,
             max_target_replans=settings.MAX_TARGET_REPLANS,
+            profit_protection_enabled=management_mode == self.PROFIT_PROTECTION_V2 and settings.PROFIT_PROTECTION_ENABLED,
+            profit_arm_r=settings.PROFIT_ARM_R,
+            breakeven_trigger_r=settings.BREAKEVEN_TRIGGER_R,
+            profit_lock_1_trigger_r=settings.PROFIT_LOCK_1_TRIGGER_R,
+            profit_lock_1_r=settings.PROFIT_LOCK_1_R,
+            profit_lock_2_trigger_r=settings.PROFIT_LOCK_2_TRIGGER_R,
+            profit_lock_2_r=settings.PROFIT_LOCK_2_R,
+            profit_lock_3_trigger_r=settings.PROFIT_LOCK_3_TRIGGER_R,
+            profit_lock_3_r=settings.PROFIT_LOCK_3_R,
+            mfe_giveback_enabled=settings.MFE_GIVEBACK_ENABLED,
+            mfe_giveback_arm_r=settings.MFE_GIVEBACK_ARM_R,
+            mfe_giveback_warn_r=settings.MFE_GIVEBACK_WARN_R,
+            mfe_giveback_exit_r=settings.MFE_GIVEBACK_EXIT_R,
+            profit_fade_partial_min_r=settings.PROFIT_FADE_PARTIAL_MIN_R,
+            profit_fade_partial_fraction=settings.PROFIT_FADE_PARTIAL_FRACTION,
         )
 
     def _state_for(self, trade: TradeRecord) -> Dict[str, Any]:
@@ -74,18 +90,27 @@ class BacktestSimulator:
             "last_target_replan_at": None,
             "mfe_r": 0.0,
             "mae_r": 0.0,
+            "profit_fade_partial_taken": False,
         })
 
     def _adaptive_decision(self, trade: TradeRecord, candle: Candle):
         """Evaluate the shared manager using only the supplied closed candle."""
-        if self.management_mode != self.ADAPTIVE_MANAGEMENT_V1 or self.management_context_provider is None:
+        if self.management_mode not in {self.ADAPTIVE_MANAGEMENT_V1, self.PROFIT_PROTECTION_V2} or self.management_context_provider is None:
             return None
         context = dict(self.management_context_provider(trade, candle) or {})
         state = self._state_for(trade)
         risk = abs(trade.entry_price - state["initial_stop"])
         current_r = ((candle.close - trade.entry_price) if trade.direction == TradeDirection.LONG else (trade.entry_price - candle.close)) / risk if risk > 0 else 0.0
-        state["mfe_r"] = max(float(state["mfe_r"]), current_r)
-        state["mae_r"] = min(float(state["mae_r"]), current_r)
+        if self.management_mode == self.PROFIT_PROTECTION_V2:
+            favorable = candle.high if trade.direction == TradeDirection.LONG else candle.low
+            adverse = candle.low if trade.direction == TradeDirection.LONG else candle.high
+            favorable_r = ((favorable - trade.entry_price) if trade.direction == TradeDirection.LONG else (trade.entry_price - favorable)) / risk if risk > 0 else 0.0
+            adverse_r = ((adverse - trade.entry_price) if trade.direction == TradeDirection.LONG else (trade.entry_price - adverse)) / risk if risk > 0 else 0.0
+            state["mfe_r"] = max(float(state["mfe_r"]), favorable_r)
+            state["mae_r"] = min(float(state["mae_r"]), adverse_r)
+        else:
+            state["mfe_r"] = max(float(state["mfe_r"]), current_r)
+            state["mae_r"] = min(float(state["mae_r"]), current_r)
         if "trend" in context:
             momentum_support, momentum_opposing, momentum_available = PositionManager.normalize_momentum(
                 trade.direction, context.pop("trend")
@@ -132,6 +157,8 @@ class BacktestSimulator:
             mfe_r=float(state["mfe_r"]),
             mae_r=float(state["mae_r"]),
             management_profile=context.pop("management_profile", ManagementProfile.BALANCED),
+            profit_fade_partial_taken=bool(state["profit_fade_partial_taken"]),
+            confirmed_swing_stop=context.pop("confirmed_swing_stop", None),
         )
 
     def _apply_adaptive_transition(self, trade: TradeRecord, decision) -> None:
@@ -156,6 +183,11 @@ class BacktestSimulator:
             state["target_replan_count"] = decision.target_replan_count
             state["last_target_replan_at"] = decision.last_target_replan_at
             action["tp2"] = new_tp2
+        if decision.target_action.get("action") == "CLOSE_PARTIAL":
+            # V2 event visibility is deterministic; split execution/P&L parity
+            # remains explicitly unclaimed until the simulator models fills.
+            state["profit_fade_partial_taken"] = True
+            action["partial_fraction"] = decision.target_action.get("fraction")
         self._management_events.append(action)
 
     def _finalize_trade(self, trade: TradeRecord, timestamp: int, price: float, reason: str) -> TradeRecord:
@@ -198,7 +230,7 @@ class BacktestSimulator:
                 trade = state.active_position
                 stop_before_exit_check = trade.stop_loss
                 is_closed, reason, exit_price = self.pipeline.exit_engine.evaluate_exit(trade, curr_5m)
-                if self.management_mode == self.ADAPTIVE_MANAGEMENT_V1 and trade.stop_loss != stop_before_exit_check:
+                if self.management_mode in {self.ADAPTIVE_MANAGEMENT_V1, self.PROFIT_PROTECTION_V2} and trade.stop_loss != stop_before_exit_check:
                     management_state = self._state_for(trade)
                     management_state["current_stop"] = trade.stop_loss
                     self._management_events.append({
@@ -211,10 +243,10 @@ class BacktestSimulator:
                     finalized = self._finalize_trade(trade, curr_5m.timestamp, exit_price, reason)
                     state.register_trade_closed(finalized)
                     completed_trades.append(finalized)
-                elif self.management_mode == self.ADAPTIVE_MANAGEMENT_V1:
+                elif self.management_mode in {self.ADAPTIVE_MANAGEMENT_V1, self.PROFIT_PROTECTION_V2}:
                     management = self._adaptive_decision(trade, curr_5m)
                     if management:
-                        if management.state == PositionManagementState.EXIT_EARLY:
+                        if management.state in {PositionManagementState.EXIT_EARLY, PositionManagementState.EXIT_PROFIT_FADE}:
                             finalized = self._finalize_trade(trade, curr_5m.timestamp, curr_5m.close, "ADAPTIVE_EARLY_EXIT")
                             state.register_trade_closed(finalized)
                             completed_trades.append(finalized)
@@ -288,6 +320,18 @@ class BacktestSimulator:
         results["partial_take_profit"] = "NOT_ACTIVE_IN_POSITION_MANAGER_V1"
         results["core_adaptive_management_parity"] = "PASS"
         results["tp_split_execution_pnl_parity"] = "NOT_YET_IMPLEMENTED"
+        mfes = [float(self._management_state.get(t.trade_id, {}).get("mfe_r", 0.0)) for t in completed_trades]
+        realized = [float(t.r_multiple or 0.0) for t in completed_trades]
+        positive_mfe = sum(value for value in mfes if value > 0)
+        results.update({
+            "average_mfe_r": round(sum(mfes) / len(mfes), 4) if mfes else 0.0,
+            "average_realized_r": round(sum(realized) / len(realized), 4) if realized else 0.0,
+            "mfe_capture_ratio": round(sum(max(value, 0.0) for value in realized) / positive_mfe, 4) if positive_mfe else None,
+            "average_winner_giveback_r": round(sum(max(0.0, mfe - result) for mfe, result in zip(mfes, realized) if result > 0) / max(1, sum(result > 0 for result in realized)), 4),
+            "winner_to_loser_count": sum(mfe > 0 and result < 0 for mfe, result in zip(mfes, realized)),
+            "winner_to_breakeven_count": sum(mfe > 0 and result == 0 for mfe, result in zip(mfes, realized)),
+            "mfe_thresholds": {str(level): sum(mfe >= level for mfe in mfes) for level in (.5, .75, 1.0, 1.5, 2.0)},
+        })
 
         logger.info(
             f"Backtest Finished. Total Trades: {results['total_trades']} | "

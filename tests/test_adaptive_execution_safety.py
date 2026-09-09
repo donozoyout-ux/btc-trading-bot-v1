@@ -200,10 +200,10 @@ def test_stop_cancellation_failure_latches_adaptive_changes_with_redundant_stops
     assert any(row["action"] == "PROTECTION_RECONCILIATION_REQUIRED" for row in journal.records)
 
 
-@pytest.mark.parametrize("amount,expected_side,new_stop", [(.5, "SELL", 95), (-.5, "BUY", 105)])
+@pytest.mark.parametrize("amount,expected_side,new_stop", [(.5, "SELL", 95), (-.5, "BUY", 106)])
 def test_stop_replacement_final_set_has_close_side_reduce_only_and_exact_quantity(amount, expected_side, new_stop):
     client = ExchangeFake(amount=amount)
-    client.orders[0].update({"side": expected_side, "quantity": str(abs(amount))})
+    client.orders[0].update({"side": expected_side, "quantity": str(abs(amount)), "triggerPrice": "90" if amount > 0 else "110"})
     executor = SaferTestnetExecutor(client, settings=settings(), execution_journal=MemoryJournal())
     executor._entry_context = baseline(direction="LONG" if amount > 0 else "SHORT", size=abs(amount))
     executor._replace_stop_safely(client.position, new_stop)
