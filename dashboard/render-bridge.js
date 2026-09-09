@@ -119,7 +119,23 @@
     document.head.appendChild(script);
   };
 
-  loadScript('/dashboard-tabs.js', () => loadScript('/trade-tracker.js'));
+  // The compact Turkish V2 dashboard already owns its layout and active-position
+  // panel. Loading the legacy board/tracker scripts on top of V2 re-parented every
+  // section into a 12-column grid, squeezed Render status into one third of the
+  // page and injected a duplicate active-trade panel. Keep those legacy helpers
+  // only for older dashboard markup.
+  const compactV2 = Boolean(document.querySelector('.console-v2'));
+  if (compactV2) {
+    const panel = byId('renderRuntimePanel');
+    const flat = byId('flatStatePanel');
+    const active = byId('activeTradePanel');
+    const anchor = flat || active;
+    if (panel && anchor && anchor.parentElement) {
+      anchor.insertAdjacentElement('afterend', panel);
+    }
+  } else {
+    loadScript('/dashboard-tabs.js', () => loadScript('/trade-tracker.js'));
+  }
 
   loadBootstrap();
   setTimeout(statusFromConnection, 2500);
