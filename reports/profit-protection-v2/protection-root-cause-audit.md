@@ -32,5 +32,4 @@ Base reviewed: `origin/main` at `d7be48bee249eaea745cc6333ff9700bc0eb3cde`.
 
 ## Telegram persistence
 
-`last_alert_type`, `last_alert_reason`, `last_alert_sent_at`, and `active_alert_state` are stored in execution runtime state. Equal active faults do not resend across cycles or restarts. Recovery records and sends exactly one `PROTECTION_RECOVERED`; a later new failure is eligible for a fresh alert.
-
+`last_alert_type`, `last_alert_reason`, `last_alert_sent_at`, and `active_alert_state` are stored in execution runtime state. Equal active faults do not resend across cycles or process restarts **only while the journal storage survives**. Render's ephemeral filesystem does not guarantee this state across an instance replacement or deployment. Recovery records and sends exactly one `PROTECTION_RECOVERED`; a later new failure is eligible for a fresh alert. This patch deliberately does not change deployment infrastructure.

@@ -327,14 +327,27 @@ class SaferTestnetExecutor(TestnetExecutor):
     def _validate_stop(self, order: Dict[str, Any], position: Dict[str, Any], expected_quantity: float) -> bool:
         close_side = "SELL" if float(position.get("position_amt") or 0) > 0 else "BUY"
         quantity = self._order_quantity(order)
+        trigger = self._trigger_price(order)
+        mark = self._safe_float(position.get("mark_price"))
+        directionally_valid = bool(
+            trigger is not None and mark is not None and mark > 0
+            and (trigger < mark if close_side == "SELL" else trigger > mark)
+        )
         tolerance = max(1e-12, expected_quantity * 1e-9)
         return all([
             self._order_type(order) == "STOP_MARKET",
-            self._trigger_price(order) is not None and self._trigger_price(order) > 0,
+            trigger is not None and trigger > 0,
+            directionally_valid,
             str(order.get("side") or "").upper() == close_side,
             self._is_reduce_only(order),
             quantity is not None and abs(quantity - expected_quantity) <= tolerance,
         ])
+
+    def _price_tick_gap(self, symbol: str, mark: float) -> float:
+        getter = getattr(self.client, "price_tick_size", None)
+        if callable(getter):
+            return float(getter(symbol))
+        return max(abs(mark) * 1e-9, 1e-8)
 
     def _validate_target(self, order: Dict[str, Any], position: Dict[str, Any]) -> bool:
         close_side = "SELL" if float(position.get("position_amt") or 0) > 0 else "BUY"
@@ -380,13 +393,27 @@ class SaferTestnetExecutor(TestnetExecutor):
         old_stops = [order for order in orders if self._order_type(order) == "STOP_MARKET"]
         if not old_stops:
             raise ExecutionError("UNPROTECTED_TESTNET_POSITION")
-        side = "SELL" if float(position["position_amt"]) > 0 else "BUY"
+        is_long = float(position["position_amt"]) > 0
+        side = "SELL" if is_long else "BUY"
         quantity = abs(float(position["position_amt"]))
-        new_order = self.client.place_protective_order("BTCUSDT", side, "STOP_MARKET", quantity, new_stop)
+        mark_getter = getattr(self.client, "get_mark_price", None)
+        mark = self._safe_float(mark_getter("BTCUSDT")) if callable(mark_getter) else self._safe_float(position.get("mark_price"))
+        if mark is None or mark <= 0:
+            raise ExecutionError("MARK_PRICE_UNAVAILABLE")
+        normalizer = getattr(self.client, "normalize_price", None)
+        normalized_stop = float(normalizer("BTCUSDT", new_stop)) if callable(normalizer) else float(new_stop)
+        gap = self._price_tick_gap("BTCUSDT", mark)
+        if (is_long and normalized_stop > mark - gap) or (not is_long and normalized_stop < mark + gap):
+            raise ExecutionError("STOP_TRIGGER_WOULD_IMMEDIATELY_FIRE")
+        old_trigger = self._trigger_price(old_stops[0])
+        if old_trigger is not None and ((is_long and normalized_stop < old_trigger) or (not is_long and normalized_stop > old_trigger)):
+            raise ExecutionError("STOP_WIDENING_BLOCKED")
+        validation_position = dict(position, mark_price=mark)
+        new_order = self.client.place_protective_order("BTCUSDT", side, "STOP_MARKET", quantity, normalized_stop)
         new_id = new_order.get("binance_order_id")
         verified = self.client.get_open_algo_orders("BTCUSDT")
         verified_new = next((row for row in verified if row.get("algoId") == new_id), None)
-        if verified_new is None or not self._validate_stop(verified_new, position, quantity):
+        if verified_new is None or not self._validate_stop(verified_new, validation_position, quantity):
             raise ExecutionError("PROTECTION_REPLACEMENT_FAILED")
         try:
             for old in old_stops:
@@ -397,7 +424,7 @@ class SaferTestnetExecutor(TestnetExecutor):
             raise ExecutionError("PROTECTION_RECONCILIATION_REQUIRED") from None
         final = self.client.get_open_algo_orders("BTCUSDT")
         final_stops = [row for row in final if self._order_type(row) == "STOP_MARKET"]
-        if len(final_stops) != 1 or final_stops[0].get("algoId") != new_id or not self._validate_stop(final_stops[0], position, quantity):
+        if len(final_stops) != 1 or final_stops[0].get("algoId") != new_id or not self._validate_stop(final_stops[0], validation_position, quantity):
             self._mark_protection_reconciliation_required(position, "STOP_SET_MISMATCH")
             raise ExecutionError("PROTECTION_RECONCILIATION_REQUIRED")
         new_order["role"] = "STOP"
@@ -999,11 +1026,22 @@ class SaferTestnetExecutor(TestnetExecutor):
         mark = float(position.get("mark_price") or snapshot.get("market", {}).get("mark_price") or snapshot.get("market", {}).get("price") or 0)
         risk = abs(entry - float(initial_stop))
         observed_r = ((mark - entry) if is_long else (entry - mark)) / risk if risk > 0 and mark > 0 else 0.0
-        closed_price = self._safe_float(closed_candle.get("close"))
-        closed_r = ((closed_price - entry) if is_long else (entry - closed_price)) / risk if risk > 0 and closed_price is not None and closed_price > 0 else 0.0
-        if closed_price is not None and closed_price > 0:
-            self.management_mfe_r = max(self.management_mfe_r, closed_r)
-            self.management_mae_r = min(self.management_mae_r, closed_r)
+        closed_high = self._safe_float(closed_candle.get("high"))
+        closed_low = self._safe_float(closed_candle.get("low"))
+        favorable_price = closed_high if is_long else closed_low
+        adverse_price = closed_low if is_long else closed_high
+        closed_candle_mfe_r = (
+            ((favorable_price - entry) if is_long else (entry - favorable_price)) / risk
+            if risk > 0 and favorable_price is not None and favorable_price > 0 else None
+        )
+        closed_candle_mae_r = (
+            ((adverse_price - entry) if is_long else (entry - adverse_price)) / risk
+            if risk > 0 and adverse_price is not None and adverse_price > 0 else None
+        )
+        if closed_candle_mfe_r is not None:
+            self.management_mfe_r = max(self.management_mfe_r, closed_candle_mfe_r)
+        if closed_candle_mae_r is not None:
+            self.management_mae_r = min(self.management_mae_r, closed_candle_mae_r)
         frame = snapshot.get("chart_intelligence", {}).get("timeframes", {}).get("5m", {})
         direction = TradeDirection.LONG if is_long else TradeDirection.SHORT
         momentum_support, momentum_opposing, momentum_available = self.position_manager.normalize_momentum(
@@ -1047,6 +1085,7 @@ class SaferTestnetExecutor(TestnetExecutor):
             management_profile=ManagementProfile(str(self._entry_context.get("management_profile") or ManagementProfile.BALANCED.value)),
             profit_fade_partial_taken=self.profit_fade_partial_taken,
             confirmed_swing_stop=confirmed_swing_stop,
+            stop_min_gap=self._price_tick_gap("BTCUSDT", mark),
         )
         tp1 = (min(prices) if is_long else max(prices)) if prices else None
         new_stop = decision.stop_action.get("new_stop")
@@ -1068,6 +1107,8 @@ class SaferTestnetExecutor(TestnetExecutor):
             "volatility": snapshot.get("decision", {}).get("volatility"),
             "structure": frame.get("structure"),
             "timestamp": candle_ts,
+            "closed_candle_mfe_r": closed_candle_mfe_r,
+            "closed_candle_mae_r": closed_candle_mae_r,
         })
         self.last_management_decision = payload
         try:

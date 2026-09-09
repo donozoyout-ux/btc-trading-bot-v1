@@ -33,12 +33,17 @@ class ProtectionClient:
             {"algoId": 1, "orderType": "STOP_MARKET", "side": "SELL", "triggerPrice": "90", "quantity": ".5", "reduceOnly": True},
         ]
         self.next_id = 2
+        self.calls = []
     def get_position(self, _symbol="BTCUSDT"): return dict(self.position)
     def get_positions(self): return [dict(self.position)]
     def get_open_orders(self, _symbol=None): return []
     def get_open_algo_orders(self, _symbol=None): return [dict(row) for row in self.orders]
     def normalize_quantity(self, _symbol, quantity, **_kwargs): return round(float(quantity), 3)
+    def normalize_price(self, _symbol, price): return int(float(price) * 10) / 10
+    def price_tick_size(self, _symbol): return .1
+    def get_mark_price(self, _symbol="BTCUSDT"): return float(self.position["mark_price"])
     def place_protective_order(self, _symbol, side, order_type, quantity, stop_price):
+        self.calls.append(("place", order_type, quantity, stop_price))
         self.next_id = max([row["algoId"] for row in self.orders] + [self.next_id - 1]) + 1
         row = {"algoId": self.next_id, "orderType": order_type, "side": side, "triggerPrice": str(stop_price), "quantity": str(quantity), "reduceOnly": True}
         self.next_id += 1
@@ -134,6 +139,35 @@ def test_profit_v2_does_not_act_before_arm_and_calculates_long_short_r():
     assert long.profit_giveback_r == short.profit_giveback_r == .4
 
 
+@pytest.mark.parametrize(
+    "direction,mark,current_stop",
+    [(TradeDirection.LONG, 104, 90), (TradeDirection.SHORT, 96, 110)],
+)
+def test_historical_1_5r_lock_crossed_cannot_create_impossible_stop(direction, mark, current_stop):
+    result = decision(direction, mark, mfe_r=1.5, current_stop=current_stop)
+    assert result.stop_action == {}
+    assert "HISTORICAL_PROFIT_LOCK_ALREADY_CROSSED" in result.reason_codes
+    assert result.protected_r == -1.0
+
+
+@pytest.mark.parametrize("amount,mark,candidate", [(0.5, 104, 104), (-0.5, 96, 96)])
+def test_executor_rejects_cross_mark_stop_before_any_order_and_preserves_old(amount, mark, candidate):
+    client = ProtectionClient()
+    client.position.update({"position_amt": amount, "side": "LONG" if amount > 0 else "SHORT", "mark_price": mark})
+    close_side = "SELL" if amount > 0 else "BUY"
+    old_stop = 90 if amount > 0 else 110
+    client.orders = [
+        {"algoId": 1, "orderType": "STOP_MARKET", "side": close_side, "triggerPrice": str(old_stop), "quantity": ".5", "reduceOnly": True},
+        {"algoId": 2, "orderType": "TAKE_PROFIT_MARKET", "side": close_side, "triggerPrice": "120" if amount > 0 else "80", "quantity": ".5", "reduceOnly": True},
+    ]
+    executor = SaferTestnetExecutor(client, settings=settings(), execution_journal=MemoryJournal())
+    before = list(client.orders)
+    with pytest.raises(Exception, match="STOP_TRIGGER_WOULD_IMMEDIATELY_FIRE"):
+        executor._replace_stop_safely(client.position, candidate)
+    assert client.calls == []
+    assert client.orders == before
+
+
 def test_profit_fade_protects_and_blocks_target_extension():
     faded = decision(mark=108, mfe_r=1.2, momentum_support=False, momentum_opposing=True,
                      current_tp2=120, candidate_tp2=130)
@@ -155,7 +189,7 @@ def test_deterioration_after_1_5r_tightens_and_confirmed_second_fade_exits():
     protect = decision(mark=110, mfe_r=1.5, momentum_support=False, momentum_opposing=True,
                        volume_support=False, profit_fade_partial_taken=False)
     exit_fade = decision(mark=109, mfe_r=1.5, momentum_support=False, momentum_opposing=True,
-                         volume_support=False, profit_fade_partial_taken=True)
+                         volume_support=False, profit_fade_partial_taken=False)
     assert protect.stop_action["new_stop"] >= 106
     assert exit_fade.state == PositionManagementState.EXIT_PROFIT_FADE
 
@@ -202,10 +236,65 @@ def test_open_5m_candle_cannot_change_mfe_or_management_timestamp():
     client.orders.append({"algoId": 2, "orderType": "TAKE_PROFIT_MARKET", "side": "SELL", "triggerPrice": "120", "quantity": ".5", "reduceOnly": True})
     executor = SaferTestnetExecutor(client, settings=settings(), execution_journal=MemoryJournal())
     executor._entry_context = context()
-    result = executor.manage_adaptive_position({"candles": {"5m": [{"time": 1, "close": 115, "is_closed": False}]}}, BotState(), client.position)
+    result = executor.manage_adaptive_position({"candles": {"5m": [{"time": 1, "high": 130, "low": 70, "close": 115, "is_closed": False}]}}, BotState(), client.position)
     assert result["status"] == "MANAGEMENT_NO_CHANGE"
     assert executor.management_mfe_r == 0
+    assert executor.management_mae_r == 0
     assert executor.last_management_closed_5m_timestamp is None
+
+
+def _extrema_snapshot(candle, *, mark, direction):
+    return {
+        "candles": {"5m": [candle]},
+        "market": {"mark_price": mark},
+        "sources": {"binance": {"status": "OFFLINE", "market_data_trading_safe": False}},
+        "decision": {"regime": "BULL" if direction == "LONG" else "BEAR", "volatility": "NORMAL"},
+        "chart_intelligence": {"timeframes": {"5m": {"status": "UNAVAILABLE", "closed_candles": 1, "structure": "MIXED"}}},
+        "zones": [],
+    }
+
+
+@pytest.mark.parametrize(
+    "amount,candle,expected_mfe,expected_mae",
+    [
+        (.5, {"time": 2, "open": 100, "high": 113, "low": 95, "close": 107, "is_closed": True}, 1.3, -.5),
+        (-.5, {"time": 2, "open": 100, "high": 105, "low": 87, "close": 93, "is_closed": True}, 1.3, -.5),
+    ],
+)
+def test_closed_candle_extrema_update_mfe_and_mae_for_both_directions(amount, candle, expected_mfe, expected_mae):
+    client = ProtectionClient()
+    direction = "LONG" if amount > 0 else "SHORT"
+    client.position.update({"position_amt": amount, "side": direction, "mark_price": candle["close"]})
+    close_side = "SELL" if amount > 0 else "BUY"
+    client.orders = [
+        {"algoId": 1, "orderType": "STOP_MARKET", "side": close_side, "triggerPrice": "90" if amount > 0 else "110", "quantity": ".5", "reduceOnly": True},
+        {"algoId": 2, "orderType": "TAKE_PROFIT_MARKET", "side": close_side, "triggerPrice": "120" if amount > 0 else "80", "quantity": ".5", "reduceOnly": True},
+    ]
+    executor = SaferTestnetExecutor(client, settings=settings(), execution_journal=MemoryJournal())
+    executor._entry_context = context() | {"direction": direction, "actual_initial_stop": 90 if amount > 0 else 110}
+    executor.manage_adaptive_position(_extrema_snapshot(candle, mark=candle["close"], direction=direction), BotState(), client.position)
+    assert executor.management_mfe_r == pytest.approx(expected_mfe)
+    assert executor.management_mae_r == pytest.approx(expected_mae)
+
+
+def test_closed_high_then_lower_current_mark_produces_giveback_and_valid_protected_r():
+    client = ProtectionClient()
+    client.position["mark_price"] = 107
+    client.orders.append({"algoId": 2, "orderType": "TAKE_PROFIT_MARKET", "side": "SELL", "triggerPrice": "120", "quantity": ".5", "reduceOnly": True})
+    executor = SaferTestnetExecutor(client, settings=settings(), execution_journal=MemoryJournal())
+    executor._entry_context = context()
+    candle = {"time": 3, "open": 100, "high": 113, "low": 99, "close": 107, "is_closed": True}
+    snapshot = _extrema_snapshot(candle, mark=107, direction="LONG")
+    snapshot["sources"]["binance"] = {"status": "HEALTHY", "market_data_trading_safe": True}
+    snapshot["chart_intelligence"]["timeframes"]["5m"].update({"status": "AVAILABLE", "closed_candles": 30, "trend": "UP", "volume_state": "NORMAL"})
+    result = executor.manage_adaptive_position(snapshot, BotState(), client.position)
+    intel = result["position_intelligence"]
+    assert intel["mfe_r"] == pytest.approx(1.3)
+    assert intel["current_r"] == pytest.approx(.7)
+    assert intel["profit_giveback_r"] == pytest.approx(.6)
+    assert intel["protected_r"] == pytest.approx(.2)
+    assert intel["new_stop"] == pytest.approx(102)
+    assert intel["new_stop"] < 107
 
 
 def test_partial_quantity_cannot_equal_or_exceed_remaining():

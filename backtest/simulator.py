@@ -101,8 +101,16 @@ class BacktestSimulator:
         state = self._state_for(trade)
         risk = abs(trade.entry_price - state["initial_stop"])
         current_r = ((candle.close - trade.entry_price) if trade.direction == TradeDirection.LONG else (trade.entry_price - candle.close)) / risk if risk > 0 else 0.0
-        state["mfe_r"] = max(float(state["mfe_r"]), current_r)
-        state["mae_r"] = min(float(state["mae_r"]), current_r)
+        if self.management_mode == self.PROFIT_PROTECTION_V2:
+            favorable = candle.high if trade.direction == TradeDirection.LONG else candle.low
+            adverse = candle.low if trade.direction == TradeDirection.LONG else candle.high
+            favorable_r = ((favorable - trade.entry_price) if trade.direction == TradeDirection.LONG else (trade.entry_price - favorable)) / risk if risk > 0 else 0.0
+            adverse_r = ((adverse - trade.entry_price) if trade.direction == TradeDirection.LONG else (trade.entry_price - adverse)) / risk if risk > 0 else 0.0
+            state["mfe_r"] = max(float(state["mfe_r"]), favorable_r)
+            state["mae_r"] = min(float(state["mae_r"]), adverse_r)
+        else:
+            state["mfe_r"] = max(float(state["mfe_r"]), current_r)
+            state["mae_r"] = min(float(state["mae_r"]), current_r)
         if "trend" in context:
             momentum_support, momentum_opposing, momentum_available = PositionManager.normalize_momentum(
                 trade.direction, context.pop("trend")

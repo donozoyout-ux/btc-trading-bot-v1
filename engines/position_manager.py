@@ -73,7 +73,8 @@ class PositionManager:
                  last_target_replan_at: Optional[int] = None, mfe_r: float = 0.0,
                  mae_r: float = 0.0, management_profile: ManagementProfile = ManagementProfile.BALANCED,
                  profit_fade_partial_taken: bool = False,
-                 confirmed_swing_stop: Optional[float] = None) -> PositionManagementDecision:
+                 confirmed_swing_stop: Optional[float] = None,
+                 stop_min_gap: float = 0.0) -> PositionManagementDecision:
         risk = abs(entry - initial_stop)
         if risk <= 0 or not candle_closed or not data_healthy:
             return self._decision(PositionManagementState.NO_CHANGE, ["MARKET_ANALYSIS_UNAVAILABLE_KEEP_EXISTING_PROTECTION"], 0, mfe_r, mae_r,
@@ -157,17 +158,27 @@ class PositionManager:
                 locked_r = 0.0
 
             desired_stop = current_stop
+            historical_lock_crossed = False
+            candidate_is_valid = lambda value: (
+                value < mark - stop_min_gap if direction == TradeDirection.LONG
+                else value > mark + stop_min_gap
+            )
             if locked_r is not None:
                 ladder_stop = entry + risk * locked_r * (1 if direction == TradeDirection.LONG else -1)
-                desired_stop = max(desired_stop, ladder_stop) if direction == TradeDirection.LONG else min(desired_stop, ladder_stop)
-            if confirmed_swing_stop is not None:
+                if candidate_is_valid(ladder_stop):
+                    desired_stop = max(desired_stop, ladder_stop) if direction == TradeDirection.LONG else min(desired_stop, ladder_stop)
+                else:
+                    historical_lock_crossed = True
+            if confirmed_swing_stop is not None and candidate_is_valid(confirmed_swing_stop):
                 # The caller supplies only a confirmed closed-5M swing with its ATR buffer.
                 desired_stop = max(desired_stop, confirmed_swing_stop) if direction == TradeDirection.LONG else min(desired_stop, confirmed_swing_stop)
             desired_protected_r = ((desired_stop - entry) if direction == TradeDirection.LONG else (entry - desired_stop)) / risk
 
             if giveback_warn and fade_signals:
                 reasons = ["MFE_GIVEBACK_WARNING", "PROFIT_FADE_CONFIRMED", "TARGET_EXTENSION_BLOCKED_PROFIT_FADE", "STOP_NEVER_WIDENS"]
-                if fade_signals >= 2 and giveback_r >= self.mfe_giveback_exit_r and profit_fade_partial_taken:
+                if historical_lock_crossed:
+                    reasons.append("HISTORICAL_PROFIT_LOCK_ALREADY_CROSSED")
+                if fade_signals >= 2 and giveback_r >= self.mfe_giveback_exit_r:
                     return self._decision(PositionManagementState.EXIT_PROFIT_FADE, reasons + ["PROFIT_FADE_EXIT"], current_r, mfe_r, mae_r,
                                           True, structure_valid, regime_support, momentum_support, momentum_opposing, momentum_available,
                                           volume_support, volume_available, management_profile, target_replan_count, last_target_replan_at,
@@ -193,6 +204,8 @@ class PositionManager:
                 target_action = {}
                 next_replan_count, next_replan_at = target_replan_count, last_target_replan_at
                 reasons = ["STRONG_CONTINUATION", "PROFIT_RUNNER", "STOP_NEVER_WIDENS"]
+                if historical_lock_crossed:
+                    reasons.append("HISTORICAL_PROFIT_LOCK_ALREADY_CROSSED")
                 if (self.target_replan_enabled and current_r >= self.target_replan_min_r and strong_regime
                         and target_extends and cooldown_ok and target_replan_count < self.max_target_replans):
                     target_action = {"action": "REPLACE_TP2", "new_tp2": candidate_tp2, "quantity_increase": 0}
@@ -205,12 +218,18 @@ class PositionManager:
                                       profit_giveback_r=giveback_r, protected_r=desired_protected_r)
 
             if desired_stop != current_stop:
-                return self._decision(PositionManagementState.PROFIT_PROTECT, ["PROFIT_LOCK_LADDER", "STOP_NEVER_WIDENS"], current_r, mfe_r, mae_r,
+                reasons = ["PROFIT_LOCK_LADDER", "STOP_NEVER_WIDENS"]
+                if historical_lock_crossed:
+                    reasons.append("HISTORICAL_PROFIT_LOCK_ALREADY_CROSSED")
+                return self._decision(PositionManagementState.PROFIT_PROTECT, reasons, current_r, mfe_r, mae_r,
                                       True, structure_valid, regime_support, momentum_support, momentum_opposing, momentum_available,
                                       volume_support, volume_available, management_profile, target_replan_count, last_target_replan_at,
                                       stop_action={"action": "TIGHTEN_STOP", "new_stop": desired_stop, "quantity_increase": 0},
                                       profit_giveback_r=giveback_r, protected_r=desired_protected_r)
-            return self._decision(PositionManagementState.PROFIT_HOLD, ["PROFIT_ARMED", "NO_OBJECTIVE_MANAGEMENT_CHANGE"], current_r, mfe_r, mae_r,
+            reasons = ["PROFIT_ARMED", "NO_OBJECTIVE_MANAGEMENT_CHANGE"]
+            if historical_lock_crossed:
+                reasons.append("HISTORICAL_PROFIT_LOCK_ALREADY_CROSSED")
+            return self._decision(PositionManagementState.PROFIT_HOLD, reasons, current_r, mfe_r, mae_r,
                                   True, structure_valid, regime_support, momentum_support, momentum_opposing, momentum_available,
                                   volume_support, volume_available, management_profile, target_replan_count, last_target_replan_at,
                                   profit_giveback_r=giveback_r, protected_r=protected_r)

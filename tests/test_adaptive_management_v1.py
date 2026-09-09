@@ -211,6 +211,9 @@ class _ProtectionClient:
     def normalize_quantity(self, _symbol, quantity, **_kwargs):
         return round(float(quantity), 3)
 
+    def get_mark_price(self, _symbol="BTCUSDT"):
+        return 100.0
+
     def get_open_algo_orders(self, _symbol):
         return [dict(row) for row in self.orders]
 

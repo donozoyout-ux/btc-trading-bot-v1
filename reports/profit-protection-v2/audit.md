@@ -14,9 +14,12 @@
 | PROFIT FADE PARTIAL | At most once per position; 35% initial hypothesis; reduce-only and reconciled |
 | RUNNER LOGIC | Healthy structure/regime/momentum/volume may remain `PROFIT_TRAIL` |
 | TP2 GREED CONTROL | Profit fade emits `TARGET_EXTENSION_BLOCKED_PROFIT_FADE` and cannot extend TP2 |
-| RESTART PERSISTENCE | MFE, partial-used flag, position intelligence, reconciliation and alert state persisted |
+| RESTART PERSISTENCE | MFE, partial-used flag, position intelligence, reconciliation and alert state persist only while journal storage survives; Render instance replacement/deploy may lose ephemeral files |
 | MAINNET | BLOCKED by unchanged TESTNET execution boundary |
-| TESTS | 303 passed / 0 failed at implementation validation |
+| STOP CROSS-MARK GUARD | Normalized replacement trigger is checked against authoritative mark plus one exchange tick before order creation |
+| CLOSED-CANDLE EXTREMA | LONG high/low and SHORT low/high update persisted MFE/MAE only after the 5M candle closes |
+| PROTECTED-R TELEMETRY | Reports the current stop or an achievable directionally valid candidate; historical crossed lock floors are not claimed |
+| TESTS | 310 passed / 0 failed at final safety validation |
 
 The configured V2 values are labelled **INITIAL HYPOTHESES** in `config/hypotheses.py`. They are not claimed as optimized or production guarantees. V1 remains selectable as `ADAPTIVE_MANAGEMENT_V1`; V2 is separately selectable as `PROFIT_PROTECTION_V2`.
 
