@@ -17,6 +17,7 @@ import requests
 from loguru import logger
 
 from core.models import Candle
+from engines.daily_trade_ledger import DailyTradeLedger
 
 
 class BinanceAccountError(RuntimeError):
@@ -582,6 +583,26 @@ class BinanceFuturesAccountClient:
             for item in payload
         ]
 
+    def get_user_trades(self, symbol: str = "BTCUSDT", limit: int = 1000) -> List[Dict[str, Any]]:
+        """Return recent signed fills used only for lifecycle reconstruction."""
+        payload = self._signed_get("/fapi/v1/userTrades", {"symbol": symbol, "limit": min(limit, 1000)})
+        if not isinstance(payload, list):
+            raise BinanceAccountError("ACCOUNT_UNAVAILABLE")
+        return [dict(item) for item in payload]
+
+    def get_daily_trade_ledger(self, symbol: str = "BTCUSDT", now: Optional[datetime] = None) -> Dict[str, Any]:
+        start_ms, end_ms = self._istanbul_day_bounds_ms(now)
+        rows = self.get_user_trades(symbol)
+        result = DailyTradeLedger().build(rows, day_start_ms=start_ms, day_end_ms=end_ms, symbol=symbol)
+        result.update({
+            "timezone": "Europe/Istanbul",
+            "date_istanbul": datetime.fromtimestamp(start_ms / 1000, ZoneInfo("Europe/Istanbul")).date().isoformat(),
+            "day_start_ms": start_ms,
+            "day_end_ms": end_ms,
+            "observed_at": int(time.time() * 1000),
+        })
+        return result
+
     @staticmethod
     def _istanbul_day_bounds_ms(now: Optional[datetime] = None) -> tuple[int, int]:
         """Return the current Europe/Istanbul calendar-day bounds in UTC ms."""
@@ -694,6 +715,16 @@ class BinanceFuturesAccountClient:
                 "losing_trades": None,
                 "observed_at": None,
             }
+        try:
+            daily_trade_ledger = self.get_daily_trade_ledger()
+        except BinanceAccountError as exc:
+            daily_trade_ledger = {
+                "status": "UNAVAILABLE", "source": "BINANCE_TESTNET_USER_TRADES",
+                "error_category": exc.category, "opened_trades_today": None,
+                "currently_opened_today": None, "closed_trades_today": None,
+                "winning_trades_today": None, "losing_trades_today": None,
+                "observed_at": None,
+            }
         return {
             "account_type": "USD-M FUTURES",
             "environment": "TESTNET",
@@ -716,4 +747,5 @@ class BinanceFuturesAccountClient:
             "positions": positions,
             "open_orders": orders,
             "daily_performance": daily_performance,
+            "daily_trade_ledger": daily_trade_ledger,
         }

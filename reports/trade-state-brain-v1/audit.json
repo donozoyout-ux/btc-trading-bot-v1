@@ -1,0 +1,30 @@
+{
+  "branch": "codex/trade-state-brain-v1",
+  "base_main_sha": "b02a4d3f0d17ac6218203ac0093e69ab1ae232a3",
+  "new_commit_sha": "0b11c3b211997906a88c6a900ffd2780cc27dba7",
+  "checks": {
+    "canonical_active_trade": "PASS",
+    "field_level_source_merge": "PASS",
+    "exchange_stop_tp": "PASS",
+    "daily_opened_trade_count": "PASS",
+    "partial_fill_dedupe": "PASS",
+    "restart_reconstruction": "PASS",
+    "initial_stop_integrity": "PASS",
+    "mfe_rebuild": "PASS",
+    "durable_state_interface": "PASS",
+    "ui_no_unexplained_blanks": "PASS"
+  },
+  "validation": {
+    "compileall": "PASS",
+    "dashboard_self_test": "PASS",
+    "pytest": "PASS (335 passed)",
+    "node_check": "PASS",
+    "secret_scan": "PASS",
+    "git_diff_check": "PASS"
+  },
+  "trading_logic_changed": false,
+  "mainnet": "BLOCKED",
+  "live_orders": false,
+  "merge": false,
+  "deploy": false
+}

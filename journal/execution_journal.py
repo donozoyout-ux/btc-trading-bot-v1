@@ -8,13 +8,20 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from storage.state_repository import StateRepository, create_state_repository, sanitize_state
+
 
 class ExecutionJournal:
-    def __init__(self, log_dir: str = "journal_logs"):
+    def __init__(self, log_dir: str = "journal_logs", state_repository: Optional[StateRepository] = None):
         self.directory = Path(log_dir)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.events_file = self.directory / "execution_events.jsonl"
         self.state_file = self.directory / "execution_state.json"
+        self.state_repository = state_repository or create_state_repository(self.state_file)
+
+    @property
+    def durable_state(self) -> str:
+        return self.state_repository.durability
 
     def record(
         self,
@@ -54,14 +61,12 @@ class ExecutionJournal:
         return event
 
     def write_state(self, state: Dict[str, Any]) -> None:
-        safe = dict(state)
+        safe = sanitize_state(dict(state))
         safe["updated_at"] = int(time.time() * 1000)
-        self.state_file.write_text(json.dumps(safe, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.state_repository.save("execution_state", safe)
 
     def read_state(self) -> Dict[str, Any]:
-        if not self.state_file.exists():
-            return {}
         try:
-            return json.loads(self.state_file.read_text(encoding="utf-8"))
+            return self.state_repository.load("execution_state")
         except (OSError, ValueError, TypeError):
             return {}
