@@ -40,6 +40,7 @@ from engines.regime_engine import MarketRegimeEngine
 from engines.chart_reader_v3 import ChartReadingEngineV3, MultiTimeframeInterpreter
 from engines.strategy_orchestrator import StrategyOrchestrator
 from engines.volatility_engine import VolatilityEngine
+from engines.trade_state_engine import ActiveTradeStateEngine
 from integrations.ai_analyst import AIAnalystError, AIAnalystV2
 from integrations.news_engine import NewsEngineV2
 from journal.shadow_journal import ShadowDecisionJournal
@@ -100,6 +101,12 @@ def _empty_account(
             "winning_trades": None,
             "losing_trades": None,
             "observed_at": None,
+        },
+        "daily_trade_ledger": {
+            "status": "UNAVAILABLE", "source": "BINANCE_TESTNET_USER_TRADES",
+            "opened_trades_today": None, "currently_opened_today": None,
+            "closed_trades_today": None, "winning_trades_today": None,
+            "losing_trades_today": None, "observed_at": None,
         },
         "updated_at": int(time.time() * 1000),
     }
@@ -287,6 +294,7 @@ class DashboardRuntime:
         self.strategy_orchestrator = StrategyOrchestrator()
         self.shadow_journal = shadow_journal or ShadowDecisionJournal(self.settings.JOURNAL_DIR)
         self.execution_journal = ExecutionJournal(self.settings.JOURNAL_DIR)
+        self.trade_state_engine = ActiveTradeStateEngine("BTCUSDT")
         self.pipeline = MasterPipeline(self.settings)
         self.state = BotState(
             account_balance_usdt=self.settings.INITIAL_CAPITAL_USDT,
@@ -368,6 +376,8 @@ class DashboardRuntime:
                     "open_orders": raw.get("open_orders", []),
                     "daily_performance": raw.get("daily_performance")
                     or _empty_account()["daily_performance"],
+                    "daily_trade_ledger": raw.get("daily_trade_ledger")
+                    or _empty_account()["daily_trade_ledger"],
                     "updated_at": int(time.time() * 1000),
                 }
                 self._account_snapshot = result
@@ -607,6 +617,27 @@ class DashboardRuntime:
                 execution_state["bot_status"] = "STOPPED"
                 execution_state["execution_thread"] = "DISABLED"
 
+            feature_context = {
+                "4h_regime": _jsonable(report.regime),
+                "1h_structure": _jsonable(report.structure_1h),
+                "15m_structure": _jsonable(getattr(report, "structure_15m", None)),
+                "5m_momentum": (chart_intelligence.get("timeframes", {}).get("5m", {}) or {}).get("momentum"),
+                "5m_volume": (chart_intelligence.get("timeframes", {}).get("5m", {}) or {}).get("volume_state"),
+                "choch": (chart_intelligence.get("timeframes", {}).get("5m", {}) or {}).get("choch"),
+                "bos": (chart_intelligence.get("timeframes", {}).get("5m", {}) or {}).get("bos"),
+                "atr": indicator_payload.get("5m", {}).get("latest", {}).get("atr14"),
+                "rsi": indicator_payload.get("5m", {}).get("latest", {}).get("rsi14"),
+                "adx": indicator_payload.get("5m", {}).get("latest", {}).get("adx14"),
+            }
+            active_trade = self.trade_state_engine.build(
+                account=account,
+                execution=execution_state,
+                mark_price=mark_price,
+                closed_5m_candles=candles["5m"],
+                durable_state=self.execution_journal.durable_state,
+                features=feature_context,
+            )
+
             snapshot = {
                 "decision_id": decision_id,
                 "final_decision": self.strategy_orchestrator.final_decision(report),
@@ -682,6 +713,8 @@ class DashboardRuntime:
                 },
                 "account": account_summary,
                 "execution": execution_state,
+                "active_trade": active_trade,
+                "daily_trade_ledger": account.get("daily_trade_ledger", _empty_account()["daily_trade_ledger"]),
                 "sources": {
                     "binance": {
                         "status": binance_source_status,
