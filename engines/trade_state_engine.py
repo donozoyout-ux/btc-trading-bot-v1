@@ -112,7 +112,7 @@ class ActiveTradeStateEngine:
         initial_qty = context.get("actual_initial_position_size") or recovered.get("initial_quantity")
         baseline_verified = context.get("exchange_baseline_verified") is True and all(context.get(k) is not None for k in ("actual_entry_price", "actual_initial_position_size", "actual_initial_stop", "entry_opened_at"))
         initial_stop = _num(context.get("actual_initial_stop")) if baseline_verified else None
-        context_status = "VERIFIED" if baseline_verified else "PARTIAL" if entry is not None else "UNAVAILABLE"
+        context_status = str(context.get("context_status") or ("VERIFIED" if baseline_verified else "PARTIAL" if entry is not None else "UNAVAILABLE"))
         if entry is None or mark is None:
             return {
                 "status": "ACTIVE", "symbol": self.symbol, "side": side,
@@ -153,7 +153,7 @@ class ActiveTradeStateEngine:
             "tp1_role": "TP1" if len(targets) > 1 else "TP_FINAL" if targets else None,
             "tp2_price": targets[1][0] if len(targets) > 1 else None, "tp2_quantity": _num(targets[1][1].get("quantity")) if len(targets) > 1 else None,
             "entry_opened_at": opened_at, "age_minutes": max(0, (int(time.time()*1000) - int(opened_at)) / 60000) if opened_at else None,
-            "initial_stop": initial_stop, **r, "protected_r": protected_r,
+            "initial_stop": initial_stop, "initial_stop_source": context.get("initial_stop_source") or ("PERSISTED_ENTRY_CONTEXT" if baseline_verified else "UNAVAILABLE"), **r, "protected_r": protected_r,
             "management_state": management, "management_profile": context.get("management_profile") or intelligence.get("management_profile"),
             "thesis_state": "VALID" if intelligence.get("thesis_valid") is True else "INVALID" if intelligence.get("thesis_valid") is False else "UNAVAILABLE",
             "reason_codes": reason_codes, "context_status": context_status, "position_intelligence_status": pi_status,
@@ -163,6 +163,6 @@ class ActiveTradeStateEngine:
         if baseline_verified:
             result["trade_summary"] = {"title": f"{side} pozisyon {r['current_r']:+.2f}R seviyesinde.", "state": management, "explanation": f"MFE {r['mfe_r']:.2f}R, geri verme {r['giveback_r']:.2f}R.", "next_expected_action": "Bir sonraki kapalı 5D mumda yeniden değerlendirilecek."}
         else:
-            result["trade_summary"] = {"title": "Binance pozisyonu bulundu.", "state": "RESTART_CONTEXT_PARTIAL", "explanation": "Başlangıç stop bağlamı doğrulanamadı; exchange koruması ayrı olarak izleniyor.", "next_expected_action": "R tabanlı yönetim güvenlik nedeniyle devre dışı."}
+            result["trade_summary"] = {"title": "Binance pozisyonu bulundu.", "state": "RESTART_CONTEXT_PARTIAL", "explanation": "Orijinal başlangıç stopu Binance geçmişinden doğrulanamadı.", "next_expected_action": "Exchange koruması izleniyor; R tabanlı yönetim güvenlik nedeniyle devre dışı."}
         result["trade_state_features"] = {**(features or {}), "side": side, "current_r": r["current_r"], "mfe_r": r["mfe_r"], "giveback_r": r["giveback_r"], "protected_r": protected_r, "position_age": result["age_minutes"], "current_unrealized_pnl": result["unrealized_pnl"], "profit_protection_state": result["protection_status"]}
         return result

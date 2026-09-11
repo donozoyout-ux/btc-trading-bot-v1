@@ -590,6 +590,18 @@ class BinanceFuturesAccountClient:
             raise BinanceAccountError("ACCOUNT_UNAVAILABLE")
         return [dict(item) for item in payload]
 
+    def get_order_history(self, symbol: str = "BTCUSDT", limit: int = 1000) -> List[Dict[str, Any]]:
+        payload = self._signed_get("/fapi/v1/allOrders", {"symbol": symbol, "limit": min(limit, 1000)})
+        if not isinstance(payload, list):
+            raise BinanceAccountError("ACCOUNT_UNAVAILABLE")
+        return [dict(item) for item in payload]
+
+    def get_algo_order_history(self, symbol: str = "BTCUSDT", limit: int = 1000) -> List[Dict[str, Any]]:
+        payload = self._signed_get("/fapi/v1/allAlgoOrders", {"algoType": "CONDITIONAL", "symbol": symbol, "limit": min(limit, 1000)})
+        if not isinstance(payload, list):
+            raise BinanceAccountError("ACCOUNT_UNAVAILABLE")
+        return [dict(item) for item in payload]
+
     def get_daily_trade_ledger(self, symbol: str = "BTCUSDT", now: Optional[datetime] = None) -> Dict[str, Any]:
         start_ms, end_ms = self._istanbul_day_bounds_ms(now)
         rows = self.get_user_trades(symbol)
