@@ -105,6 +105,10 @@ def settings():
         BINANCE_API_KEY="key",
         BINANCE_API_SECRET="secret",
         BINANCE_RECV_WINDOW=5000,
+        JOURNAL_DIR="journal_logs",
+        TELEGRAM_DAILY_REPORT_ENABLED=True,
+        TELEGRAM_DAILY_REPORT_HOUR=23,
+        TELEGRAM_DAILY_REPORT_MINUTE=55,
     )
 
 
@@ -139,15 +143,16 @@ def test_help_lists_read_only_commands_and_no_trade_actions():
     service, telegram = make_service()
     assert service.handle_message({"chat": {"id": 123}, "text": "/help"}) is True
     text = telegram.messages[-1]
-    assert "/status" in text
-    assert "/position" in text
-    assert "/signal" in text
+    assert "/durum" in text
+    assert "/pozisyon" in text
+    assert "/sinyal" in text
+    assert "/rapor" in text
     assert "BUY/SELL/CLOSE" in text
 
 
 def test_status_account_position_orders_signal_risk_sources():
     service, telegram = make_service()
-    for command in ("status", "account", "position", "orders", "signal", "risk", "sources", "market", "ping"):
+    for command in ("durum", "hesap", "pozisyon", "emirler", "sinyal", "risk", "kaynaklar", "piyasa", "ping"):
         assert service.handle_message({"chat": {"id": 123}, "text": f"/{command}"}) is True
     combined = "\n".join(telegram.messages)
     assert "RUNNING" in combined
@@ -156,7 +161,7 @@ def test_status_account_position_orders_signal_risk_sources():
     assert "Stop: 78,000.00" in combined
     assert "TP1: 81,000.00" in combined
     assert "NO_TRADE" in combined
-    assert "Kill switch: SAFE" in combined
+    assert "Acil durdurma: GÜVENLİ" in combined
     assert "Binance: FALLBACK" in combined
     assert "CoinGlass: AUTH_ERROR" in combined
     assert "CoinMarketCap: CONNECTED" in combined
@@ -179,5 +184,5 @@ def test_registers_botfather_command_menu():
     method, payload = telegram.posts[-1]
     assert method == "setMyCommands"
     commands = {row["command"] for row in payload["commands"]}
-    assert {"help", "status", "account", "position", "orders", "signal", "risk", "sources", "market", "ping"}.issubset(commands)
+    assert {"yardim", "durum", "hesap", "pozisyon", "emirler", "sinyal", "risk", "kaynaklar", "piyasa", "rapor", "ping"}.issubset(commands)
     assert "close" not in commands
