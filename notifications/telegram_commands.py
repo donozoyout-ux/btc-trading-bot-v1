@@ -8,27 +8,39 @@ positions; it only reads the current TESTNET account/runtime state.
 from __future__ import annotations
 
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional
+from zoneinfo import ZoneInfo
 
 from loguru import logger
 
 from data.binance_execution_client import BinanceFuturesExecutionClient, ExecutionError
 from notifications.telegram_client import TelegramClient, TelegramError
+from storage.state_repository import create_state_repository
 
 
 class TelegramCommandService:
     COMMANDS = (
-        ("help", "Komut listesini göster"),
-        ("status", "Bot ve execution durumunu göster"),
-        ("account", "Testnet bakiye ve hesap özetini göster"),
-        ("position", "Açık BTCUSDT pozisyonunu göster"),
-        ("orders", "Açık emirleri ve SL/TP emirlerini göster"),
-        ("signal", "Güncel strateji kararını göster"),
-        ("risk", "Güncel risk durumunu göster"),
-        ("sources", "Veri kaynaklarının durumunu göster"),
-        ("market", "Makro piyasa ve türev bağlamını göster"),
-        ("ping", "Botun Telegram komut kanalını test et"),
+        ("yardim", "Komut listesini göster"),
+        ("durum", "Botun çalışma durumunu göster"),
+        ("hesap", "TESTNET bakiye ve günlük özeti göster"),
+        ("pozisyon", "Açık BTCUSDT pozisyonunu göster"),
+        ("emirler", "Açık STOP ve hedef emirlerini göster"),
+        ("sinyal", "Güncel strateji kararını göster"),
+        ("risk", "Risk ve koruma durumunu göster"),
+        ("kaynaklar", "Veri kaynaklarının durumunu göster"),
+        ("piyasa", "Piyasa ve türev bağlamını göster"),
+        ("rapor", "Bugünün performans raporunu gönder"),
+        ("ping", "Telegram bağlantısını test et"),
     )
+
+    COMMAND_ALIASES = {
+        "start": "yardim", "help": "yardim",
+        "status": "durum", "account": "hesap", "position": "pozisyon",
+        "orders": "emirler", "signal": "sinyal", "sources": "kaynaklar",
+        "market": "piyasa", "report": "rapor", "daily": "rapor", "gunluk": "rapor",
+    }
 
     MUTATING_COMMANDS = {
         "buy", "sell", "long", "short", "close", "closeall", "cancel", "cancelall",
@@ -64,6 +76,12 @@ class TelegramCommandService:
                 recv_window=settings.BINANCE_RECV_WINDOW,
             )
         self._offset: Optional[int] = None
+        self.daily_report_enabled = bool(getattr(settings, "TELEGRAM_DAILY_REPORT_ENABLED", True))
+        self.daily_report_hour = int(getattr(settings, "TELEGRAM_DAILY_REPORT_HOUR", 23))
+        self.daily_report_minute = int(getattr(settings, "TELEGRAM_DAILY_REPORT_MINUTE", 55))
+        self.daily_report_timezone = ZoneInfo("Europe/Istanbul")
+        report_path = Path(getattr(settings, "JOURNAL_DIR", "journal_logs")) / "telegram_daily_report_state.json"
+        self.daily_report_state = create_state_repository(report_path)
 
     @property
     def enabled(self) -> bool:
@@ -84,6 +102,15 @@ class TelegramCommandService:
 
     def _send(self, text: str) -> None:
         self.telegram.send_message(text[:4096])
+
+    @staticmethod
+    def _signed_num(value: Any, digits: int = 2) -> str:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "—"
+        prefix = "+" if number > 0 else ""
+        return f"{prefix}{number:,.{digits}f}"
 
     def _dashboard(self):
         return self.dashboard_provider()
@@ -108,15 +135,15 @@ class TelegramCommandService:
             return {}
 
     def _help(self) -> str:
-        lines = ["🤖 BTC BOT — TELEGRAM KOMUTLARI", ""]
+        lines = ["🤖 BTC BOT — KOMUTLAR", ""]
         for command, description in self.COMMANDS:
             lines.append(f"/{command} — {description}")
         lines.extend([
             "",
-            "🔒 Komutlar yalnızca tanımlı TELEGRAM_CHAT_ID için çalışır.",
-            "🧪 MODE: BINANCE FUTURES TESTNET",
-            "💵 REAL MONEY: NO",
-            "⚠️ Telegram üzerinden BUY/SELL/CLOSE komutları kapalıdır.",
+            "🔒 Komutlar yalnızca tanımlı Telegram hesabında çalışır.",
+            "🧪 Mod: Binance Futures TESTNET",
+            "💵 Gerçek para: KAPALI",
+            "⚠️ Telegram üzerinden al/sat/kapat komutları kapalıdır.",
         ])
         return "\n".join(lines)
 
@@ -126,17 +153,16 @@ class TelegramCommandService:
         return "\n".join([
             "🤖 BTC BOT DURUMU",
             "",
-            f"Bot: {self._text(status.get('bot_status'), 'UNKNOWN')}",
-            f"Execution thread: {self._text(status.get('execution_thread'), 'UNKNOWN')}",
+            f"Bot: {self._text(status.get('bot_status'), 'BİLİNMİYOR')}",
+            f"İşlem motoru: {self._text(status.get('execution_thread'), 'BİLİNMİYOR')}",
             f"Son sonuç: {self._text(status.get('last_execution_result'))}",
-            f"Smoke test: {self._text(status.get('smoke_test'), 'NOT_RUN')}",
+            f"Başlangıç testi: {self._text(status.get('smoke_test'), 'ÇALIŞTIRILMADI')}",
             f"Hata: {self._text(status.get('execution_error'), 'YOK')}",
-            f"Market data: {self._text(market.get('market_data_source'), 'UNKNOWN')}",
-            f"Trading-safe market: {'YES' if market.get('market_data_trading_safe') else 'NO'}",
-            f"Production public: {self._text(market.get('production_public_status'), 'UNKNOWN')}",
+            f"Piyasa veri kaynağı: {self._text(market.get('market_data_source'), 'BİLİNMİYOR')}",
+            f"İşleme uygun veri: {'EVET' if market.get('market_data_trading_safe') else 'HAYIR'}",
             "",
-            "🧪 BINANCE FUTURES TESTNET",
-            "💵 REAL MONEY: NO",
+            "🧪 Binance Futures TESTNET",
+            "💵 Gerçek para: KAPALI",
         ])
 
     def _account(self) -> str:
@@ -146,14 +172,14 @@ class TelegramCommandService:
         return "\n".join([
             "💼 BINANCE TESTNET HESAP",
             "",
-            f"Wallet: {self._num(account.get('wallet_balance'))} USDT",
-            f"Available: {self._num(account.get('available_balance'))} USDT",
-            f"Margin balance: {self._num(account.get('margin_balance'))} USDT",
-            f"Unrealized PnL: {self._num(account.get('unrealized_pnl'))} USDT",
+            f"Cüzdan: {self._num(account.get('wallet_balance'))} USDT",
+            f"Kullanılabilir: {self._num(account.get('available_balance'))} USDT",
+            f"Marjin bakiyesi: {self._num(account.get('margin_balance'))} USDT",
+            f"Açık K/Z: {self._signed_num(account.get('unrealized_pnl'))} USDT",
             f"Açık pozisyon: {len(account.get('positions') or [])}",
             f"Açık emir: {len(account.get('open_orders') or [])}",
             "",
-            "💵 REAL MONEY: NO",
+            "💵 Gerçek para: KAPALI",
         ])
 
     @staticmethod
@@ -244,15 +270,15 @@ class TelegramCommandService:
         return "\n".join([
             "🧠 GÜNCEL STRATEJİ KARARI",
             "",
-            f"Final: {self._text(snapshot.get('final_decision'), 'WAIT')}",
+            f"Son karar: {self._text(snapshot.get('final_decision'), 'BEKLE')}",
             f"Fiyat: {self._num(decision.get('price'))} USDT",
             f"Rejim: {self._text(decision.get('regime'))}",
-            f"Confidence: {self._text(decision.get('confidence'))}",
-            f"Setup: {self._text(strategy.get('setup_type'), 'NONE')}",
+            f"Güven: {self._text(decision.get('confidence'))}",
+            f"Kurulum: {self._text(strategy.get('setup_type'), 'YOK')}",
             f"Yön: {self._text(strategy.get('direction'), 'NONE')}",
-            f"Trigger: {self._text(strategy.get('entry_trigger_state'), 'WAIT')}",
-            f"Eligible: {'YES' if strategy.get('eligible') else 'NO'}",
-            f"Blocker: {blockers_text}",
+            f"Tetik: {self._text(strategy.get('entry_trigger_state'), 'BEKLE')}",
+            f"İşleme uygun: {'EVET' if strategy.get('eligible') else 'HAYIR'}",
+            f"Engel: {blockers_text}",
         ])
 
     def _risk(self) -> str:
@@ -267,12 +293,12 @@ class TelegramCommandService:
         return "\n".join([
             "🛡️ RISK DURUMU",
             "",
-            f"Risk status: {self._text(decision.get('risk_status'), 'WAIT')}",
+            f"Risk durumu: {self._text(decision.get('risk_status'), 'BEKLE')}",
             f"R:R: {self._text(plan.get('risk_reward'), '—')}",
             f"Pozisyon boyutu: {self._num(assessment.get('position_size_btc'), 6)} BTC",
-            f"Kill switch: {'ACTIVE' if system.get('kill_switch') else 'SAFE'}",
-            f"Daily guard: {self._text(system.get('daily_loss_guard'), '—')}",
-            f"Loss streak guard: {self._text(system.get('loss_streak_guard'), '—')}",
+            f"Acil durdurma: {'AKTİF' if system.get('kill_switch') else 'GÜVENLİ'}",
+            f"Günlük zarar koruması: {self._text(system.get('daily_loss_guard'), '—')}",
+            f"Kayıp serisi koruması: {self._text(system.get('loss_streak_guard'), '—')}",
             "",
             "Yeni emir yetkisi bu komutta yoktur.",
         ])
@@ -294,11 +320,11 @@ class TelegramCommandService:
             "📡 VERİ KAYNAKLARI",
             "",
             f"Binance: {binance_status}",
-            f"Trading-safe market data: {'YES' if trading_safe else 'NO'}",
+            f"İşleme uygun piyasa verisi: {'EVET' if trading_safe else 'HAYIR'}",
             f"CoinGlass: {self._text((sources.get('coinglass') or {}).get('status'), 'UNAVAILABLE')}",
             f"CoinMarketCap: {self._text(cmc_status, 'UNAVAILABLE')}",
-            f"Derivatives: {self._text(derivatives_status, 'UNKNOWN')}",
-            f"News: {self._text(news.get('status'), 'UNKNOWN')}",
+            f"Türev verileri: {self._text(derivatives_status, 'BİLİNMİYOR')}",
+            f"Haberler: {self._text(news.get('status'), 'BİLİNMİYOR')}",
             f"AI: {self._text(ai.get('status'), 'DISABLED')}",
         ])
 
@@ -338,6 +364,117 @@ class TelegramCommandService:
             "", "🔒 READ ONLY · TESTNET execution controls unchanged",
         ])
 
+    def _daily_report(self) -> str:
+        runtime = self._dashboard()
+        snapshot = self._snapshot()
+        account = {}
+        if runtime is not None:
+            account_fn = getattr(runtime, "account", None)
+            if callable(account_fn):
+                try:
+                    account = account_fn(force=True) or {}
+                except Exception:
+                    account = {}
+        if not account and self.execution is not None:
+            try:
+                raw = self.execution.get_account_summary() or {}
+                account = {
+                    "wallet_balance_usdt": raw.get("wallet_balance"),
+                    "available_balance_usdt": raw.get("available_balance"),
+                    "unrealized_pnl_usdt": raw.get("unrealized_pnl"),
+                }
+            except Exception:
+                account = {}
+
+        daily = account.get("daily_performance") or {}
+        ledger = account.get("daily_trade_ledger") or snapshot.get("daily_trade_ledger") or {}
+        active = snapshot.get("active_trade") or {}
+        target = snapshot.get("daily_profit_target") or {}
+        now = datetime.now(self.daily_report_timezone)
+
+        lines = [f"📊 GÜNLÜK BTC RAPORU — {now.strftime('%d.%m.%Y')}", ""]
+        wallet = account.get("wallet_balance_usdt")
+        if wallet is not None:
+            lines.append(f"💼 Bakiye: {self._num(wallet)} USDT")
+        net = daily.get("net_pnl_usdt")
+        if daily.get("status") == "AVAILABLE" and net is not None:
+            lines.extend([
+                f"💰 Bugünkü net: {self._signed_num(net)} USDT",
+                f"Gerçekleşen K/Z: {self._signed_num(daily.get('realized_pnl_usdt'))} USDT",
+                f"Komisyon: {self._signed_num(daily.get('commission_usdt'))} USDT",
+                f"Fonlama: {self._signed_num(daily.get('funding_usdt'))} USDT",
+            ])
+        else:
+            lines.append("💰 Bugünkü net: VERİ YOK")
+
+        if ledger.get("status") == "AVAILABLE":
+            lines.extend([
+                "",
+                f"📈 Bugün açılan işlem: {ledger.get('opened_trades_today', 0)}",
+                f"✅ Kapanan: {ledger.get('closed_trades_today', 0)}",
+                f"🟢 Kazanan: {ledger.get('winning_trades_today', 0)}",
+                f"🔴 Kaybeden: {ledger.get('losing_trades_today', 0)}",
+            ])
+
+        if active.get("status") == "ACTIVE":
+            lines.extend([
+                "", "📍 AÇIK POZİSYON",
+                f"Yön: {self._text(active.get('side'))}",
+                f"Giriş: {self._num(active.get('entry_price'))} USDT",
+                f"Anlık: {self._num(active.get('mark_price'))} USDT",
+                f"Açık K/Z: {self._signed_num(active.get('unrealized_pnl'))} USDT",
+                f"Stop: {self._num(active.get('stop_price'))} USDT",
+                f"Hedef: {self._num(active.get('tp1_price'))} USDT",
+            ])
+            if active.get("current_r") is not None:
+                lines.append(f"Mevcut R: {self._signed_num(active.get('current_r'))}R")
+        else:
+            lines.extend(["", "📍 Açık pozisyon: YOK"])
+
+        if target:
+            target_pct = target.get("target_pct")
+            progress = target.get("progress_pct")
+            lines.extend(["", "🎯 GÜNLÜK HEDEF"])
+            if target_pct is not None:
+                lines.append(f"Hedef: %{float(target_pct) * 100:.2f}")
+            if progress is not None:
+                lines.append(f"İlerleme: %{float(progress):.1f}")
+            lines.append(f"Durum: {self._text(target.get('status'))}")
+
+        status = self.execution_status_provider() or {}
+        lines.extend([
+            "",
+            f"🤖 Bot: {self._text(status.get('bot_status'), 'BİLİNMİYOR')}",
+            f"Son sonuç: {self._text(status.get('last_execution_result'))}",
+            "",
+            "🧪 Binance Futures TESTNET · Gerçek para KAPALI",
+        ])
+        return "\n".join(lines)
+
+    def maybe_send_daily_report(self, now: Optional[datetime] = None) -> bool:
+        if not self.daily_report_enabled:
+            return False
+        current = now.astimezone(self.daily_report_timezone) if now is not None else datetime.now(self.daily_report_timezone)
+        scheduled = current.replace(hour=self.daily_report_hour, minute=self.daily_report_minute, second=0, microsecond=0)
+        if current < scheduled:
+            return False
+        date_key = current.date().isoformat()
+        try:
+            state = self.daily_report_state.load("telegram_daily_report") or {}
+        except Exception:
+            state = {}
+        if state.get("last_sent_date") == date_key:
+            return False
+        self._send(self._daily_report())
+        try:
+            self.daily_report_state.save("telegram_daily_report", {
+                "last_sent_date": date_key,
+                "sent_at": int(current.timestamp() * 1000),
+            })
+        except Exception:
+            pass
+        return True
+
     def handle_message(self, message: Dict[str, Any]) -> bool:
         chat_id = str((message.get("chat") or {}).get("id") or "").strip()
         if not chat_id or chat_id != self.authorized_chat_id:
@@ -346,31 +483,34 @@ class TelegramCommandService:
         if not text.startswith("/"):
             return False
         command = text.split()[0][1:].split("@", 1)[0].lower()
+        command = self.COMMAND_ALIASES.get(command, command)
         try:
             if command in self.MUTATING_COMMANDS:
                 response = "🔒 Bu komut kapalı. Telegram komutları yalnızca okuma amaçlıdır; BUY/SELL/CLOSE ve bot kontrolü yapmaz."
-            elif command in {"start", "help"}:
+            elif command == "yardim":
                 response = self._help()
-            elif command == "status":
+            elif command == "durum":
                 response = self._status()
-            elif command == "account":
+            elif command == "hesap":
                 response = self._account()
-            elif command == "position":
+            elif command == "pozisyon":
                 response = self._position()
-            elif command == "orders":
+            elif command == "emirler":
                 response = self._orders()
-            elif command == "signal":
+            elif command == "sinyal":
                 response = self._signal()
             elif command == "risk":
                 response = self._risk()
-            elif command == "sources":
+            elif command == "kaynaklar":
                 response = self._sources()
-            elif command == "market":
+            elif command == "piyasa":
                 response = self._market()
+            elif command == "rapor":
+                response = self._daily_report()
             elif command == "ping":
                 response = "🏓 PONG\n\nTelegram komut kanalı aktif."
             else:
-                response = "Bilinmeyen komut. /help yazarak komut listesini görebilirsin."
+                response = "Bilinmeyen komut. /yardim yazarak komut listesini görebilirsin."
             self._send(response)
         except (ExecutionError, TelegramError) as exc:
             category = getattr(exc, "category", type(exc).__name__)
@@ -416,6 +556,7 @@ class TelegramCommandService:
 
         while True:
             try:
+                self.maybe_send_daily_report()
                 updates = self._get_updates(timeout=4)
                 for update in updates:
                     update_id = int(update.get("update_id", 0))
