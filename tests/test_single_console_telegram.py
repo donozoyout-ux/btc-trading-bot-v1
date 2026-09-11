@@ -110,3 +110,42 @@ def test_setup_notification_waits_for_entry_ready():
     result = notifier.notify_current_decision(snapshot)
     assert result["sent"] is False
     assert client.messages == []
+
+
+def test_high_news_risk_is_state_deduplicated_across_new_decision_ids():
+    client = FakeTelegramClient()
+    notifier = TelegramEventNotifier(client)
+    base = {
+        "decision": {"price": 60000, "reason": "WAIT"},
+        "strategy": {"setup_type": "NONE", "entry_trigger_state": "WAIT"},
+        "news": {"news_risk": "HIGH", "risk_reason": "macro event"},
+        "system_state": {"kill_switch": False},
+        "sources": {"binance": {"status": "HEALTHY"}},
+    }
+    first = dict(base, decision_id="d1")
+    second = dict(base, decision_id="d2")
+    assert notifier.notify_current_decision(first)["sent"] is True
+    result = notifier.notify_current_decision(second)
+    assert result["sent"] is False
+    assert result["deduplicated"] is True
+    assert result["reason"] == "STATE_UNCHANGED"
+    assert len(client.messages) == 1
+
+
+def test_kill_switch_is_state_deduplicated_until_reason_changes():
+    client = FakeTelegramClient()
+    notifier = TelegramEventNotifier(client)
+    snapshot = {
+        "decision_id": "d1",
+        "decision": {"price": 60000},
+        "strategy": {"setup_type": "NONE", "entry_trigger_state": "WAIT"},
+        "news": {"news_risk": "LOW"},
+        "system_state": {"kill_switch": True, "kill_switch_reason": "PROTECTION_FAILURE"},
+        "sources": {"binance": {"status": "HEALTHY"}},
+    }
+    assert notifier.notify_current_decision(snapshot)["sent"] is True
+    snapshot["decision_id"] = "d2"
+    assert notifier.notify_current_decision(snapshot)["deduplicated"] is True
+    snapshot["system_state"]["kill_switch_reason"] = "ACCOUNT_UNAVAILABLE"
+    assert notifier.notify_current_decision(snapshot)["sent"] is True
+    assert len(client.messages) == 2
