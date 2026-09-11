@@ -194,6 +194,20 @@ class BinanceFuturesExecutionClient:
             raise ValueError("order_id or client_order_id is required")
         return self._request("GET", "/fapi/v1/order", params)
 
+    def get_order_history(self, symbol: str = "BTCUSDT", *, start_time: Optional[int] = None, end_time: Optional[int] = None, limit: int = 1000) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {"symbol": symbol, "limit": min(limit, 1000)}
+        if start_time is not None: params["startTime"] = start_time
+        if end_time is not None: params["endTime"] = end_time
+        payload = self._request("GET", "/fapi/v1/allOrders", params)
+        return payload if isinstance(payload, list) else []
+
+    def get_user_trades(self, symbol: str = "BTCUSDT", *, start_time: Optional[int] = None, end_time: Optional[int] = None, limit: int = 1000) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {"symbol": symbol, "limit": min(limit, 1000)}
+        if start_time is not None: params["startTime"] = start_time
+        if end_time is not None: params["endTime"] = end_time
+        payload = self._request("GET", "/fapi/v1/userTrades", params)
+        return payload if isinstance(payload, list) else []
+
     def cancel_order(self, symbol: str, order_id: int) -> Dict[str, Any]:
         return self._request("DELETE", "/fapi/v1/order", {"symbol": symbol, "orderId": order_id})
 
@@ -219,6 +233,33 @@ class BinanceFuturesExecutionClient:
         else:
             raise ValueError("algo_id or client_algo_id is required")
         return self._request("GET", "/fapi/v1/algoOrder", params)
+
+    def get_algo_order_history(self, symbol: str = "BTCUSDT", *, start_time: Optional[int] = None, end_time: Optional[int] = None, limit: int = 1000) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {"algoType": "CONDITIONAL", "symbol": symbol, "limit": min(limit, 1000)}
+        if start_time is not None: params["startTime"] = start_time
+        if end_time is not None: params["endTime"] = end_time
+        payload = self._request("GET", "/fapi/v1/allAlgoOrders", params)
+        return payload if isinstance(payload, list) else []
+
+    def get_closed_klines_since(self, symbol: str, interval: str, start_time: int, end_time: Optional[int] = None) -> List[Dict[str, Any]]:
+        end = end_time or int(time.time() * 1000)
+        cursor, candles = int(start_time), []
+        while cursor < end and len(candles) < 10_000:
+            response = self.session.get(f"{self.base_url}/fapi/v1/klines", params={"symbol": symbol, "interval": interval, "startTime": cursor, "endTime": end, "limit": 1000}, timeout=self.timeout)
+            response.raise_for_status()
+            rows = response.json()
+            if not isinstance(rows, list) or not rows:
+                break
+            for row in rows:
+                if int(row[6]) < end:
+                    candles.append({"timestamp": int(row[0]), "open": float(row[1]), "high": float(row[2]), "low": float(row[3]), "close": float(row[4]), "volume": float(row[5]), "is_closed": True})
+            next_cursor = int(rows[-1][0]) + 1
+            if next_cursor <= cursor:
+                break
+            cursor = next_cursor
+            if len(rows) < 1000:
+                break
+        return candles
 
     def cancel_algo_order(
         self,

@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional, Tuple
 from config.constants import ManagementProfile, MarketRegime, PositionManagementState, StructureType, TradeDirection, VolatilityLevel
 from data.binance_execution_client import ExecutionError
 from engines.position_manager import PositionManager
+from engines.restart_baseline_recovery import RestartBaselineRecovery
 from execution.testnet_executor import TestnetExecutor
 
 
@@ -22,6 +23,11 @@ class SaferTestnetExecutor(TestnetExecutor):
         super().__init__(*args, **kwargs)
         persisted = self.execution_journal.read_state()
         self._entry_context: Dict[str, Any] = dict(persisted.get("entry_context") or {})
+        if self._entry_context.get("exchange_baseline_verified") is True:
+            previous_source = self._entry_context.get("initial_stop_source")
+            if previous_source:
+                self._entry_context["initial_stop_provenance"] = previous_source
+            self._entry_context["initial_stop_source"] = "PERSISTED_ENTRY_CONTEXT"
         self.last_management_closed_5m_timestamp = persisted.get("last_management_closed_5m_timestamp")
         self.target_replan_count = int(persisted.get("target_replan_count") or 0)
         self.last_target_replan_at = persisted.get("last_target_replan_at")
@@ -65,6 +71,7 @@ class SaferTestnetExecutor(TestnetExecutor):
             profit_fade_partial_min_r=getattr(self.settings, "PROFIT_FADE_PARTIAL_MIN_R", .80),
             profit_fade_partial_fraction=getattr(self.settings, "PROFIT_FADE_PARTIAL_FRACTION", .35),
         )
+        self.baseline_recovery = RestartBaselineRecovery("BTCUSDT")
 
     @staticmethod
     def _safe_float(value: Any) -> Optional[float]:
@@ -97,7 +104,7 @@ class SaferTestnetExecutor(TestnetExecutor):
         }
 
     def _has_verified_exchange_baseline(self) -> bool:
-        required = ("actual_entry_price", "actual_initial_position_size", "actual_initial_stop", "entry_decision_id", "entry_opened_at")
+        required = ("actual_entry_price", "actual_initial_position_size", "actual_initial_stop", "entry_opened_at")
         return self._entry_context.get("exchange_baseline_verified") is True and all(
             self._entry_context.get(key) is not None for key in required
         )
@@ -575,6 +582,9 @@ class SaferTestnetExecutor(TestnetExecutor):
             self.protection_reconciliation_expected_target_ids = []
             self._write_runtime_state()
         else:
+            if not self._has_verified_exchange_baseline():
+                recovered_baseline = self._recover_historical_baseline(position)
+                result["baseline_recovery"] = recovered_baseline
             protection = self._reconcile_active_protection(position, restart=True)
             result["protection_reconciliation"] = protection
         if float(position.get("position_amt") or 0) != 0 and not self._has_verified_exchange_baseline():
@@ -599,7 +609,77 @@ class SaferTestnetExecutor(TestnetExecutor):
                 self._missing_context_warning_emitted = True
             self._write_runtime_state(last_execution_result="RECOVERED_POSITION_CONTEXT_UNAVAILABLE")
             result["status"] = "RECOVERED_POSITION_CONTEXT_UNAVAILABLE"
+        elif float(position.get("position_amt") or 0) != 0 and (result.get("baseline_recovery") or {}).get("verified"):
+            result["status"] = "RECONSTRUCTED_VERIFIED"
         return result
+
+    def _recover_historical_baseline(self, position: Dict[str, Any]) -> Dict[str, Any]:
+        """Read history only; never mutate current exchange orders."""
+        get_trades = getattr(self.client, "get_user_trades", None)
+        if not callable(get_trades):
+            return {"verified": False, "reason": "SIGNED_USER_TRADE_HISTORY_UNAVAILABLE"}
+        try:
+            trades = get_trades("BTCUSDT")
+            entry = self.baseline_recovery.recover_entry(position, trades)
+            if not entry.get("verified"):
+                return entry
+            start = int(entry["entry_opened_at"])
+            normal_reader = getattr(self.client, "get_order_history", None)
+            algo_reader = getattr(self.client, "get_algo_order_history", None)
+            try:
+                normal = normal_reader("BTCUSDT", start_time=start) if callable(normal_reader) else []
+            except Exception:
+                normal = []
+            try:
+                algo = algo_reader("BTCUSDT", start_time=start) if callable(algo_reader) else []
+            except Exception:
+                # Some Binance TESTNET deployments may not expose historical
+                # algo history; normal historical STOP orders remain eligible.
+                algo = []
+            recovered = self.baseline_recovery.recover(position, trades, normal, algo)
+            if not recovered.get("verified"):
+                return recovered
+            self._entry_context.update({
+                "exchange_baseline_verified": True,
+                "actual_entry_price": recovered["actual_entry_price"],
+                "actual_initial_position_size": recovered["actual_initial_position_size"],
+                "actual_initial_stop": recovered["actual_initial_stop"],
+                "entry_opened_at": recovered["entry_opened_at"],
+                "direction": recovered["direction"],
+                "context_status": "RECONSTRUCTED_VERIFIED",
+                "initial_stop_source": "BINANCE_HISTORICAL_ORDER",
+                "historical_stop_order_id": recovered.get("historical_stop_order_id"),
+                "historical_stop_created_at": recovered.get("historical_stop_created_at"),
+            })
+            candle_reader = getattr(self.client, "get_closed_klines_since", None)
+            if callable(candle_reader):
+                try:
+                    candles = candle_reader("BTCUSDT", "5m", int(recovered["entry_opened_at"]))
+                    excursions = self.baseline_recovery.rebuild_excursions(
+                        recovered["direction"], recovered["actual_entry_price"],
+                        recovered["actual_initial_stop"], recovered["entry_opened_at"], candles,
+                    )
+                    self.management_mfe_r = excursions["mfe_r"]
+                    self.management_mae_r = excursions["mae_r"]
+                except Exception:
+                    # The immutable baseline remains proven even if optional
+                    # public candle reconstruction is temporarily unavailable.
+                    pass
+            self._missing_context_warning_emitted = False
+            self.execution_journal.record(
+                decision_id=None, action="RECONSTRUCTED_VERIFIED", status="CONFIRMED",
+                reason="Immutable baseline proven from signed Binance history",
+                position_after=position,
+                details={
+                    "entry_order_id": recovered.get("entry_order_id"),
+                    "historical_stop_order_id": recovered.get("historical_stop_order_id"),
+                    "initial_stop_source": "BINANCE_HISTORICAL_ORDER",
+                },
+            )
+            self._write_runtime_state(last_execution_result="RECONSTRUCTED_VERIFIED")
+            return recovered
+        except Exception:
+            return {"verified": False, "reason": "SIGNED_HISTORICAL_RECOVERY_UNAVAILABLE"}
 
     def reconcile_position(self) -> Dict[str, Any]:
         before = dict(self._known_position)
