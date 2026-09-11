@@ -1,8 +1,8 @@
-"""Minimal outbound-only Telegram Bot API client.
+"""Minimal backend Telegram Bot API client.
 
 The bot token stays in the request URL on the backend and is never returned,
-logged, or exposed to the dashboard.  Incoming commands and trading actions
-are intentionally outside this integration.
+logged, or exposed to the dashboard. Read-only commands are handled by the
+separate authenticated command service; trading actions remain unavailable.
 """
 
 from __future__ import annotations
