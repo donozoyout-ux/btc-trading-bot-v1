@@ -307,6 +307,7 @@ class TelegramEventNotifier:
             if event is None:
                 return {"sent": False, "deduplicated": False, "event": None, "reason": "NO_NOTIFY_EVENT"}
         else:
+            self._last_state_event_key = None
             return {"sent": False, "deduplicated": False, "event": None, "reason": "NO_NOTIFY_EVENT"}
 
         frames = snapshot.get("chart_intelligence", {}).get("timeframes", {})
