@@ -139,7 +139,7 @@ class TelegramClient:
             "enabled": self.enabled,
             "configured": self.configured,
             "token_configured": self.token_configured,
-            "mode": "NOTIFICATIONS_ONLY",
-            "commands_enabled": False,
+            "mode": "NOTIFICATIONS_AND_READ_ONLY_COMMANDS",
+            "commands_enabled": bool(self.enabled and self.configured),
             "trading_actions_enabled": False,
         }
