@@ -173,6 +173,9 @@ class TestnetExecutionRuntime:
                 )
             return managed
         snapshot = self.dashboard.snapshot(force=True)
+        target = snapshot.get("daily_profit_target") or {}
+        if target.get("new_entries_allowed") is False:
+            return {"status": target.get("entry_block_reason") or "DAILY_PROFIT_TARGET_ENTRY_BLOCKED"}
         result = self.executor.process_snapshot(snapshot, self.state)
         return result or {"status": "NO_ACTION"}
 

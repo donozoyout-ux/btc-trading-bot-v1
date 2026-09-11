@@ -19,6 +19,7 @@ class TelegramEventNotifier:
         "SMOKE_TEST_FAIL", "ERROR",
         "PROTECTION_RECOVERED", "PROFIT_PROTECTION", "PROFIT_PARTIAL_TAKEN",
         "PROFIT_RUNNER", "PROFIT_FADE", "OPERATOR_WARNING",
+        "DAILY_PROFIT_TARGET_REACHED",
     }
 
     def __init__(self, client: TelegramClient, dedupe_ttl_seconds: int = 3600):
@@ -184,6 +185,18 @@ class TelegramEventNotifier:
                 self._clean_reason(p.get("reason") or p.get("message")),
                 "Yeni pozisyon açılması engellendi.",
                 "",
+                self._footer(),
+            ])
+
+        if event == "DAILY_PROFIT_TARGET_REACHED":
+            pct = float(p.get("target_pct") or 0) * 100
+            return "\n".join([
+                "🎯 GÜNLÜK HEDEF TAMAMLANDI", "",
+                f"Başlangıç bakiye: {self._number(p.get('opening_balance_usdt'))} USDT",
+                f"Günlük hedef: +{self._number(p.get('target_profit_usdt'))} USDT (+%{pct:.2f})",
+                f"Net gerçekleşen: +{self._number(p.get('net_realized_pnl_usdt'))} USDT", "",
+                "Yeni işlemler: BUGÜN KAPALI",
+                f"Açık pozisyon: {'YÖNETİLMEYE DEVAM EDİYOR' if p.get('has_open_position') else 'YOK'}", "",
                 self._footer(),
             ])
 

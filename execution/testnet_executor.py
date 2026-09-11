@@ -264,6 +264,10 @@ class TestnetExecutor(BaseExecutor):
 
     def process_snapshot(self, snapshot: Dict[str, Any], state: BotState) -> Optional[Dict[str, Any]]:
         self._assert_execution_boundary()
+        target = snapshot.get("daily_profit_target") or {}
+        if target.get("new_entries_allowed") is False:
+            self._write_runtime_state(last_execution_result=target.get("entry_block_reason") or "DAILY_PROFIT_TARGET_ENTRY_BLOCKED")
+            return {"status": target.get("entry_block_reason") or "DAILY_PROFIT_TARGET_ENTRY_BLOCKED"}
         candle_rows = snapshot.get("candles", {}).get("5m", [])
         if not candle_rows:
             raise ExecutionError("STALE_MARKET_DATA")

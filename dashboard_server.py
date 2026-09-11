@@ -41,6 +41,7 @@ from engines.chart_reader_v3 import ChartReadingEngineV3, MultiTimeframeInterpre
 from engines.strategy_orchestrator import StrategyOrchestrator
 from engines.volatility_engine import VolatilityEngine
 from engines.trade_state_engine import ActiveTradeStateEngine
+from engines.daily_profit_target import DailyProfitTargetEngine
 from integrations.ai_analyst import AIAnalystError, AIAnalystV2
 from integrations.news_engine import NewsEngineV2
 from journal.shadow_journal import ShadowDecisionJournal
@@ -107,6 +108,10 @@ def _empty_account(
             "opened_trades_today": None, "currently_opened_today": None,
             "closed_trades_today": None, "winning_trades_today": None,
             "losing_trades_today": None, "observed_at": None,
+        },
+        "daily_income_history": {
+            "status": "UNAVAILABLE", "source": "BINANCE_TESTNET_INCOME_HISTORY",
+            "rows": [], "observed_at": None,
         },
         "updated_at": int(time.time() * 1000),
     }
@@ -295,6 +300,14 @@ class DashboardRuntime:
         self.shadow_journal = shadow_journal or ShadowDecisionJournal(self.settings.JOURNAL_DIR)
         self.execution_journal = ExecutionJournal(self.settings.JOURNAL_DIR)
         self.trade_state_engine = ActiveTradeStateEngine("BTCUSDT")
+        self.daily_profit_target_engine = DailyProfitTargetEngine(
+            self.execution_journal.state_repository,
+            enabled=self.settings.DAILY_PROFIT_TARGET_ENABLED,
+            target_pct=self.settings.DAILY_PROFIT_TARGET_PCT,
+            lock_new_entries=self.settings.DAILY_PROFIT_TARGET_LOCK_NEW_ENTRIES,
+            timezone_name=self.settings.DAILY_PROFIT_TARGET_TIMEZONE,
+            near_ratio=self.settings.DAILY_PROFIT_TARGET_NEAR_PCT,
+        )
         self.pipeline = MasterPipeline(self.settings)
         self.state = BotState(
             account_balance_usdt=self.settings.INITIAL_CAPITAL_USDT,
@@ -378,6 +391,8 @@ class DashboardRuntime:
                     or _empty_account()["daily_performance"],
                     "daily_trade_ledger": raw.get("daily_trade_ledger")
                     or _empty_account()["daily_trade_ledger"],
+                    "daily_income_history": raw.get("daily_income_history")
+                    or _empty_account()["daily_income_history"],
                     "updated_at": int(time.time() * 1000),
                 }
                 self._account_snapshot = result
@@ -637,6 +652,36 @@ class DashboardRuntime:
                 durable_state=self.execution_journal.durable_state,
                 features=feature_context,
             )
+            income_history = account.get("daily_income_history") or {}
+            daily_profit_target = self.daily_profit_target_engine.build(
+                current_wallet_usdt=account.get("wallet_balance_usdt"),
+                income_rows=income_history.get("rows") or [],
+                income_history_available=income_history.get("status") == "AVAILABLE",
+            )
+            if daily_profit_target.get("notification_pending"):
+                try:
+                    self.telegram_notifier.notify(
+                        "DAILY_PROFIT_TARGET_REACHED",
+                        {
+                            **daily_profit_target,
+                            "has_open_position": active_trade.get("status") == "ACTIVE",
+                        },
+                        dedupe_key=f"DAILY_PROFIT_TARGET_REACHED:{daily_profit_target.get('date_istanbul')}",
+                    )
+                except Exception:
+                    logger.warning("Daily profit target Telegram transition unavailable")
+                finally:
+                    self.daily_profit_target_engine.mark_notification_sent()
+            target_features = {
+                "daily_target_pct": daily_profit_target.get("target_pct"),
+                "daily_target_progress": daily_profit_target.get("progress_ratio"),
+                "daily_net_realized": daily_profit_target.get("net_realized_pnl_usdt"),
+                "daily_target_remaining": daily_profit_target.get("remaining_to_target_usdt"),
+                "daily_target_reached": daily_profit_target.get("target_reached_once"),
+                "new_entries_allowed": daily_profit_target.get("new_entries_allowed"),
+            }
+            if active_trade.get("status") == "ACTIVE":
+                active_trade.setdefault("trade_state_features", {}).update(target_features)
 
             snapshot = {
                 "decision_id": decision_id,
@@ -715,6 +760,7 @@ class DashboardRuntime:
                 "execution": execution_state,
                 "active_trade": active_trade,
                 "daily_trade_ledger": account.get("daily_trade_ledger", _empty_account()["daily_trade_ledger"]),
+                "daily_profit_target": daily_profit_target,
                 "sources": {
                     "binance": {
                         "status": binance_source_status,
@@ -875,6 +921,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not self._allow_private_get():
                 return
             self._send_json(RUNTIME.account().get("daily_performance", {}))
+            return
+
+        if path == "/api/daily-profit-target":
+            if not self._allow_private_get():
+                return
+            self._send_json(RUNTIME.snapshot().get("daily_profit_target", {}))
             return
 
         if path == "/api/telegram":

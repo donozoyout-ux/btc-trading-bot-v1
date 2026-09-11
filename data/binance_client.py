@@ -689,6 +689,19 @@ class BinanceFuturesAccountClient:
             "observed_at": int(time.time() * 1000),
         }
 
+    def get_daily_income_history(self, now: Optional[datetime] = None) -> Dict[str, Any]:
+        """Return all USDT wallet-affecting income rows for day-start reconstruction."""
+        start_ms, end_ms = self._istanbul_day_bounds_ms(now)
+        payload = self._signed_get("/fapi/v1/income", {"startTime": start_ms, "endTime": end_ms - 1, "limit": 1000})
+        if not isinstance(payload, list):
+            raise BinanceAccountError("ACCOUNT_UNAVAILABLE")
+        rows = [
+            dict(row) for row in payload
+            if start_ms <= int(row.get("time", -1)) < end_ms
+            and str(row.get("asset") or "USDT").upper() == "USDT"
+        ]
+        return {"status": "AVAILABLE", "source": "BINANCE_TESTNET_INCOME_HISTORY", "rows": rows, "observed_at": int(time.time() * 1000)}
+
     def get_account_summary(self) -> Dict[str, Any]:
         """Return the complete read-only USD-M testnet account snapshot."""
         self._assert_access_allowed()
@@ -725,6 +738,10 @@ class BinanceFuturesAccountClient:
                 "winning_trades_today": None, "losing_trades_today": None,
                 "observed_at": None,
             }
+        try:
+            daily_income_history = self.get_daily_income_history()
+        except BinanceAccountError as exc:
+            daily_income_history = {"status": "UNAVAILABLE", "source": "BINANCE_TESTNET_INCOME_HISTORY", "rows": [], "error_category": exc.category, "observed_at": None}
         return {
             "account_type": "USD-M FUTURES",
             "environment": "TESTNET",
@@ -748,4 +765,5 @@ class BinanceFuturesAccountClient:
             "open_orders": orders,
             "daily_performance": daily_performance,
             "daily_trade_ledger": daily_trade_ledger,
+            "daily_income_history": daily_income_history,
         }

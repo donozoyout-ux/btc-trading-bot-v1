@@ -128,6 +128,11 @@ class BotSettings(BaseSettings):
 
     # Circuit Breakers & Kill Switch Hypotheses
     MAX_DAILY_LOSS_PCT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["max_daily_loss_pct"])
+    DAILY_PROFIT_TARGET_ENABLED: bool = True
+    DAILY_PROFIT_TARGET_PCT: float = Field(default=0.01, gt=0, le=1)
+    DAILY_PROFIT_TARGET_LOCK_NEW_ENTRIES: bool = True
+    DAILY_PROFIT_TARGET_TIMEZONE: str = "Europe/Istanbul"
+    DAILY_PROFIT_TARGET_NEAR_PCT: float = Field(default=0.80, ge=0, le=1)
     MAX_CONSECUTIVE_LOSSES: int = Field(default_factory=lambda: INITIAL_HYPOTHESES["max_consecutive_losses"])
     MAX_SLIPPAGE_TOLERANCE_PCT: float = Field(default_factory=lambda: INITIAL_HYPOTHESES["max_slippage_tolerance_pct"])
     MAX_API_LATENCY_MS: int = 3000

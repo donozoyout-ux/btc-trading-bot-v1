@@ -49,13 +49,25 @@ class LocalStateRepository(StateRepository):
             return {}
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                return {}
+            if any(name in payload for name in ("execution_state", "daily_profit_target")):
+                return dict(payload.get(key) or {})
             # Backwards compatibility with the former unwrapped journal file.
-            return dict(payload.get(key) or payload) if isinstance(payload, dict) else {}
+            return dict(payload)
         except (OSError, ValueError, TypeError):
             return {}
 
     def save(self, key: str, value: Dict[str, Any]) -> None:
-        payload = {key: sanitize_state(value)}
+        payload: Dict[str, Any] = {}
+        if self.path.exists():
+            try:
+                existing = json.loads(self.path.read_text(encoding="utf-8"))
+                if isinstance(existing, dict):
+                    payload = existing if any(name in existing for name in ("execution_state", "daily_profit_target")) else {"execution_state": existing}
+            except (OSError, ValueError, TypeError):
+                payload = {}
+        payload[key] = sanitize_state(value)
         fd, temporary = tempfile.mkstemp(prefix="trade-state-", suffix=".json", dir=str(self.path.parent))
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
