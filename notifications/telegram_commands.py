@@ -55,6 +55,7 @@ class TelegramCommandService:
         execution_status_provider: Callable[[], Dict[str, Any]],
         telegram_client: Optional[TelegramClient] = None,
         execution_client: Optional[BinanceFuturesExecutionClient] = None,
+        daily_report_state=None,
         sleep_fn=time.sleep,
     ) -> None:
         self.settings = settings
@@ -81,7 +82,7 @@ class TelegramCommandService:
         self.daily_report_minute = int(getattr(settings, "TELEGRAM_DAILY_REPORT_MINUTE", 55))
         self.daily_report_timezone = ZoneInfo("Europe/Istanbul")
         report_path = Path(getattr(settings, "JOURNAL_DIR", "journal_logs")) / "telegram_daily_report_state.json"
-        self.daily_report_state = create_state_repository(report_path)
+        self.daily_report_state = daily_report_state or create_state_repository(report_path)
 
     @property
     def enabled(self) -> bool:
@@ -234,7 +235,7 @@ class TelegramCommandService:
             f"🎯 TP1: {self._num(tp1) if tp1 is not None else '—'} USDT",
             f"🎯 TP2: {self._num(tp2) if tp2 is not None else '—'} USDT",
             "",
-            "🧪 TESTNET · REAL MONEY: NO",
+            "🧪 TESTNET · GERÇEK PARA: KAPALI",
         ])
 
     def _orders(self) -> str:
@@ -253,7 +254,7 @@ class TelegramCommandService:
             lines.append(f"{index}. {side} · {order_type} · {status} · Trigger {self._num(trigger) if trigger is not None else '—'} · ID {order_id}")
         if len(orders) > 10:
             lines.append(f"… +{len(orders) - 10} emir")
-        lines.extend(["", "🧪 TESTNET · REAL MONEY: NO"])
+        lines.extend(["", "🧪 TESTNET · GERÇEK PARA: KAPALI"])
         return "\n".join(lines)
 
     def _signal(self) -> str:
@@ -339,7 +340,7 @@ class TelegramCommandService:
             field = derivatives.get(name)
             return field.get("source") if isinstance(field, dict) else None
         def market_num(raw, digits=2):
-            return "Unavailable" if raw is None else self._num(raw, digits)
+            return "VERİ YOK" if raw is None else self._num(raw, digits)
         oi_value = value("open_interest")
         oi_source = source("open_interest")
         if oi_source == "COINGLASS":
@@ -352,16 +353,16 @@ class TelegramCommandService:
         if source("funding_rate") == "BINANCE_TESTNET_FALLBACK":
             funding_text += " [TESTNET FALLBACK · DISPLAY ONLY]"
         return "\n".join([
-            "🌍 MARKET CONTEXT", "",
-            f"BTC Dominance: {market_num(macro.get('btc_dominance'))}%",
-            f"Total Market Cap: ${market_num(macro.get('total_market_cap_usd'), 0)}",
-            f"24h Volume: ${market_num(macro.get('total_volume_24h_usd'), 0)}",
-            f"Open Interest: {oi_text}",
-            f"Funding: {funding_text}",
-            f"Long/Short: {market_num(value('long_short_ratio'), 3)}",
-            f"Taker Buy/Sell: {market_num(value('taker_buy_ratio'), 3)}",
-            f"CoinGlass Liquidations: ${market_num(value('liquidations_24h'), 0)}",
-            "", "🔒 READ ONLY · TESTNET execution controls unchanged",
+            "🌍 PİYASA ÖZETİ", "",
+            f"BTC dominansı: {market_num(macro.get('btc_dominance'))}%",
+            f"Toplam piyasa değeri: ${market_num(macro.get('total_market_cap_usd'), 0)}",
+            f"24s hacim: ${market_num(macro.get('total_volume_24h_usd'), 0)}",
+            f"Açık pozisyon hacmi: {oi_text}",
+            f"Fonlama: {funding_text}",
+            f"Long/Short oranı: {market_num(value('long_short_ratio'), 3)}",
+            f"Alıcı/Satıcı akışı: {market_num(value('taker_buy_ratio'), 3)}",
+            f"CoinGlass likidasyon: ${market_num(value('liquidations_24h'), 0)}",
+            "", "🔒 Salt okunur · TESTNET işlem güvenliği değişmedi",
         ])
 
     def _daily_report(self) -> str:
