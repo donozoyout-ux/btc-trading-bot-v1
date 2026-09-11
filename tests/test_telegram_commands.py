@@ -1,4 +1,6 @@
+from datetime import datetime
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 from notifications.telegram_commands import TelegramCommandService
 
@@ -56,11 +58,26 @@ class FakeExecution:
 
 class FakeDashboard:
     def __init__(self):
+        self.account_payload = {
+            "connected": True,
+            "wallet_balance_usdt": 4974.31,
+            "daily_performance": {
+                "status": "AVAILABLE", "net_pnl_usdt": 12.50,
+                "realized_pnl_usdt": 14.0, "commission_usdt": -1.25, "funding_usdt": -0.25,
+            },
+            "daily_trade_ledger": {
+                "status": "AVAILABLE", "opened_trades_today": 2,
+                "closed_trades_today": 1, "winning_trades_today": 1, "losing_trades_today": 0,
+            },
+        }
         self.binance = SimpleNamespace(status=lambda: {
             "market_data_source": "TESTNET_PUBLIC_FALLBACK",
             "production_public_status": "HTTP_451_RESTRICTED",
             "derivatives_status": "DEGRADED",
         })
+
+    def account(self, force=False):
+        return self.account_payload
 
     def snapshot(self, force=False):
         return {
@@ -93,6 +110,11 @@ class FakeDashboard:
             },
             "sources": {"coinglass": {"status": "AUTH_ERROR"}, "coinmarketcap": {"status": "HEALTHY"}},
             "macro_context": {"btc_dominance": 56.2, "total_market_cap_usd": 3000000000000, "total_volume_24h_usd": 90000000000},
+            "active_trade": {
+                "status": "ACTIVE", "side": "LONG", "entry_price": 79000.0,
+                "mark_price": 80000.0, "unrealized_pnl": 2.0,
+                "stop_price": 78000.0, "tp1_price": 81000.0, "current_r": 0.5,
+            },
         }
 
 
@@ -112,6 +134,12 @@ def settings():
     )
 
 
+class MemoryReportState:
+    def __init__(self): self.data = {}
+    def load(self, key): return dict(self.data.get(key) or {})
+    def save(self, key, value): self.data[key] = dict(value)
+
+
 def make_service():
     telegram = FakeTelegram()
     execution = FakeExecution()
@@ -128,6 +156,7 @@ def make_service():
         },
         telegram_client=telegram,
         execution_client=execution,
+        daily_report_state=MemoryReportState(),
         sleep_fn=lambda _: None,
     )
     return service, telegram
@@ -186,3 +215,38 @@ def test_registers_botfather_command_menu():
     commands = {row["command"] for row in payload["commands"]}
     assert {"yardim", "durum", "hesap", "pozisyon", "emirler", "sinyal", "risk", "kaynaklar", "piyasa", "rapor", "ping"}.issubset(commands)
     assert "close" not in commands
+
+
+def test_manual_daily_report_is_turkish_and_uses_authoritative_daily_fields():
+    service, telegram = make_service()
+    assert service.handle_message({"chat": {"id": 123}, "text": "/rapor"}) is True
+    message = telegram.messages[-1]
+    assert "GÜNLÜK BTC RAPORU" in message
+    assert "Bugünkü net: +12.50 USDT" in message
+    assert "Gerçekleşen K/Z: +14.00 USDT" in message
+    assert "Komisyon: -1.25 USDT" in message
+    assert "Bugün açılan işlem: 2" in message
+    assert "Kazanan: 1" in message
+    assert "AÇIK POZİSYON" in message
+    assert "Mevcut R: +0.50R" in message
+
+
+def test_scheduled_daily_report_sends_once_per_istanbul_day():
+    service, telegram = make_service()
+    tz = ZoneInfo("Europe/Istanbul")
+    before = datetime(2026, 9, 11, 23, 54, tzinfo=tz)
+    due = datetime(2026, 9, 11, 23, 55, tzinfo=tz)
+    assert service.maybe_send_daily_report(before) is False
+    assert service.maybe_send_daily_report(due) is True
+    assert service.maybe_send_daily_report(datetime(2026, 9, 11, 23, 59, tzinfo=tz)) is False
+    assert len(telegram.messages) == 1
+    assert service.maybe_send_daily_report(datetime(2026, 9, 12, 23, 55, tzinfo=tz)) is True
+    assert len(telegram.messages) == 2
+
+
+def test_english_command_aliases_remain_compatible():
+    service, telegram = make_service()
+    assert service.handle_message({"chat": {"id": 123}, "text": "/status"}) is True
+    assert "BTC BOT DURUMU" in telegram.messages[-1]
+    assert service.handle_message({"chat": {"id": 123}, "text": "/daily"}) is True
+    assert "GÜNLÜK BTC RAPORU" in telegram.messages[-1]
