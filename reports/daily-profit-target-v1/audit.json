@@ -1,0 +1,34 @@
+{
+  "branch": "codex/daily-profit-target-v1",
+  "base_main_sha": "40a6951682fde47873eb7022b8878240fa2ac120",
+  "new_commit_sha": "cb543a7e3fb987a2a6b5b3b550c23b8d740f9fbd",
+  "daily_target_pct": 0.01,
+  "checks": {
+    "opening_balance_source": "PASS",
+    "target_calculation": "PASS",
+    "net_realized_accounting": "PASS",
+    "unrealized_excluded": "PASS",
+    "target_latch": "PASS",
+    "istanbul_reset": "PASS",
+    "restart_recovery": "PASS",
+    "entry_guard": "PASS",
+    "active_position_management_unaffected": "PASS",
+    "data_unavailable_fail_closed": "PASS",
+    "telegram_dedupe": "PASS",
+    "dashboard_target_ui": "PASS"
+  },
+  "validation": {
+    "full_tests": "PASS (350 passed)",
+    "dashboard_self_test": "PASS",
+    "js_syntax": "PASS",
+    "compileall": "PASS",
+    "secret_scan": "PASS",
+    "diff_check": "PASS"
+  },
+  "trading_signal_logic_changed": false,
+  "risk_increased": false,
+  "mainnet": "BLOCKED",
+  "live_orders": false,
+  "merge": false,
+  "deploy": false
+}
