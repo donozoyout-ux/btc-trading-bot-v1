@@ -25,6 +25,7 @@ class TelegramEventNotifier:
         self.client = client
         self.dedupe_ttl_seconds = dedupe_ttl_seconds
         self._sent: Dict[str, float] = {}
+        self._last_state_event_key: Optional[str] = None
 
     @staticmethod
     def _value(value: Any, fallback: str = "—") -> str:
@@ -202,15 +203,15 @@ class TelegramEventNotifier:
                 lines.extend([
                     f"Kapatılan: {self._number(p.get('closed_quantity'), 6)} BTC",
                     f"Kalan: {self._number(p.get('remaining_quantity'), 6)} BTC",
-                    f"Realized PnL: {self._number(p.get('realized_pnl'))} USDT",
+                    f"Gerçekleşen K/Z: {self._number(p.get('realized_pnl'))} USDT",
                 ])
             else:
                 lines.extend([
-                    f"MFE: {self._number(p.get('mfe_r'))}R",
-                    f"Current R: {self._number(p.get('current_r'))}R",
-                    f"Locked R: {self._number(p.get('protected_r'))}R",
+                    f"En yüksek R: {self._number(p.get('mfe_r'))}R",
+                    f"Mevcut R: {self._number(p.get('current_r'))}R",
+                    f"Korunan R: {self._number(p.get('protected_r'))}R",
                 ])
-            lines.extend([f"Action: {self._value(p.get('state'))}", "", self._footer()])
+            lines.extend([f"Yönetim: {self._value(p.get('state'))}", "", self._footer()])
             return "\n".join(lines)
 
         if event == "ERROR":
@@ -328,4 +329,20 @@ class TelegramEventNotifier:
             "message": "Binance market data unavailable" if event == "DATA_SOURCE_ERROR" else None,
         }
         decision_id = snapshot.get("decision_id") or decision.get("evaluation_id") or str(decision.get("timestamp"))
+        if event == "KILL_SWITCH":
+            state_key = f"KILL_SWITCH:{system.get('kill_switch_reason') or decision.get('reason') or 'ACTIVE'}"
+        elif event == "HIGH_NEWS_RISK":
+            state_key = f"HIGH_NEWS_RISK:{news.get('news_risk')}:{news.get('risk_reason') or news.get('reason') or ''}"
+        elif event == "DATA_SOURCE_ERROR":
+            state_key = f"DATA_SOURCE_ERROR:{binance_status}"
+        else:
+            state_key = None
+        if state_key is not None:
+            if self._last_state_event_key == state_key:
+                return {"sent": False, "deduplicated": True, "event": event, "reason": "STATE_UNCHANGED"}
+            result = self.notify(event, payload, dedupe_key=state_key)
+            if result.get("sent") or result.get("deduplicated"):
+                self._last_state_event_key = state_key
+            return result
+        self._last_state_event_key = None
         return self.notify(event, payload, dedupe_key=f"{event}:{decision_id}:{strategy.get('entry_trigger_state')}")
