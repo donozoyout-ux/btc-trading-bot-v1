@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from config.constants import ManagementProfile, MarketRegime, PositionManagementState, StructureType, TradeDirection, VolatilityLevel
 from data.binance_execution_client import ExecutionError
+from engines.fast_profit_guard import FastProfitGuard
 from engines.position_manager import PositionManager
 from engines.restart_baseline_recovery import RestartBaselineRecovery
 from execution.testnet_executor import TestnetExecutor
@@ -45,6 +46,10 @@ class SaferTestnetExecutor(TestnetExecutor):
         self.last_alert_sent_at = persisted.get("last_alert_sent_at")
         self.active_alert_state = persisted.get("active_alert_state") or "HEALTHY"
         self.last_management_alert_key = persisted.get("last_management_alert_key")
+        self.fast_profit_mfe_r = float(persisted.get("fast_profit_mfe_r") or 0.0)
+        self.fast_profit_partial_taken = bool(persisted.get("fast_profit_partial_taken", False))
+        self.fast_profit_armed = bool(persisted.get("fast_profit_armed", False))
+        self.fast_profit_last_action = persisted.get("fast_profit_last_action")
         self.position_manager = PositionManager(
             recovery_wait_enabled=getattr(self.settings, "RECOVERY_WAIT_ENABLED", True),
             early_exit_enabled=getattr(self.settings, "EARLY_EXIT_ENABLED", True),
@@ -70,6 +75,30 @@ class SaferTestnetExecutor(TestnetExecutor):
             mfe_giveback_exit_r=getattr(self.settings, "MFE_GIVEBACK_EXIT_R", .55),
             profit_fade_partial_min_r=getattr(self.settings, "PROFIT_FADE_PARTIAL_MIN_R", .80),
             profit_fade_partial_fraction=getattr(self.settings, "PROFIT_FADE_PARTIAL_FRACTION", .35),
+        )
+        self.fast_profit_guard = FastProfitGuard(
+            enabled=getattr(self.settings, "FAST_PROFIT_GUARD_ENABLED", True),
+            arm_r=getattr(self.settings, "FAST_PROFIT_ARM_R", .40),
+            breakeven_trigger_r=getattr(self.settings, "FAST_PROFIT_BREAKEVEN_TRIGGER_R", .60),
+            breakeven_lock_r=getattr(self.settings, "FAST_PROFIT_BREAKEVEN_LOCK_R", 0.0),
+            lock_075_trigger_r=getattr(self.settings, "FAST_PROFIT_LOCK_075_TRIGGER_R", .75),
+            lock_075_r=getattr(self.settings, "FAST_PROFIT_LOCK_075_R", .10),
+            partial_trigger_r=getattr(self.settings, "FAST_PROFIT_PARTIAL_TRIGGER_R", 1.0),
+            partial_fraction=getattr(self.settings, "FAST_PROFIT_PARTIAL_FRACTION", .30),
+            lock_1_trigger_r=getattr(self.settings, "FAST_PROFIT_LOCK_1_TRIGGER_R", 1.0),
+            lock_1_r=getattr(self.settings, "FAST_PROFIT_LOCK_1_R", .30),
+            lock_2_trigger_r=getattr(self.settings, "FAST_PROFIT_LOCK_2_TRIGGER_R", 1.25),
+            lock_2_r=getattr(self.settings, "FAST_PROFIT_LOCK_2_R", .60),
+            lock_3_trigger_r=getattr(self.settings, "FAST_PROFIT_LOCK_3_TRIGGER_R", 1.50),
+            lock_3_r=getattr(self.settings, "FAST_PROFIT_LOCK_3_R", .90),
+            lock_4_trigger_r=getattr(self.settings, "FAST_PROFIT_LOCK_4_TRIGGER_R", 2.0),
+            lock_4_r=getattr(self.settings, "FAST_PROFIT_LOCK_4_R", 1.30),
+            trail_arm_r=getattr(self.settings, "FAST_PROFIT_TRAIL_ARM_R", 1.25),
+            trail_gap_r=getattr(self.settings, "FAST_PROFIT_TRAIL_GAP_R", .70),
+            fade_exit_arm_r=getattr(self.settings, "FAST_PROFIT_FADE_EXIT_ARM_R", 1.25),
+            fade_exit_giveback_r=getattr(self.settings, "FAST_PROFIT_FADE_EXIT_GIVEBACK_R", .60),
+            fade_exit_min_current_r=getattr(self.settings, "FAST_PROFIT_FADE_EXIT_MIN_CURRENT_R", .10),
+            min_stop_improvement_r=getattr(self.settings, "FAST_PROFIT_MIN_STOP_IMPROVEMENT_R", .05),
         )
         self.baseline_recovery = RestartBaselineRecovery("BTCUSDT")
 
@@ -279,6 +308,10 @@ class SaferTestnetExecutor(TestnetExecutor):
             self.management_mae_r = 0.0
             self.last_management_decision = {}
             self.profit_fade_partial_taken = False
+            self.fast_profit_mfe_r = 0.0
+            self.fast_profit_partial_taken = False
+            self.fast_profit_armed = False
+            self.fast_profit_last_action = None
             self._write_runtime_state(last_execution_result="OPENED")
             result["protection_plan"] = {
                 "mode": "SPLIT_TP_WHEN_EXCHANGE_ALLOWS",
@@ -314,6 +347,10 @@ class SaferTestnetExecutor(TestnetExecutor):
             "last_alert_sent_at": getattr(self, "last_alert_sent_at", None),
             "active_alert_state": getattr(self, "active_alert_state", "HEALTHY"),
             "last_management_alert_key": getattr(self, "last_management_alert_key", None),
+            "fast_profit_mfe_r": getattr(self, "fast_profit_mfe_r", 0.0),
+            "fast_profit_partial_taken": getattr(self, "fast_profit_partial_taken", False),
+            "fast_profit_armed": getattr(self, "fast_profit_armed", False),
+            "fast_profit_last_action": getattr(self, "fast_profit_last_action", None),
         })
         self.execution_journal.write_state(persisted)
 
@@ -661,6 +698,7 @@ class SaferTestnetExecutor(TestnetExecutor):
                     )
                     self.management_mfe_r = excursions["mfe_r"]
                     self.management_mae_r = excursions["mae_r"]
+                    self.fast_profit_mfe_r = max(self.fast_profit_mfe_r, excursions["mfe_r"])
                 except Exception:
                     # The immutable baseline remains proven even if optional
                     # public candle reconstruction is temporarily unavailable.
@@ -729,6 +767,10 @@ class SaferTestnetExecutor(TestnetExecutor):
             self.protection_reconciliation_reason = None
             self.protection_reconciliation_expected_target_ids = []
             self.profit_fade_partial_taken = False
+            self.fast_profit_mfe_r = 0.0
+            self.fast_profit_partial_taken = False
+            self.fast_profit_armed = False
+            self.fast_profit_last_action = None
             self._write_runtime_state()
         return after
 
@@ -868,6 +910,180 @@ class SaferTestnetExecutor(TestnetExecutor):
         self._write_runtime_state(last_execution_result="POSITION_MANAGEMENT")
         return {"status": "POSITION_MANAGEMENT", "position": position, "open_orders": orders}
 
+    def _fast_profit_exit_and_reconcile(self, position: Dict[str, Any], state, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Close a profitable giveback position and prove exchange FLAT state."""
+        try:
+            close_order = self.client.close_position_market("BTCUSDT")
+            after = self.client.get_position("BTCUSDT")
+            self._known_position = after
+            if float(after.get("position_amt") or 0) != 0:
+                raise ExecutionError("FAST_PROFIT_EXIT_POSITION_NOT_FLAT")
+            cleanup = self.cleanup_flat_reduce_only_orders()
+            final = self.client.get_position("BTCUSDT")
+            remaining = self.client.get_open_orders("BTCUSDT") + self.client.get_open_algo_orders("BTCUSDT")
+            stale = [row for row in remaining if self._is_reduce_only(row)]
+            if float(final.get("position_amt") or 0) != 0 or stale:
+                raise ExecutionError("FAST_PROFIT_EXIT_RECONCILIATION_FAILED")
+            self._known_position = final
+            self._protective_orders = []
+            self.execution_journal.record(
+                decision_id=self._entry_context.get("entry_decision_id"),
+                action="FAST_PROFIT_EXIT", status="CONFIRMED", details=payload,
+                position_before=position, position_after=final,
+            )
+            self._entry_context = {}
+            self.protection_reconciliation_required = False
+            self.protection_reconciliation_reason = None
+            self.protection_reconciliation_expected_target_ids = []
+            self.fast_profit_mfe_r = 0.0
+            self.fast_profit_partial_taken = False
+            self.fast_profit_armed = False
+            self.fast_profit_last_action = "CLOSE_FULL"
+            self._write_runtime_state(last_execution_result="FAST_PROFIT_EXIT")
+            return {"position": final, "order": close_order, "stale_orders_cancelled": cleanup["cancelled"]}
+        except Exception as exc:
+            current = None
+            verified_stop = False
+            try:
+                current = self.client.get_position("BTCUSDT")
+                if float(current.get("position_amt") or 0) != 0:
+                    quantity = abs(float(current.get("position_amt") or 0))
+                    orders = self.client.get_open_algo_orders("BTCUSDT")
+                    verified_stop = any(self._validate_stop(row, current, quantity) for row in orders)
+            except Exception:
+                verified_stop = False
+            if current is None or (float(current.get("position_amt") or 0) != 0 and not verified_stop):
+                state.activate_emergency_latch("FAST_PROFIT_EXIT_RECONCILIATION_FAILURE")
+            self.execution_journal.record(
+                decision_id=self._entry_context.get("entry_decision_id"),
+                action="FAST_PROFIT_EXIT_RECONCILIATION_FAILURE",
+                status="EXISTING_STOP_PRESERVED" if verified_stop else "KILL_SWITCH",
+                reason=getattr(exc, "category", type(exc).__name__),
+                details=payload, position_before=position, position_after=current,
+            )
+            self._write_runtime_state(last_execution_result="FAST_PROFIT_EXIT_RECONCILIATION_FAILURE")
+            raise ExecutionError("FAST_PROFIT_EXIT_RECONCILIATION_FAILED") from None
+
+    def manage_fast_profit_guard(self, position: Dict[str, Any], state) -> Optional[Dict[str, Any]]:
+        """Evaluate profit protection on every execution poll, independent of 5M closes."""
+        if not getattr(self.settings, "FAST_PROFIT_GUARD_ENABLED", True):
+            return None
+        if self.protection_reconciliation_required or not self._has_verified_exchange_baseline():
+            return None
+
+        entry = self._safe_float(self._entry_context.get("actual_entry_price"))
+        initial_stop = self._safe_float(self._entry_context.get("actual_initial_stop"))
+        initial_size = self._safe_float(self._entry_context.get("actual_initial_position_size"))
+        current_size = abs(self._safe_float(position.get("position_amt")) or 0.0)
+        mark = self._safe_float(position.get("mark_price"))
+        if not mark or mark <= 0:
+            try:
+                mark = float(self.client.get_mark_price("BTCUSDT"))
+            except Exception:
+                return None
+        if not entry or initial_stop is None or not initial_size or current_size <= 0:
+            return None
+
+        orders = self.client.get_open_algo_orders("BTCUSDT")
+        stops = [row for row in orders if self._order_type(row) == "STOP_MARKET"]
+        if len(stops) != 1 or not self._validate_stop(stops[0], dict(position, mark_price=mark), current_size):
+            return None
+        current_stop = self._trigger_price(stops[0])
+        if current_stop is None:
+            return None
+
+        direction = "LONG" if float(position.get("position_amt") or 0) > 0 else "SHORT"
+        before_mfe = self.fast_profit_mfe_r
+        before_armed = self.fast_profit_armed
+        decision = self.fast_profit_guard.evaluate(
+            direction=direction,
+            entry=float(entry), initial_stop=float(initial_stop), current_stop=float(current_stop), mark=float(mark),
+            initial_size=float(initial_size), current_size=current_size,
+            previous_mfe_r=self.fast_profit_mfe_r,
+            partial_taken=self.fast_profit_partial_taken,
+            stop_min_gap=self._price_tick_gap("BTCUSDT", float(mark)),
+        )
+        self.fast_profit_mfe_r = decision.mfe_r
+        self.fast_profit_armed = decision.armed
+
+        stop_action = {"action": "TIGHTEN_STOP", "new_stop": decision.new_stop} if decision.new_stop is not None else {}
+        target_action = {}
+        if decision.action == "CLOSE_PARTIAL":
+            target_action = {"action": "CLOSE_PARTIAL", "fraction": decision.partial_fraction}
+        elif decision.action == "CLOSE_FULL":
+            target_action = {"action": "CLOSE_FULL"}
+        payload = {
+            "state": decision.state,
+            "reason_codes": [decision.reason],
+            "fast_guard": True,
+            "position_side": direction,
+            "entry": float(entry), "mark": float(mark),
+            "current_r": decision.current_r, "mfe_r": decision.mfe_r,
+            "profit_giveback_r": decision.giveback_r, "protected_r": decision.protected_r,
+            "old_stop": current_stop, "new_stop": decision.new_stop if decision.new_stop is not None else current_stop,
+            "stop_action": stop_action, "target_action": target_action,
+        }
+
+        if decision.action == "NONE":
+            if decision.mfe_r >= before_mfe + .02 or decision.armed != before_armed:
+                self._write_runtime_state(last_execution_result=decision.state)
+            return None
+
+        if decision.action == "CLOSE_FULL":
+            result = self._fast_profit_exit_and_reconcile(position, state, payload)
+            payload["state"] = "FAST_PROFIT_EXIT"
+            self.last_management_decision = payload
+            self._notify_management_transition("PROFIT_FADE", payload)
+            return {"status": "FAST_PROFIT_EXIT", "position": result["position"], "position_intelligence": payload}
+
+        if decision.action == "CLOSE_PARTIAL":
+            raw_quantity = current_size * float(decision.partial_fraction or 0)
+            quantity = self.client.normalize_quantity("BTCUSDT", raw_quantity, market=True, price=mark)
+            if quantity <= 0 or quantity >= current_size:
+                raise ExecutionError("INVALID_REDUCE_ONLY_QUANTITY")
+            partial = self._take_partial_safely(position, quantity)
+            updated_position = partial["position"]
+            self._known_position = updated_position
+            self._reconcile_profit_partial_protection(updated_position)
+            self.fast_profit_partial_taken = True
+            self.profit_fade_partial_taken = True
+            partial_order = partial.get("order") or {}
+            fill_price = self._safe_float(partial_order.get("average_fill_price"))
+            realized_pnl = partial_order.get("realized_pnl")
+            if realized_pnl is None and fill_price is not None:
+                realized_pnl = ((fill_price - entry) if direction == "LONG" else (entry - fill_price)) * quantity
+            payload.update({
+                "closed_quantity": quantity,
+                "remaining_quantity": abs(float(updated_position.get("position_amt") or 0)),
+                "realized_pnl": realized_pnl,
+            })
+            if decision.new_stop is not None and float(updated_position.get("position_amt") or 0) != 0:
+                self._replace_stop_safely(updated_position, float(decision.new_stop))
+            self.fast_profit_last_action = "CLOSE_PARTIAL"
+            self.last_management_decision = payload
+            self.execution_journal.record(
+                decision_id=self._entry_context.get("entry_decision_id"), action="FAST_PROFIT_PARTIAL",
+                status="CONFIRMED", details=payload, position_before=position, position_after=updated_position,
+            )
+            self._notify_management_transition("PROFIT_PARTIAL_TAKEN", payload)
+            self._write_runtime_state(last_execution_result="FAST_PROFIT_PARTIAL")
+            return {"status": "FAST_PROFIT_PARTIAL", "position": updated_position, "position_intelligence": payload}
+
+        if decision.action == "TIGHTEN_STOP" and decision.new_stop is not None:
+            self._replace_stop_safely(position, float(decision.new_stop))
+            payload["protected_r"] = decision.desired_lock_r
+            self.fast_profit_last_action = "TIGHTEN_STOP"
+            self.last_management_decision = payload
+            self.execution_journal.record(
+                decision_id=self._entry_context.get("entry_decision_id"), action="FAST_PROFIT_STOP_TIGHTENED",
+                status="CONFIRMED", details=payload, position_after=position,
+            )
+            self._notify_management_transition("PROFIT_PROTECTION", payload)
+            self._write_runtime_state(last_execution_result="FAST_PROFIT_STOP_TIGHTENED")
+            return {"status": "FAST_PROFIT_STOP_TIGHTENED", "position": position, "position_intelligence": payload}
+
+        return None
+
     def manage_existing_position(self, state) -> Dict[str, Any]:
         try:
             position = self.reconcile_position()
@@ -889,6 +1105,12 @@ class SaferTestnetExecutor(TestnetExecutor):
             result["position_intelligence"] = self.last_management_decision or {
                 "state": "NO_CHANGE", "reason_codes": ["RECOVERED_POSITION_CONTEXT_UNAVAILABLE"], "adaptive_actions": "NONE",
             }
+            return result
+        if result["status"] == "POSITION_MANAGEMENT" and not self.protection_reconciliation_required:
+            fast = self.manage_fast_profit_guard(position, state)
+            if fast is not None:
+                fast["protection_reconciliation"] = result.get("protection_reconciliation")
+                return fast
         return result
 
     def _replace_target_safely(self, position: Dict[str, Any], new_target: float, role: str) -> None:
