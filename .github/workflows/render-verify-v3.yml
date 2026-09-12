@@ -35,11 +35,7 @@ jobs:
           print(json.dumps(safe, ensure_ascii=False))
           PY
 
-          curl --silent --show-error --location --fail-with-body \\
-            --connect-timeout 15 --max-time 90 \\
-            --header "User-Agent: btc-trading-bot-render-verify/1.0" \\
-            --output /tmp/snapshot.json \\
-            "https://btc-trading-bot-v1.onrender.com/api/snapshot"
+          curl --silent --show-error --location --fail-with-body --connect-timeout 15 --max-time 90 --header "User-Agent: btc-trading-bot-render-verify/1.0" --output /tmp/snapshot.json "https://btc-trading-bot-v1.onrender.com/api/snapshot"
           python - <<'PY'
           import json
           from pathlib import Path
