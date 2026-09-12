@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from config.settings import BotSettings, get_settings
 from core.state import BotState
 from data.binance_execution_client import BinanceFuturesExecutionClient, ExecutionError
+from execution.operator_control import OperatorControlState
 from execution.safer_testnet_executor import SaferTestnetExecutor
 from journal.execution_journal import ExecutionJournal
 from notifications.telegram_client import TelegramClient
@@ -36,6 +37,7 @@ class TestnetExecutionRuntime:
         telegram = TelegramClient(self.settings.TELEGRAM_BOT_TOKEN, self.settings.TELEGRAM_CHAT_ID, enabled=self.settings.TELEGRAM_ENABLED)
         self.notifier = TelegramEventNotifier(telegram, self.settings.TELEGRAM_DEDUPE_TTL_SECONDS)
         self.executor = SaferTestnetExecutor(self.client, settings=self.settings, execution_journal=self.journal, event_notifier=self.notifier)
+        self.operator_control = OperatorControlState(self.settings.JOURNAL_DIR)
         if dashboard_runtime is None:
             from dashboard_server import DashboardRuntime
             dashboard_runtime = DashboardRuntime(settings=self.settings)
@@ -71,6 +73,7 @@ class TestnetExecutionRuntime:
             "telegram_enabled": s.TELEGRAM_ENABLED,
             "telegram_bot_token_configured": bool(s.TELEGRAM_BOT_TOKEN),
             "telegram_chat_id_configured": bool(s.TELEGRAM_CHAT_ID),
+            "telegram_manual_trading_enabled": bool(getattr(s, "TELEGRAM_MANUAL_TRADING_ENABLED", False)),
         }
 
     def authenticate(self) -> Dict[str, Any]:
@@ -172,6 +175,13 @@ class TestnetExecutionRuntime:
                     managed["position"],
                 )
             return managed
+        operator = self.operator_control.read()
+        if operator.get("manual_entry_lock"):
+            return {
+                "status": "MANUAL_ENTRY_LOCKED",
+                "reason": operator.get("reason") or "OPERATOR_LOCK",
+                "locked_by": operator.get("locked_by"),
+            }
         snapshot = self.dashboard.snapshot(force=True)
         result = self.executor.process_snapshot(snapshot, self.state)
         return result or {"status": "NO_ACTION"}
