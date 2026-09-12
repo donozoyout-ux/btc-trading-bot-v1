@@ -34,3 +34,39 @@ jobs:
           }
           print(json.dumps(safe, ensure_ascii=False))
           PY
+
+          curl --silent --show-error --location --fail-with-body \\
+            --connect-timeout 15 --max-time 90 \\
+            --header "User-Agent: btc-trading-bot-render-verify/1.0" \\
+            --output /tmp/snapshot.json \\
+            "https://btc-trading-bot-v1.onrender.com/api/snapshot?force=1"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('/tmp/snapshot.json').read_text(encoding='utf-8'))
+          active = data.get('active_trade') or {}
+          execution = data.get('execution') or {}
+          safe = {
+              'final_decision': data.get('final_decision'),
+              'active_trade': {
+                  'status': active.get('status'),
+                  'side': active.get('side'),
+                  'entry_price': active.get('entry_price'),
+                  'mark_price': active.get('mark_price'),
+                  'unrealized_pnl': active.get('unrealized_pnl'),
+                  'current_r': active.get('current_r'),
+                  'mfe_r': active.get('mfe_r'),
+                  'protected_r': active.get('protected_r'),
+                  'management_state': active.get('management_state'),
+                  'context_status': active.get('context_status'),
+              },
+              'execution': {
+                  'last_execution_result': execution.get('last_execution_result'),
+                  'fast_profit_mfe_r': execution.get('fast_profit_mfe_r'),
+                  'fast_profit_armed': execution.get('fast_profit_armed'),
+                  'fast_profit_partial_taken': execution.get('fast_profit_partial_taken'),
+                  'fast_profit_last_action': execution.get('fast_profit_last_action'),
+              },
+          }
+          print(json.dumps(safe, ensure_ascii=False))
+          PY
