@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 from config.settings import BotSettings, get_settings
 from core.state import BotState
 from data.binance_execution_client import BinanceFuturesExecutionClient, ExecutionError
-from execution.operator_control import OperatorControlState
+from execution.operator_control import OPERATOR_EXECUTION_MUTEX, OperatorControlState
 from execution.safer_testnet_executor import SaferTestnetExecutor
 from journal.execution_journal import ExecutionJournal
 from notifications.telegram_client import TelegramClient
@@ -154,37 +154,35 @@ class TestnetExecutionRuntime:
             raise ExecutionError(reason) from None
 
     def run_cycle(self) -> Dict[str, Any]:
-        managed = self.executor.manage_existing_position(self.state)
-        if managed["status"] != "FLAT":
-            # Reconciliation and real-time exchange protection always run
-            # first.  Thesis management is deliberately clocked by the most
-            # recent CLOSED 5M candle and the executor deduplicates that
-            # timestamp, so dashboard/poll cadence cannot repeat an action.
-            if managed["status"] == "POSITION_MANAGEMENT":
-                # Lightweight test/recovery dashboards without the strategy
-                # pipeline can reconcile protection, but cannot safely form a
-                # thesis-management decision.
-                if not hasattr(self.dashboard, "pipeline"):
-                    return managed
-                snapshot = self.dashboard.snapshot(force=True)
-                if not isinstance(snapshot, dict):
-                    return managed
-                return self.executor.manage_adaptive_position(
-                    snapshot,
-                    self.state,
-                    managed["position"],
-                )
-            return managed
-        operator = self.operator_control.read()
-        if operator.get("manual_entry_lock"):
-            return {
-                "status": "MANUAL_ENTRY_LOCKED",
-                "reason": operator.get("reason") or "OPERATOR_LOCK",
-                "locked_by": operator.get("locked_by"),
-            }
-        snapshot = self.dashboard.snapshot(force=True)
-        result = self.executor.process_snapshot(snapshot, self.state)
-        return result or {"status": "NO_ACTION"}
+        # Telegram operator actions and the automatic executor share one
+        # process-wide mutex so a manual close cannot race a stop/partial update.
+        with OPERATOR_EXECUTION_MUTEX:
+            managed = self.executor.manage_existing_position(self.state)
+            if managed["status"] != "FLAT":
+                # Reconciliation and real-time exchange protection always run
+                # first. Thesis management remains on the CLOSED 5M clock.
+                if managed["status"] == "POSITION_MANAGEMENT":
+                    if not hasattr(self.dashboard, "pipeline"):
+                        return managed
+                    snapshot = self.dashboard.snapshot(force=True)
+                    if not isinstance(snapshot, dict):
+                        return managed
+                    return self.executor.manage_adaptive_position(
+                        snapshot,
+                        self.state,
+                        managed["position"],
+                    )
+                return managed
+            operator = self.operator_control.read()
+            if operator.get("manual_entry_lock"):
+                return {
+                    "status": "MANUAL_ENTRY_LOCKED",
+                    "reason": operator.get("reason") or "OPERATOR_LOCK",
+                    "locked_by": operator.get("locked_by"),
+                }
+            snapshot = self.dashboard.snapshot(force=True)
+            result = self.executor.process_snapshot(snapshot, self.state)
+            return result or {"status": "NO_ACTION"}
 
     def run_loop(self, max_cycles: Optional[int] = None) -> None:
         self.executor._assert_execution_boundary()
