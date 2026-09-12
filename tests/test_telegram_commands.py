@@ -314,3 +314,19 @@ def test_english_command_aliases_remain_compatible():
     assert "BTC BOT DURUMU" in telegram.messages[-1]
     assert service.handle_message({"chat": {"id": 123}, "text": "/daily"}) is True
     assert "GÜNLÜK BTC RAPORU" in telegram.messages[-1]
+
+
+def test_manual_close_is_hard_blocked_outside_testnet():
+    service, telegram = make_service()
+    service.settings.ENV = "production"
+    assert service.handle_message({"chat": {"id": 123}, "text": "/sat"}) is True
+    assert "MAINNET_EXECUTION_BLOCKED" in telegram.messages[-1]
+    assert service.execution.closed == 0
+
+
+def test_manual_close_is_hard_blocked_when_shadow_or_read_only():
+    service, telegram = make_service()
+    service.settings.SHADOW_MODE = True
+    assert service.handle_message({"chat": {"id": 123}, "text": "/sat"}) is True
+    assert "SHADOW_MODE_ACTIVE" in telegram.messages[-1]
+    assert service.execution.closed == 0
