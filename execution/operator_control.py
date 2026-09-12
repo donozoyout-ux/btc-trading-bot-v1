@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import time
+import threading
 from pathlib import Path
 from typing import Any, Dict
 
 from storage.state_repository import create_state_repository
+
+
+OPERATOR_EXECUTION_MUTEX = threading.RLock()
 
 
 class OperatorControlState:
