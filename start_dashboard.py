@@ -43,6 +43,9 @@ def _apply_render_testnet_defaults() -> None:
         os.environ.setdefault("SHADOW_MODE", "false")
         # Smoke tests are intentionally not automatic on every Render restart.
         os.environ.setdefault("RUN_EXECUTION_SMOKE_TEST", "false")
+        # Operator-requested Telegram manual close is TESTNET-only. It never
+        # opens/reverses a position and still depends on all execution flags.
+        os.environ.setdefault("TELEGRAM_MANUAL_TRADING_ENABLED", "true")
 
 
 def _safe_startup_status() -> None:
@@ -68,7 +71,7 @@ def _safe_startup_status() -> None:
 
 
 def _start_telegram_commands() -> None:
-    """Start one authenticated, read-only Telegram command poller."""
+    """Start one authenticated Telegram operator command poller."""
     settings = get_settings()
     service = TelegramCommandService(
         settings,
