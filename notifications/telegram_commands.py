@@ -587,7 +587,7 @@ class TelegramCommandService:
         command = self.COMMAND_ALIASES.get(command, command)
         try:
             if command in self.MUTATING_COMMANDS:
-                response = "🔒 Bu komut kapalı. Telegram komutları yalnızca okuma amaçlıdır; BUY/SELL/CLOSE ve bot kontrolü yapmaz."
+                response = "🔒 Bu komut kapalı. Telegram yeni pozisyon açmaz, yön tersine çevirmez, kaldıraç veya emir iptal komutu çalıştırmaz."
             elif command == "yardim":
                 response = self._help()
             elif command == "durum":
