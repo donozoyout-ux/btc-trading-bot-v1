@@ -197,7 +197,7 @@ def test_status_account_position_orders_signal_risk_sources():
     assert "Türev verileri: DEGRADED" in combined
     assert "BTC dominansı: 56.20%" in combined
     assert "CoinGlass likidasyon: $VERİ YOK" in combined
-    assert "READ ONLY" in combined
+    assert "Salt okunur" in combined
     assert "PONG" in combined
 
 
