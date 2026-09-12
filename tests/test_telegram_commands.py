@@ -195,8 +195,8 @@ def test_status_account_position_orders_signal_risk_sources():
     assert "CoinGlass: AUTH_ERROR" in combined
     assert "CoinMarketCap: CONNECTED" in combined
     assert "Türev verileri: DEGRADED" in combined
-    assert "BTC Dominance: 56.20%" in combined
-    assert "CoinGlass Liquidations: $Unavailable" in combined
+    assert "BTC dominansı: 56.20%" in combined
+    assert "CoinGlass likidasyon: $VERİ YOK" in combined
     assert "READ ONLY" in combined
     assert "PONG" in combined
 
