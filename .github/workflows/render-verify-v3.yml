@@ -39,7 +39,7 @@ jobs:
             --connect-timeout 15 --max-time 90 \\
             --header "User-Agent: btc-trading-bot-render-verify/1.0" \\
             --output /tmp/snapshot.json \\
-            "https://btc-trading-bot-v1.onrender.com/api/snapshot?force=1"
+            "https://btc-trading-bot-v1.onrender.com/api/snapshot"
           python - <<'PY'
           import json
           from pathlib import Path
