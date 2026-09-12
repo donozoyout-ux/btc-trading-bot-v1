@@ -141,7 +141,7 @@ class FastProfitGuard:
 
         if (
             mfe_r >= self.fade_exit_arm_r
-            and giveback_r >= self.fade_exit_giveback_r
+            and giveback_r + 1e-9 >= self.fade_exit_giveback_r
             and current_r >= self.fade_exit_min_current_r
         ):
             return FastProfitDecision(
