@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 from loguru import logger
 
 from data.binance_execution_client import BinanceFuturesExecutionClient, ExecutionError
-from execution.operator_control import OperatorControlState
+from execution.operator_control import OPERATOR_EXECUTION_MUTEX, OperatorControlState
 from notifications.telegram_client import TelegramClient, TelegramError
 from storage.state_repository import create_state_repository
 
@@ -219,47 +219,48 @@ class TelegramCommandService:
         # operator flattens the account. A failed close intentionally leaves the
         # lock active (fail-closed for new entries).
         self.operator_control.lock_entries(locked_by="TELEGRAM", reason="OPERATOR_MANUAL_CLOSE")
-        before = self.execution.get_position("BTCUSDT")
-        amount = float(before.get("position_amt") or 0)
-        if amount == 0:
+        with OPERATOR_EXECUTION_MUTEX:
+            before = self.execution.get_position("BTCUSDT")
+            amount = float(before.get("position_amt") or 0)
+            if amount == 0:
+                return "\n".join([
+                    "⚪ BTCUSDT zaten FLAT.",
+                    "🔒 Yeni otomatik girişler kilitli.",
+                    "Devam etmek için /devam yaz.",
+                ])
+
+            side = "LONG" if amount > 0 else "SHORT"
+            quantity = abs(amount)
+            order = self.execution.close_position_market("BTCUSDT")
+            after = self.execution.get_position("BTCUSDT")
+            if float(after.get("position_amt") or 0) != 0:
+                raise ExecutionError("MANUAL_CLOSE_POSITION_NOT_FLAT")
+
+            # Flat account must not keep stale protective orders. Cleanup is
+            # best-effort here; the normal execution loop also reconciles FLAT state.
+            try:
+                self.execution.cancel_all_algo_open_orders("BTCUSDT")
+            except Exception:
+                pass
+            try:
+                for row in list(self.execution.get_open_orders("BTCUSDT")):
+                    if bool(row.get("reduceOnly")) and row.get("orderId") is not None:
+                        self.execution.cancel_order("BTCUSDT", int(row["orderId"]))
+            except Exception:
+                pass
+
+            fill = (order or {}).get("average_fill_price")
             return "\n".join([
-                "⚪ BTCUSDT zaten FLAT.",
-                "🔒 Yeni otomatik girişler kilitli.",
-                "Devam etmek için /devam yaz.",
+                "✅ TESTNET POZİSYON KAPATILDI", "",
+                f"Yön: {side}",
+                f"Kapatılan miktar: {self._num(quantity, 6)} BTC",
+                f"Market fill: {self._num(fill) if fill else '—'} USDT",
+                "Durum: FLAT",
+                "",
+                "🔒 Yeni otomatik girişler kilitlendi.",
+                "Tekrar otomatik giriş için /devam yaz.",
+                "🧪 Binance Futures TESTNET · Gerçek para KAPALI",
             ])
-
-        side = "LONG" if amount > 0 else "SHORT"
-        quantity = abs(amount)
-        order = self.execution.close_position_market("BTCUSDT")
-        after = self.execution.get_position("BTCUSDT")
-        if float(after.get("position_amt") or 0) != 0:
-            raise ExecutionError("MANUAL_CLOSE_POSITION_NOT_FLAT")
-
-        # Flat account must not keep stale protective orders. Cleanup is
-        # best-effort here; the normal execution loop also reconciles FLAT state.
-        try:
-            self.execution.cancel_all_algo_open_orders("BTCUSDT")
-        except Exception:
-            pass
-        try:
-            for row in list(self.execution.get_open_orders("BTCUSDT")):
-                if bool(row.get("reduceOnly")) and row.get("orderId") is not None:
-                    self.execution.cancel_order("BTCUSDT", int(row["orderId"]))
-        except Exception:
-            pass
-
-        fill = (order or {}).get("average_fill_price")
-        return "\n".join([
-            "✅ TESTNET POZİSYON KAPATILDI", "",
-            f"Yön: {side}",
-            f"Kapatılan miktar: {self._num(quantity, 6)} BTC",
-            f"Market fill: {self._num(fill) if fill else '—'} USDT",
-            "Durum: FLAT",
-            "",
-            "🔒 Yeni otomatik girişler kilitlendi.",
-            "Tekrar otomatik giriş için /devam yaz.",
-            "🧪 Binance Futures TESTNET · Gerçek para KAPALI",
-        ])
 
     def _account(self) -> str:
         if self.execution is None:
