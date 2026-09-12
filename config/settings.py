@@ -47,6 +47,9 @@ class BotSettings(BaseSettings):
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHAT_ID: Optional[str] = None
     TELEGRAM_DEDUPE_TTL_SECONDS: int = Field(default=3600, ge=60, le=86400)
+    TELEGRAM_DAILY_REPORT_ENABLED: bool = True
+    TELEGRAM_DAILY_REPORT_HOUR: int = Field(default=23, ge=0, le=23)
+    TELEGRAM_DAILY_REPORT_MINUTE: int = Field(default=55, ge=0, le=59)
 
     # Context-only intelligence integrations
     NEWS_ENABLED: bool = True
