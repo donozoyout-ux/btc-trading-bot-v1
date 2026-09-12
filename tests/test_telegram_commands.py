@@ -176,7 +176,7 @@ def test_help_lists_read_only_commands_and_no_trade_actions():
     assert "/pozisyon" in text
     assert "/sinyal" in text
     assert "/rapor" in text
-    assert "BUY/SELL/CLOSE" in text
+    assert "al/sat/kapat" in text.lower()
 
 
 def test_status_account_position_orders_signal_risk_sources():
@@ -194,7 +194,7 @@ def test_status_account_position_orders_signal_risk_sources():
     assert "Binance: FALLBACK" in combined
     assert "CoinGlass: AUTH_ERROR" in combined
     assert "CoinMarketCap: CONNECTED" in combined
-    assert "Derivatives: DEGRADED" in combined
+    assert "Türev verileri: DEGRADED" in combined
     assert "BTC Dominance: 56.20%" in combined
     assert "CoinGlass Liquidations: $Unavailable" in combined
     assert "READ ONLY" in combined
