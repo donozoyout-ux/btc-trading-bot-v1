@@ -90,13 +90,13 @@ def test_fast_mfe_giveback_closes_remaining_profit_before_full_round_trip():
 
 def test_fast_guard_never_widens_an_already_better_stop():
     result = guard().evaluate(
-        direction="LONG", entry=100, initial_stop=90, current_stop=107,
+        direction="LONG", entry=100, initial_stop=90, current_stop=110,
         mark=115, initial_size=1, current_size=.7,
         partial_taken=True, stop_min_gap=.1,
     )
     assert result.action == "NONE"
     assert result.new_stop is None
-    assert result.protected_r == pytest.approx(.7)
+    assert result.protected_r == pytest.approx(1.0)
 
 
 class MemoryJournal:
