@@ -1,8 +1,9 @@
-"""Authenticated read-only Telegram command surface for the Render bot.
+"""Authenticated Telegram operator surface for the Render TESTNET bot.
 
-Only the configured TELEGRAM_CHAT_ID can use commands.  The command service
-never submits, cancels, closes, pauses, or otherwise mutates Binance orders or
-positions; it only reads the current TESTNET account/runtime state.
+Only the configured TELEGRAM_CHAT_ID can use commands. Read-only commands are
+always safe. Manual mutation is deliberately limited to TESTNET position close
+and an operator entry lock; it can never open, reverse, leverage, or trade
+MAINNET.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from zoneinfo import ZoneInfo
 from loguru import logger
 
 from data.binance_execution_client import BinanceFuturesExecutionClient, ExecutionError
+from execution.operator_control import OperatorControlState
 from notifications.telegram_client import TelegramClient, TelegramError
 from storage.state_repository import create_state_repository
 
@@ -32,6 +34,10 @@ class TelegramCommandService:
         ("kaynaklar", "Veri kaynaklarının durumunu göster"),
         ("piyasa", "Piyasa ve türev bağlamını göster"),
         ("rapor", "Bugünün performans raporunu gönder"),
+        ("manuel", "Otomatik yeni girişleri kilitle"),
+        ("devam", "Otomatik yeni girişleri tekrar aç"),
+        ("sat", "Açık TESTNET pozisyonunu marketten kapat"),
+        ("kapat", "Açık TESTNET pozisyonunu marketten kapat"),
         ("ping", "Telegram bağlantısını test et"),
     )
 
@@ -40,10 +46,11 @@ class TelegramCommandService:
         "status": "durum", "account": "hesap", "position": "pozisyon",
         "orders": "emirler", "signal": "sinyal", "sources": "kaynaklar",
         "market": "piyasa", "report": "rapor", "daily": "rapor", "gunluk": "rapor",
+        "close": "kapat", "sell": "sat", "resume": "devam", "manual": "manuel",
     }
 
     MUTATING_COMMANDS = {
-        "buy", "sell", "long", "short", "close", "closeall", "cancel", "cancelall",
+        "buy", "long", "short", "closeall", "cancel", "cancelall",
         "pause", "resume", "stopbot", "startbot", "kill", "leverage",
     }
 
@@ -56,6 +63,7 @@ class TelegramCommandService:
         telegram_client: Optional[TelegramClient] = None,
         execution_client: Optional[BinanceFuturesExecutionClient] = None,
         daily_report_state=None,
+        operator_control_state=None,
         sleep_fn=time.sleep,
     ) -> None:
         self.settings = settings
@@ -83,6 +91,8 @@ class TelegramCommandService:
         self.daily_report_timezone = ZoneInfo("Europe/Istanbul")
         report_path = Path(getattr(settings, "JOURNAL_DIR", "journal_logs")) / "telegram_daily_report_state.json"
         self.daily_report_state = daily_report_state or create_state_repository(report_path)
+        self.manual_trading_enabled = bool(getattr(settings, "TELEGRAM_MANUAL_TRADING_ENABLED", False))
+        self.operator_control = operator_control_state or OperatorControlState(getattr(settings, "JOURNAL_DIR", "journal_logs"))
 
     @property
     def enabled(self) -> bool:
@@ -144,13 +154,16 @@ class TelegramCommandService:
             "🔒 Komutlar yalnızca tanımlı Telegram hesabında çalışır.",
             "🧪 Mod: Binance Futures TESTNET",
             "💵 Gerçek para: KAPALI",
-            "⚠️ Telegram üzerinden al/sat/kapat komutları kapalıdır.",
+            "🕹️ /sat veya /kapat: mevcut TESTNET pozisyonunu kapatır.",
+            "🔒 /manuel: yeni otomatik girişleri kilitler. /devam: tekrar açar.",
+            "⚠️ Telegram pozisyon AÇMAZ veya yön tersine çevirmez.",
         ])
         return "\n".join(lines)
 
     def _status(self) -> str:
         status = self.execution_status_provider() or {}
         market = self._market_status()
+        operator = self.operator_control.read()
         return "\n".join([
             "🤖 BTC BOT DURUMU",
             "",
@@ -161,9 +174,91 @@ class TelegramCommandService:
             f"Hata: {self._text(status.get('execution_error'), 'YOK')}",
             f"Piyasa veri kaynağı: {self._text(market.get('market_data_source'), 'BİLİNMİYOR')}",
             f"İşleme uygun veri: {'EVET' if market.get('market_data_trading_safe') else 'HAYIR'}",
+            f"Operatör giriş kilidi: {'AKTİF' if operator.get('manual_entry_lock') else 'KAPALI'}",
             "",
             "🧪 Binance Futures TESTNET",
             "💵 Gerçek para: KAPALI",
+        ])
+
+    def _assert_manual_boundary(self) -> None:
+        if not self.manual_trading_enabled:
+            raise ExecutionError("TELEGRAM_MANUAL_TRADING_DISABLED")
+        if str(getattr(self.settings, "ENV", "")).strip().lower() != "testnet":
+            raise ExecutionError("MAINNET_EXECUTION_BLOCKED")
+        if not bool(getattr(self.settings, "BINANCE_TESTNET", False)):
+            raise ExecutionError("MAINNET_EXECUTION_BLOCKED")
+        if not bool(getattr(self.settings, "ORDER_SUBMISSION_ENABLED", False)):
+            raise ExecutionError("ORDER_SUBMISSION_DISABLED")
+        if bool(getattr(self.settings, "ACCOUNT_READ_ONLY", True)):
+            raise ExecutionError("ACCOUNT_READ_ONLY")
+        if bool(getattr(self.settings, "SHADOW_MODE", True)):
+            raise ExecutionError("SHADOW_MODE_ACTIVE")
+        if self.execution is None or not bool(getattr(self.execution, "testnet", True)):
+            raise ExecutionError("TESTNET_CLIENT_REQUIRED")
+
+    def _manual_lock(self) -> str:
+        self.operator_control.lock_entries(locked_by="TELEGRAM", reason="OPERATOR_MANUAL_MODE")
+        return "\n".join([
+            "🔒 MANUEL OPERATÖR MODU", "",
+            "Yeni otomatik girişler kilitlendi.",
+            "Açık pozisyon varsa bot STOP/TP ve kâr korumasını yönetmeye devam eder.",
+            "Tekrar otomatik giriş için /devam yaz.",
+        ])
+
+    def _manual_resume(self) -> str:
+        self.operator_control.unlock_entries(unlocked_by="TELEGRAM")
+        return "\n".join([
+            "▶️ OTOMATİK GİRİŞLER AÇILDI", "",
+            "Bot yeni uygun sinyallerde tekrar işlem açabilir.",
+            "Mevcut TESTNET güvenlik kuralları aynen devam eder.",
+        ])
+
+    def _manual_close(self) -> str:
+        self._assert_manual_boundary()
+        # Lock first so the automatic loop cannot reopen immediately after the
+        # operator flattens the account. A failed close intentionally leaves the
+        # lock active (fail-closed for new entries).
+        self.operator_control.lock_entries(locked_by="TELEGRAM", reason="OPERATOR_MANUAL_CLOSE")
+        before = self.execution.get_position("BTCUSDT")
+        amount = float(before.get("position_amt") or 0)
+        if amount == 0:
+            return "\n".join([
+                "⚪ BTCUSDT zaten FLAT.",
+                "🔒 Yeni otomatik girişler kilitli.",
+                "Devam etmek için /devam yaz.",
+            ])
+
+        side = "LONG" if amount > 0 else "SHORT"
+        quantity = abs(amount)
+        order = self.execution.close_position_market("BTCUSDT")
+        after = self.execution.get_position("BTCUSDT")
+        if float(after.get("position_amt") or 0) != 0:
+            raise ExecutionError("MANUAL_CLOSE_POSITION_NOT_FLAT")
+
+        # Flat account must not keep stale protective orders. Cleanup is
+        # best-effort here; the normal execution loop also reconciles FLAT state.
+        try:
+            self.execution.cancel_all_algo_open_orders("BTCUSDT")
+        except Exception:
+            pass
+        try:
+            for row in list(self.execution.get_open_orders("BTCUSDT")):
+                if bool(row.get("reduceOnly")) and row.get("orderId") is not None:
+                    self.execution.cancel_order("BTCUSDT", int(row["orderId"]))
+        except Exception:
+            pass
+
+        fill = (order or {}).get("average_fill_price")
+        return "\n".join([
+            "✅ TESTNET POZİSYON KAPATILDI", "",
+            f"Yön: {side}",
+            f"Kapatılan miktar: {self._num(quantity, 6)} BTC",
+            f"Market fill: {self._num(fill) if fill else '—'} USDT",
+            "Durum: FLAT",
+            "",
+            "🔒 Yeni otomatik girişler kilitlendi.",
+            "Tekrar otomatik giriş için /devam yaz.",
+            "🧪 Binance Futures TESTNET · Gerçek para KAPALI",
         ])
 
     def _account(self) -> str:
@@ -481,9 +576,13 @@ class TelegramCommandService:
         if not chat_id or chat_id != self.authorized_chat_id:
             return False
         text = str(message.get("text") or "").strip()
-        if not text.startswith("/"):
+        plain = text.lower()
+        if text.startswith("/"):
+            command = text.split()[0][1:].split("@", 1)[0].lower()
+        elif plain in {"sat", "kapat", "manuel", "devam"}:
+            command = plain
+        else:
             return False
-        command = text.split()[0][1:].split("@", 1)[0].lower()
         command = self.COMMAND_ALIASES.get(command, command)
         try:
             if command in self.MUTATING_COMMANDS:
@@ -508,6 +607,12 @@ class TelegramCommandService:
                 response = self._market()
             elif command == "rapor":
                 response = self._daily_report()
+            elif command == "manuel":
+                response = self._manual_lock()
+            elif command == "devam":
+                response = self._manual_resume()
+            elif command in {"sat", "kapat"}:
+                response = self._manual_close()
             elif command == "ping":
                 response = "🏓 PONG\n\nTelegram komut kanalı aktif."
             else:
@@ -551,7 +656,7 @@ class TelegramCommandService:
         try:
             self._register_commands()
             self._prime_offset()
-            logger.info("TELEGRAM COMMANDS: READY | AUTHORIZED CHAT ONLY | READ ONLY")
+            logger.info("TELEGRAM COMMANDS: READY | AUTHORIZED CHAT ONLY | TESTNET MANUAL CLOSE={}", self.manual_trading_enabled)
         except TelegramError as exc:
             logger.warning("TELEGRAM COMMANDS: STARTUP DEGRADED | {}", exc.category)
 
