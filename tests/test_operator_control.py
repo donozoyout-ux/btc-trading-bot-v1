@@ -44,6 +44,19 @@ class FakeOperator:
         }
 
 
+class FakeFallback:
+    def __init__(self):
+        self.reset_calls = 0
+        self.manage_calls = 0
+
+    def reset(self):
+        self.reset_calls += 1
+
+    def manage(self, position, state):
+        self.manage_calls += 1
+        return None
+
+
 class FlatExecutor:
     def __init__(self):
         self.process_calls = 0
@@ -67,6 +80,14 @@ class ActiveExecutor(FlatExecutor):
         return {"status": "MANAGED_ACTIVE_POSITION"}
 
 
+class RecoveredExecutor(FlatExecutor):
+    def manage_existing_position(self, state):
+        return {
+            "status": "RECOVERED_POSITION_CONTEXT_UNAVAILABLE",
+            "position": {"position_amt": -0.01, "side": "SHORT"},
+        }
+
+
 class Dashboard:
     def __init__(self, with_pipeline=True):
         if with_pipeline:
@@ -82,6 +103,7 @@ def runtime_with(executor, locked, dashboard):
     runtime = TestnetExecutionRuntime.__new__(TestnetExecutionRuntime)
     runtime.executor = executor
     runtime.operator_control = FakeOperator(locked)
+    runtime.restart_profit_fallback = FakeFallback()
     runtime.dashboard = dashboard
     runtime.state = SimpleNamespace()
     return runtime
@@ -98,6 +120,7 @@ def test_manual_entry_lock_blocks_new_auto_entries_when_flat():
     assert result["locked_by"] == "TELEGRAM"
     assert executor.process_calls == 0
     assert dashboard.snapshot_calls == 0
+    assert runtime.restart_profit_fallback.reset_calls == 1
 
 
 def test_manual_entry_lock_does_not_disable_existing_position_management():
@@ -109,6 +132,18 @@ def test_manual_entry_lock_does_not_disable_existing_position_management():
 
     assert result["status"] == "MANAGED_ACTIVE_POSITION"
     assert dashboard.snapshot_calls == 1
+
+
+def test_recovered_partial_context_routes_through_profit_fallback():
+    executor = RecoveredExecutor()
+    dashboard = Dashboard()
+    runtime = runtime_with(executor, True, dashboard)
+
+    result = runtime.run_cycle()
+
+    assert result["status"] == "RECOVERED_POSITION_CONTEXT_UNAVAILABLE"
+    assert runtime.restart_profit_fallback.manage_calls == 1
+    assert dashboard.snapshot_calls == 0
 
 
 def test_auto_entries_resume_after_operator_unlock():
