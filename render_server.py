@@ -40,6 +40,9 @@ _EXECUTION_STATUS = {
     "smoke_test": "NOT_RUN",
     "last_execution_result": None,
     "execution_error": None,
+    "loop_started_at": None,
+    "last_cycle_at": None,
+    "cycle_count": 0,
 }
 
 
@@ -179,6 +182,82 @@ def _market_status(runtime) -> dict:
         return {}
 
 
+def execution_doctor_payload(settings=None) -> dict:
+    """Return a secret-free TESTNET execution readiness report."""
+
+    from execution.testnet_runtime import TestnetExecutionRuntime
+
+    runtime = getattr(base, "RUNTIME", None)
+    settings = settings or (runtime.settings if runtime is not None else base.get_settings())
+    doctor = TestnetExecutionRuntime.doctor(settings)
+    blockers = []
+    if not doctor["binance_api_key_configured"]:
+        blockers.append("BINANCE_API_KEY_MISSING")
+    if not doctor["binance_api_secret_configured"]:
+        blockers.append("BINANCE_API_SECRET_MISSING")
+    if not doctor["binance_testnet"]:
+        blockers.append("BINANCE_TESTNET_FALSE")
+    if doctor["env"] != "TESTNET":
+        blockers.append("ENV_NOT_TESTNET")
+    if not doctor["order_submission_enabled"]:
+        blockers.append("ORDER_SUBMISSION_DISABLED")
+    if doctor["account_read_only"]:
+        blockers.append("ACCOUNT_READ_ONLY")
+    if doctor["shadow_mode"]:
+        blockers.append("SHADOW_MODE_ACTIVE")
+
+    boundary_ready = bool(settings.testnet_execution_enabled) and not blockers
+    return {
+        **doctor,
+        "execution_boundary_ready": boundary_ready,
+        "blockers": blockers,
+        "operator_smoke_available": bool(
+            boundary_ready
+            and getattr(settings, "TELEGRAM_ENABLED", False)
+            and getattr(settings, "TELEGRAM_MANUAL_TRADING_ENABLED", False)
+            and getattr(settings, "TELEGRAM_BOT_TOKEN", None)
+            and getattr(settings, "TELEGRAM_CHAT_ID", None)
+        ),
+    }
+
+
+def run_operator_smoke_test() -> dict:
+    """Run one authenticated operator-requested TESTNET smoke and restore loop status."""
+
+    from data.binance_execution_client import ExecutionError
+    from execution.testnet_runtime import TestnetExecutionRuntime
+
+    runtime = getattr(base, "RUNTIME", None)
+    if runtime is None:
+        raise ExecutionError("DASHBOARD_UNAVAILABLE")
+
+    previous = execution_status()
+    smoke_runtime = TestnetExecutionRuntime(
+        settings=runtime.settings,
+        dashboard_runtime=runtime,
+        status_callback=_update_execution_status,
+    )
+    try:
+        result = smoke_runtime.run_smoke_test(operator_requested=True)
+    except ExecutionError as exc:
+        _update_execution_status(
+            execution_thread=previous.get("execution_thread", "DISABLED"),
+            bot_status=previous.get("bot_status", "STOPPED"),
+            smoke_test="FAIL",
+            last_execution_result="OPERATOR_SMOKE_FAIL",
+            execution_error=exc.category,
+        )
+        raise
+    _update_execution_status(
+        execution_thread=previous.get("execution_thread", "DISABLED"),
+        bot_status=previous.get("bot_status", "STOPPED"),
+        smoke_test="PASS",
+        last_execution_result="OPERATOR_SMOKE_PASS",
+        execution_error=None,
+    )
+    return result
+
+
 def bootstrap_payload() -> dict:
     """Return fast, network-free Render startup diagnostics.
 
@@ -223,6 +302,7 @@ def bootstrap_payload() -> dict:
         ),
         "news_enabled": os.environ.get("NEWS_ENABLED", "true").lower() == "true",
         "ai_enabled": os.environ.get("AI_ENABLED", "false").lower() == "true",
+        "execution_doctor": execution_doctor_payload(settings),
         "render_git_commit": (os.environ.get("RENDER_GIT_COMMIT") or "")[:12] or None,
         "generated_at": int(time.time() * 1000),
     }
