@@ -9,6 +9,8 @@ trade MAINNET.
 
 from __future__ import annotations
 
+import hmac
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +37,7 @@ class TelegramCommandService:
         ("kaynaklar", "Veri kaynaklarının durumunu göster"),
         ("piyasa", "Piyasa ve türev bağlamını göster"),
         ("rapor", "Bugünün performans raporunu gönder"),
+        ("hazirlik", "Canlıya hazırlık skorunu göster"),
         ("manuel", "Otomatik yeni girişleri kilitle"),
         ("devam", "Otomatik yeni girişleri tekrar aç"),
         ("sat", "Açık TESTNET pozisyonunu marketten kapat"),
@@ -48,7 +51,9 @@ class TelegramCommandService:
         "status": "durum", "account": "hesap", "position": "pozisyon",
         "orders": "emirler", "signal": "sinyal", "sources": "kaynaklar",
         "market": "piyasa", "report": "rapor", "daily": "rapor", "gunluk": "rapor",
-        "close": "kapat", "sell": "sat", "resume": "devam", "manual": "manuel",
+        "readiness": "hazirlik", "live": "hazirlik",
+        "pause": "manuel", "resume": "devam", "manual": "manuel",
+        "close": "kapat", "sell": "sat",
     }
 
     MUTATING_COMMANDS = {
@@ -99,6 +104,8 @@ class TelegramCommandService:
         self.smoke_test_runner = smoke_test_runner
         self._last_smoke_at = 0.0
         self._smoke_cooldown_seconds = 300.0
+        self._update_lock = threading.Lock()
+        self._last_update_id = -1
 
     @property
     def enabled(self) -> bool:
@@ -588,6 +595,41 @@ class TelegramCommandService:
         ])
         return "\n".join(lines)
 
+    def _readiness(self) -> str:
+        runtime = self._dashboard()
+        readiness_fn = getattr(runtime, "live_readiness", None)
+        if not callable(readiness_fn):
+            return "⚠️ Canlıya hazırlık verisi kullanılamıyor."
+        try:
+            payload = readiness_fn(force=False) or {}
+        except Exception:
+            return "⚠️ Canlıya hazırlık verisi alınamadı."
+
+        perf = payload.get("performance") or {}
+        criteria = payload.get("criteria") or []
+        failed = [row for row in criteria if not row.get("passed")]
+        lines = [
+            "🚦 CANLIYA HAZIRLIK",
+            "",
+            f"Durum: {self._text(payload.get('status'), 'NOT_READY')}",
+            f"Skor: {payload.get('passed', 0)}/{payload.get('total', len(criteria) or 9)} PASS",
+            f"Kapalı işlem: {perf.get('total_trades', 0)}/50",
+            f"TESTNET süresi: {self._num(perf.get('observation_days'), 1)}/30 gün",
+            f"Net PnL: {self._signed_num(perf.get('net_pnl_usdt'))} USDT",
+            f"Profit factor: {self._num(perf.get('profit_factor'))}",
+            f"Max drawdown: %{self._num(perf.get('max_drawdown_pct'))}",
+            f"Win rate: %{self._num(perf.get('win_rate_pct'))}",
+        ]
+        if failed:
+            lines.extend(["", "❌ Kalan kriterler:"])
+            for row in failed[:6]:
+                lines.append(f"• {self._text(row.get('label'))}: {self._text(row.get('value'))}")
+        lines.extend([
+            "",
+            "ℹ️ READY sonucu production trading'i otomatik açmaz.",
+        ])
+        return "\n".join(lines)
+
     def maybe_send_daily_report(self, now: Optional[datetime] = None) -> bool:
         if not self.daily_report_enabled:
             return False
@@ -620,7 +662,7 @@ class TelegramCommandService:
         plain = text.lower()
         if text.startswith("/"):
             command = text.split()[0][1:].split("@", 1)[0].lower()
-        elif plain in {"sat", "kapat", "manuel", "devam"}:
+        elif plain in {"sat", "kapat", "manuel", "devam", "pause", "resume"}:
             command = plain
         else:
             return False
@@ -648,6 +690,8 @@ class TelegramCommandService:
                 response = self._market()
             elif command == "rapor":
                 response = self._daily_report()
+            elif command == "hazirlik":
+                response = self._readiness()
             elif command == "manuel":
                 response = self._manual_lock()
             elif command == "devam":
@@ -661,18 +705,53 @@ class TelegramCommandService:
             else:
                 response = "Bilinmeyen komut. /yardim yazarak komut listesini görebilirsin."
             self._send(response)
+            logger.info("TELEGRAM COMMAND: {} | OK", command)
         except (ExecutionError, TelegramError) as exc:
             category = getattr(exc, "category", type(exc).__name__)
+            logger.warning("TELEGRAM COMMAND: {} | FAIL | {}", command, category)
             try:
                 self._send(f"⚠️ Komut tamamlanamadı: {category}")
             except Exception:
                 pass
-        except Exception:
+        except Exception as exc:
+            logger.warning("TELEGRAM COMMAND: {} | FAIL | {}", command, type(exc).__name__)
             try:
                 self._send("⚠️ Komut tamamlanamadı: INTERNAL_ERROR")
             except Exception:
                 pass
         return True
+
+    @property
+    def webhook_secret(self) -> Optional[str]:
+        return getattr(self.telegram, "webhook_secret", None)
+
+    def webhook_secret_matches(self, provided: Optional[str]) -> bool:
+        expected = self.webhook_secret
+        return bool(expected and provided and hmac.compare_digest(str(expected), str(provided)))
+
+    def activate_webhook(self, url: str) -> None:
+        self._register_commands()
+        self.telegram.set_webhook(url)
+        logger.info("TELEGRAM COMMANDS: WEBHOOK READY | AUTHORIZED CHAT ONLY | TESTNET MANUAL CLOSE={}", self.manual_trading_enabled)
+
+    def webhook_maintenance_forever(self) -> None:
+        while True:
+            try:
+                self.maybe_send_daily_report()
+            except TelegramError as exc:
+                logger.warning("TELEGRAM DAILY REPORT: DEGRADED | {}", exc.category)
+            except Exception:
+                logger.warning("TELEGRAM DAILY REPORT: DEGRADED | INTERNAL_ERROR")
+            self.sleep_fn(30)
+
+    def handle_update(self, update: Dict[str, Any]) -> bool:
+        update_id = int(update.get("update_id", -1))
+        with self._update_lock:
+            if update_id >= 0 and update_id <= self._last_update_id:
+                return False
+            if update_id >= 0:
+                self._last_update_id = update_id
+        return self.handle_message(update.get("message") or {})
 
     def _register_commands(self) -> None:
         self.telegram._post(
@@ -697,9 +776,13 @@ class TelegramCommandService:
             logger.info("TELEGRAM COMMANDS: DISABLED")
             return
         try:
+            try:
+                self.telegram.delete_webhook(drop_pending_updates=False)
+            except TelegramError:
+                pass
             self._register_commands()
             self._prime_offset()
-            logger.info("TELEGRAM COMMANDS: READY | AUTHORIZED CHAT ONLY | TESTNET MANUAL CLOSE={}", self.manual_trading_enabled)
+            logger.info("TELEGRAM COMMANDS: POLLING READY | AUTHORIZED CHAT ONLY | TESTNET MANUAL CLOSE={}", self.manual_trading_enabled)
         except TelegramError as exc:
             logger.warning("TELEGRAM COMMANDS: STARTUP DEGRADED | {}", exc.category)
 
@@ -710,8 +793,7 @@ class TelegramCommandService:
                 for update in updates:
                     update_id = int(update.get("update_id", 0))
                     self._offset = max(self._offset or 0, update_id + 1)
-                    message = update.get("message") or {}
-                    self.handle_message(message)
+                    self.handle_update(update)
             except TelegramError as exc:
                 logger.warning("TELEGRAM COMMANDS: POLL DEGRADED | {}", exc.category)
                 self.sleep_fn(5)
