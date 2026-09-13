@@ -62,7 +62,8 @@ def test_visible_shell_is_turkish_and_has_no_trading_controls():
     for forbidden in ("<button>Buy", "<button>Sell", "Place order", "Cancel order"):
         assert forbidden not in html
     assert "MAINNET: <b>KAPALI</b>" in html
-    assert "Salt okunur" in html
+    assert "Binance Futures TESTNET hesap ve execution verileri" in html
+    assert "DASHBOARD'DAN EMİR EYLEMİ YOK" in html
 
 
 def test_required_active_trade_and_profit_protection_ids_are_unique():

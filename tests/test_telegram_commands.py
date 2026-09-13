@@ -261,6 +261,36 @@ def test_plain_sat_is_an_exact_authorized_operator_command():
     assert "POZİSYON KAPATILDI" in telegram.messages[-1]
 
 
+def test_smoke_command_runs_only_on_flat_testnet_account():
+    service, telegram = make_service()
+    service.execution.position.update(position_amt=0.0, side="FLAT")
+    calls = []
+    service.smoke_test_runner = lambda: calls.append(True) or {
+        "status": "PASS",
+        "test_buy": "PASS",
+        "test_close": "PASS",
+        "final_position": "FLAT",
+    }
+
+    assert service.handle_message({"chat": {"id": 123}, "text": "/smoke"}) is True
+
+    assert calls == [True]
+    assert "SMOKE TEST PASS" in telegram.messages[-1]
+    assert "Final pozisyon: FLAT" in telegram.messages[-1]
+    assert "Gerçek para: KAPALI" in telegram.messages[-1]
+
+
+def test_smoke_command_never_runs_when_strategy_position_is_open():
+    service, telegram = make_service()
+    calls = []
+    service.smoke_test_runner = lambda: calls.append(True) or {"status": "PASS", "final_position": "FLAT"}
+
+    assert service.handle_message({"chat": {"id": 123}, "text": "/smoke"}) is True
+
+    assert calls == []
+    assert "POSITION_ALREADY_OPEN" in telegram.messages[-1]
+
+
 def test_manuel_and_devam_toggle_auto_entry_lock_without_orders():
     service, telegram = make_service()
     assert service.handle_message({"chat": {"id": 123}, "text": "/manuel"}) is True
@@ -277,7 +307,7 @@ def test_registers_botfather_command_menu():
     method, payload = telegram.posts[-1]
     assert method == "setMyCommands"
     commands = {row["command"] for row in payload["commands"]}
-    assert {"yardim", "durum", "hesap", "pozisyon", "emirler", "sinyal", "risk", "kaynaklar", "piyasa", "rapor", "manuel", "devam", "sat", "kapat", "ping"}.issubset(commands)
+    assert {"yardim", "durum", "hesap", "pozisyon", "emirler", "sinyal", "risk", "kaynaklar", "piyasa", "rapor", "manuel", "devam", "sat", "kapat", "smoke", "ping"}.issubset(commands)
     assert "buy" not in commands
 
 

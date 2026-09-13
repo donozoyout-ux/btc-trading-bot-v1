@@ -77,6 +77,7 @@ def _start_telegram_commands() -> None:
         settings,
         dashboard_provider=lambda: getattr(render_server.base, "RUNTIME", None),
         execution_status_provider=render_server.execution_status,
+        smoke_test_runner=render_server.run_operator_smoke_test,
     )
     threading.Thread(
         target=service.serve_forever,

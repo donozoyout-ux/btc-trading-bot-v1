@@ -89,8 +89,8 @@ class TestnetExecutionRuntime:
         self.executor._notify("BINANCE_CONNECTED", {"message": "Signed Binance Futures TESTNET account connected"}, "BINANCE_CONNECTED")
         return {"server_time": server_time, "account": account}
 
-    def run_smoke_test(self) -> Dict[str, Any]:
-        if not self.settings.RUN_EXECUTION_SMOKE_TEST:
+    def run_smoke_test(self, *, operator_requested: bool = False) -> Dict[str, Any]:
+        if not self.settings.RUN_EXECUTION_SMOKE_TEST and not operator_requested:
             return {"status": "NOT_RUN", "test_buy": "NOT_RUN", "test_close": "NOT_RUN", "final_position": "UNKNOWN"}
         if self._smoke_attempted:
             if self._smoke_result is not None:
@@ -99,6 +99,7 @@ class TestnetExecutionRuntime:
         self._smoke_attempted = True
         self._status(smoke_test="RUNNING", bot_status="STARTING", execution_thread="STARTING", last_execution_result="SMOKE_TEST_RUNNING", last_error="")
         open_order: Optional[Dict[str, Any]] = None
+        before: Optional[Dict[str, Any]] = None
         try:
             self.executor._assert_execution_boundary()
             self.authenticate()
@@ -140,7 +141,13 @@ class TestnetExecutionRuntime:
             final_position: Dict[str, Any] = {"symbol": "BTCUSDT", "position_amt": None, "side": "UNKNOWN"}
             try:
                 final_position = self.client.get_position("BTCUSDT")
-                if float(final_position.get("position_amt") or 0) != 0:
+                before_amt = float((before or {}).get("position_amt") or 0)
+                current_amt = float(final_position.get("position_amt") or 0)
+                # Never flatten a position that existed before the smoke test.
+                # Cleanup is allowed only when the account was verified flat
+                # before this smoke attempt and the smoke path left exposure.
+                should_flatten_smoke_exposure = before is not None and before_amt == 0 and current_amt != 0
+                if should_flatten_smoke_exposure:
                     self.client.close_position_market("BTCUSDT")
                     final_position = self.client.get_position("BTCUSDT")
             except Exception as cleanup_exc:
@@ -234,7 +241,15 @@ class TestnetExecutionRuntime:
             self.executor.recover_from_exchange()
 
         self.executor._notify("SYSTEM_STARTED", {"message": "Automatic TESTNET trading loop started"}, "SYSTEM_STARTED")
-        self._status(bot_status="RUNNING", execution_thread="RUNNING", last_execution_result="LOOP_STARTED", last_error="")
+        self._status(
+            bot_status="RUNNING",
+            execution_thread="RUNNING",
+            last_execution_result="LOOP_STARTED",
+            last_error="",
+            loop_started_at=int(time.time() * 1000),
+            cycle_count=0,
+            last_cycle_at=None,
+        )
         cycles = 0
         while max_cycles is None or cycles < max_cycles:
             try:
@@ -252,6 +267,7 @@ class TestnetExecutionRuntime:
                 if max_cycles is not None:
                     raise ExecutionError("UNEXPECTED_EXECUTION_FAILURE") from None
             cycles += 1
+            self._status(cycle_count=cycles, last_cycle_at=int(time.time() * 1000))
             if max_cycles is None or cycles < max_cycles:
                 self.sleep_fn(self.settings.EXECUTION_POLL_SECONDS)
         if max_cycles is not None:
