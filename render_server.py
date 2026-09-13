@@ -248,6 +248,15 @@ def run_operator_smoke_test() -> dict:
             execution_error=exc.category,
         )
         raise
+    except Exception as exc:
+        _update_execution_status(
+            execution_thread=previous.get("execution_thread", "DISABLED"),
+            bot_status=previous.get("bot_status", "STOPPED"),
+            smoke_test="FAIL",
+            last_execution_result="OPERATOR_SMOKE_FAIL",
+            execution_error=type(exc).__name__,
+        )
+        raise
     _update_execution_status(
         execution_thread=previous.get("execution_thread", "DISABLED"),
         bot_status=previous.get("bot_status", "STOPPED"),
