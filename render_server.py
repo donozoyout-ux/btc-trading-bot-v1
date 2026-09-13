@@ -394,25 +394,6 @@ def _run_testnet_execution() -> None:
             status_callback=_update_execution_status,
         )
 
-        # Temporary/explicit repository marker for one controlled Render smoke.
-        # This bypasses only the startup-smoke toggle, never the TESTNET execution
-        # boundary. Existing positions are recovered first and are never touched.
-        one_shot_marker = Path(__file__).resolve().parent / "ops_one_shot_smoke.flag"
-        if one_shot_marker.is_file() and not base.RUNTIME.settings.RUN_EXECUTION_SMOKE_TEST:
-            runtime.authenticate()
-            recovered = runtime.executor.recover_from_exchange()
-            position = recovered.get("position") or {}
-            if float(position.get("position_amt") or 0) != 0:
-                runtime._status(
-                    smoke_test="SKIPPED_ACTIVE_POSITION",
-                    last_execution_result="RECOVERED_ACTIVE_POSITION",
-                    last_error="",
-                )
-            else:
-                smoke = runtime.run_smoke_test(operator_requested=True)
-                if smoke.get("status") != "PASS" or smoke.get("final_position") != "FLAT":
-                    raise ExecutionError("SMOKE_TEST_FAILED")
-
         runtime.run_loop()
     except ExecutionError as exc:
         _update_execution_status(
