@@ -7,6 +7,7 @@ separate authenticated command service; trading actions remain unavailable.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Dict, Optional
 
 import requests
@@ -55,6 +56,8 @@ class TelegramClient:
     def _category(status_code: int) -> str:
         if status_code in (401, 403):
             return "TELEGRAM_AUTH_ERROR"
+        if status_code == 409:
+            return "TELEGRAM_POLL_CONFLICT"
         if status_code == 429:
             return "TELEGRAM_RATE_LIMITED"
         return "TELEGRAM_API_ERROR"
@@ -78,6 +81,38 @@ class TelegramClient:
             raise TelegramError("TELEGRAM_NETWORK_ERROR") from None
         except (TypeError, ValueError):
             raise TelegramError("TELEGRAM_API_ERROR") from None
+
+    @property
+    def webhook_secret(self) -> Optional[str]:
+        """Stable secret for Telegram's webhook verification header.
+
+        Derived from the bot token but never returned by health/status payloads.
+        """
+        if not self._bot_token:
+            return None
+        return hashlib.sha256(self._bot_token.encode("utf-8")).hexdigest()
+
+    def set_webhook(self, url: str) -> Dict[str, Any]:
+        secret = self.webhook_secret
+        if not secret:
+            raise TelegramError("TELEGRAM_UNAVAILABLE")
+        result = self._post(
+            "setWebhook",
+            {
+                "url": str(url),
+                "secret_token": secret,
+                "allowed_updates": ["message"],
+                "drop_pending_updates": False,
+            },
+        )
+        return {"configured": bool(result.get("result"))}
+
+    def delete_webhook(self, *, drop_pending_updates: bool = False) -> Dict[str, Any]:
+        result = self._post(
+            "deleteWebhook",
+            {"drop_pending_updates": bool(drop_pending_updates)},
+        )
+        return {"deleted": bool(result.get("result"))}
 
     def get_me(self) -> Dict[str, Any]:
         """Verify the token and return only non-secret bot identity fields."""
