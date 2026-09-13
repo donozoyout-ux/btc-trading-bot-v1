@@ -228,6 +228,7 @@ def evaluate_live_readiness(
     execution_thread: str,
     execution_error: Optional[str],
     critical_events: Iterable[Dict[str, Any]] = (),
+    trade_history_available: bool = True,
     now_ms: int,
     fill_limit: int = 1000,
 ) -> Dict[str, Any]:
@@ -299,9 +300,15 @@ def evaluate_live_readiness(
         },
         {
             "id": "account_connected",
-            "label": "TESTNET hesap",
-            "value": "CONNECTED" if account_connected else "DISCONNECTED",
-            "passed": bool(account_connected),
+            "label": "TESTNET hesap + geçmiş",
+            "value": (
+                "CONNECTED"
+                if account_connected and trade_history_available
+                else "HISTORY_UNAVAILABLE"
+                if account_connected
+                else "DISCONNECTED"
+            ),
+            "passed": bool(account_connected and trade_history_available),
             "hard_blocker": True,
         },
     ]
