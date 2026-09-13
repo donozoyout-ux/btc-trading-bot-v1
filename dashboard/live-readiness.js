@@ -43,15 +43,18 @@
 
     const hard = payload.hard_failures || [];
     const warnings = payload.warnings || [];
+    const dataError = payload.data_error;
     const message = $('readinessMessage');
-    if (payload.status === 'READY') {
+    if (dataError) {
+      message.textContent = `TESTNET işlem geçmişi alınamıyor: ${safe(dataError)}. Readiness istatistikleri güvenilir sayılmıyor.`;
+    } else if (payload.status === 'READY') {
       message.textContent = 'Tüm canlıya geçiş kriterleri geçti. Bu panel yalnızca hazırlık göstergesidir; production execution otomatik olarak açılmaz.';
     } else if (hard.length) {
       message.textContent = `Canlıya geçiş engelli: ${hard.join(', ')}. Performans toplama TESTNET'te devam ediyor.`;
     } else {
       message.textContent = 'Kritik altyapı kriterleri geçti; istatistiksel örneklem tamamlanana kadar TESTNET takibi devam ediyor.';
     }
-    $('readinessScope').textContent = `Kaynak: ${safe(payload.source)} · Journal: ${safe(payload.journal_scope)}${warnings.length ? ' · Uyarı: ' + warnings.join(', ') : ''}`;
+    $('readinessScope').textContent = `Kaynak: ${safe(payload.source)} · Fills: ${safe(payload.fill_records_observed)} · Journal: ${safe(payload.journal_scope)}${dataError ? ' · Data error: ' + safe(dataError) : ''}${warnings.length ? ' · Uyarı: ' + warnings.join(', ') : ''}`;
   }
 
   async function refresh() {
