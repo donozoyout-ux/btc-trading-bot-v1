@@ -88,3 +88,21 @@ def test_kill_switch_event_is_a_hard_failure():
     )
     assert payload["critical_execution_incidents"] == 1
     assert "critical_errors" in payload["hard_failures"]
+
+
+def test_trade_history_unavailable_is_hard_failure():
+    payload = evaluate_live_readiness(
+        fills=[],
+        wallet_balance_usdt=5_000,
+        account_connected=True,
+        market_basis="FUTURES_NATIVE",
+        execution_thread="RUNNING",
+        execution_error=None,
+        critical_events=[],
+        trade_history_available=False,
+        now_ms=1_000,
+    )
+    account_row = next(row for row in payload["criteria"] if row["id"] == "account_connected")
+    assert account_row["passed"] is False
+    assert account_row["value"] == "HISTORY_UNAVAILABLE"
+    assert "account_connected" in payload["hard_failures"]
