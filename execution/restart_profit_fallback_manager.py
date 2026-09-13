@@ -169,11 +169,23 @@ class RestartProfitFallbackManager:
             self.partial_taken = True
             self.last_action = "CLOSE_PARTIAL"
             remaining = abs(float(updated.get("position_amt") or 0))
+            # Rebase peak PnL to the remaining runner size. Otherwise the
+            # intentional 30% size reduction looks like an immediate giveback
+            # and can trigger a false full-exit on the next poll.
+            remaining_pnl = self._pnl_from_price(is_long, entry, mark, remaining) if remaining > 0 else 0.0
+            self.peak_pnl_usdt = max(0.0, remaining_pnl)
+            payload.update({
+                "closed_quantity": close_qty,
+                "remaining_quantity": remaining,
+                "post_partial_peak_pnl_usdt": self.peak_pnl_usdt,
+            })
+            # Persist the confirmed partial before any optional stop tightening.
+            # If tightening fails, the next poll must never repeat the partial.
+            self._save()
             if decision.desired_lock_usdt is not None and remaining > 0:
                 new_stop = self._stop_for_lock(is_long, entry, remaining, decision.desired_lock_usdt)
                 self.executor._replace_stop_safely(updated, new_stop)
                 payload["new_stop"] = new_stop
-            payload.update({"closed_quantity": close_qty, "remaining_quantity": remaining})
             self.executor.execution_journal.record(
                 decision_id=None,
                 action="RESTART_PROFIT_FALLBACK_PARTIAL",
