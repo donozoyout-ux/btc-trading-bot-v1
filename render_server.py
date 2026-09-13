@@ -35,6 +35,7 @@ from engines.live_readiness import evaluate_live_readiness
 ROOT = Path(__file__).resolve().parent
 DASHBOARD_DIR = ROOT / "dashboard"
 _EXECUTION_STATUS_LOCK = threading.Lock()
+_TELEGRAM_COMMAND_SERVICE = None
 _EXECUTION_STATUS = {
     "execution_mode": "TESTNET",
     "execution_thread": "DISABLED",
@@ -46,6 +47,12 @@ _EXECUTION_STATUS = {
     "last_cycle_at": None,
     "cycle_count": 0,
 }
+
+
+def configure_telegram_command_service(service) -> None:
+    """Attach the authenticated Telegram command service to this web runtime."""
+    global _TELEGRAM_COMMAND_SERVICE
+    _TELEGRAM_COMMAND_SERVICE = service
 
 
 class RenderDashboardRuntime(base.DashboardRuntime):
@@ -499,6 +506,51 @@ class RenderDashboardHandler(base.DashboardHandler):
             return
         super().do_GET()
 
+    def do_POST(self) -> None:  # noqa: N802
+        path = urlparse(self.path).path
+        if path != "/api/telegram/webhook":
+            self._send_json({"error": "NOT_FOUND"}, 404)
+            return
+
+        service = _TELEGRAM_COMMAND_SERVICE
+        if service is None:
+            self._send_json({"ok": False, "error": "TELEGRAM_COMMANDS_UNAVAILABLE"}, 503)
+            return
+
+        provided_secret = self.headers.get("X-Telegram-Bot-Api-Secret-Token")
+        if not service.webhook_secret_matches(provided_secret):
+            logger.warning("TELEGRAM WEBHOOK: REJECTED | INVALID_SECRET")
+            self._send_json({"ok": False, "error": "FORBIDDEN"}, 403)
+            return
+
+        try:
+            content_length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            content_length = -1
+        if content_length <= 0 or content_length > 1_000_000:
+            self._send_json({"ok": False, "error": "INVALID_PAYLOAD"}, 400)
+            return
+
+        try:
+            update = json.loads(self.rfile.read(content_length).decode("utf-8"))
+        except (UnicodeDecodeError, TypeError, ValueError):
+            self._send_json({"ok": False, "error": "INVALID_JSON"}, 400)
+            return
+        if not isinstance(update, dict):
+            self._send_json({"ok": False, "error": "INVALID_UPDATE"}, 400)
+            return
+
+        # Acknowledge Telegram immediately. Potentially slow Binance-backed
+        # commands run outside the HTTP request so Telegram will not retry a
+        # valid operator command merely because Binance took a few seconds.
+        threading.Thread(
+            target=service.handle_update,
+            args=(update,),
+            name="telegram-webhook-command",
+            daemon=True,
+        ).start()
+        self._send_json({"ok": True})
+
 
 def _warm_snapshot() -> None:
     """Prime the 15-second snapshot cache after a cold Render boot."""
@@ -564,6 +616,39 @@ def _run_testnet_execution() -> None:
         logger.error("Render TESTNET execution stopped: {}", type(exc).__name__)
 
 
+def _start_telegram_delivery() -> None:
+    service = _TELEGRAM_COMMAND_SERVICE
+    if service is None or not service.enabled:
+        logger.info("TELEGRAM COMMANDS: DISABLED")
+        return
+
+    hostname = str(os.environ.get("RENDER_EXTERNAL_HOSTNAME") or "").strip()
+    if hostname:
+        base_url = hostname.rstrip("/")
+        if not base_url.startswith(("http://", "https://")):
+            base_url = f"https://{base_url}"
+        webhook_url = f"{base_url}/api/telegram/webhook"
+        try:
+            service.activate_webhook(webhook_url)
+            threading.Thread(
+                target=service.webhook_maintenance_forever,
+                name="telegram-webhook-maintenance",
+                daemon=True,
+            ).start()
+            return
+        except Exception as exc:
+            logger.warning(
+                "TELEGRAM COMMANDS: WEBHOOK DEGRADED | {} | FALLBACK POLLING",
+                getattr(exc, "category", type(exc).__name__),
+            )
+
+    threading.Thread(
+        target=service.serve_forever,
+        name="telegram-command-listener",
+        daemon=True,
+    ).start()
+
+
 def main() -> None:
     host = "0.0.0.0"
     try:
@@ -615,6 +700,7 @@ def main() -> None:
 
     server = ThreadingHTTPServer((host, port), RenderDashboardHandler)
     logger.info("BTC Intelligence Console listening on 0.0.0.0:{}", port)
+    _start_telegram_delivery()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

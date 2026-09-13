@@ -11,7 +11,6 @@ BINANCE_TESTNET=true.
 """
 
 import os
-import threading
 
 from config.settings import get_settings
 import render_server
@@ -70,8 +69,12 @@ def _safe_startup_status() -> None:
     )
 
 
-def _start_telegram_commands() -> None:
-    """Start one authenticated Telegram operator command poller."""
+def _configure_telegram_commands() -> None:
+    """Attach one authenticated Telegram operator service to Render.
+
+    Render chooses verified webhook delivery when its public hostname is
+    available, otherwise the same service falls back to long polling.
+    """
     settings = get_settings()
     service = TelegramCommandService(
         settings,
@@ -79,15 +82,11 @@ def _start_telegram_commands() -> None:
         execution_status_provider=render_server.execution_status,
         smoke_test_runner=render_server.run_operator_smoke_test,
     )
-    threading.Thread(
-        target=service.serve_forever,
-        name="telegram-command-listener",
-        daemon=True,
-    ).start()
+    render_server.configure_telegram_command_service(service)
 
 
 if __name__ == "__main__":
     _apply_render_testnet_defaults()
     _safe_startup_status()
-    _start_telegram_commands()
+    _configure_telegram_commands()
     render_server.main()
