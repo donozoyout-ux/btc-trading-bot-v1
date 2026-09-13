@@ -24,6 +24,17 @@ class FakeTelegram:
 
 
 class FakeExecution:
+    testnet = True
+
+    def __init__(self):
+        self.position = {
+            "symbol": "BTCUSDT", "position_amt": 0.002, "side": "LONG",
+            "entry_price": 79000.0, "mark_price": 80000.0,
+            "unrealized_pnl": 2.0, "leverage": 5,
+        }
+        self.closed = 0
+        self.cancelled_algo = 0
+
     def get_account_summary(self):
         return {
             "wallet_balance": 4974.31,
@@ -35,15 +46,21 @@ class FakeExecution:
         }
 
     def get_position(self, symbol="BTCUSDT"):
-        return {
-            "symbol": symbol,
-            "position_amt": 0.002,
-            "side": "LONG",
-            "entry_price": 79000.0,
-            "mark_price": 80000.0,
-            "unrealized_pnl": 2.0,
-            "leverage": 5,
-        }
+        return dict(self.position, symbol=symbol)
+
+    def close_position_market(self, symbol="BTCUSDT"):
+        self.closed += 1
+        qty = abs(float(self.position["position_amt"]))
+        self.position["position_amt"] = 0.0
+        self.position["side"] = "FLAT"
+        return {"status": "FILLED", "executed_quantity": qty, "average_fill_price": 80010.0}
+
+    def cancel_all_algo_open_orders(self, symbol):
+        self.cancelled_algo += 1
+        return {"status": "OK"}
+
+    def cancel_order(self, symbol, order_id):
+        return {"status": "CANCELED"}
 
     def get_open_orders(self, symbol=None):
         return []
@@ -131,7 +148,23 @@ def settings():
         TELEGRAM_DAILY_REPORT_ENABLED=True,
         TELEGRAM_DAILY_REPORT_HOUR=23,
         TELEGRAM_DAILY_REPORT_MINUTE=55,
+        TELEGRAM_MANUAL_TRADING_ENABLED=True,
+        ENV="testnet",
+        ORDER_SUBMISSION_ENABLED=True,
+        ACCOUNT_READ_ONLY=False,
+        SHADOW_MODE=False,
     )
+
+
+class MemoryOperatorState:
+    def __init__(self): self.state = {"manual_entry_lock": False}
+    def read(self): return dict(self.state)
+    def lock_entries(self, *, locked_by, reason):
+        self.state = {"manual_entry_lock": True, "locked_by": locked_by, "reason": reason}
+        return dict(self.state)
+    def unlock_entries(self, *, unlocked_by):
+        self.state = {"manual_entry_lock": False, "locked_by": unlocked_by, "reason": "OPERATOR_RESUMED_AUTO_ENTRIES"}
+        return dict(self.state)
 
 
 class MemoryReportState:
@@ -157,6 +190,7 @@ def make_service():
         telegram_client=telegram,
         execution_client=execution,
         daily_report_state=MemoryReportState(),
+        operator_control_state=MemoryOperatorState(),
         sleep_fn=lambda _: None,
     )
     return service, telegram
@@ -168,7 +202,7 @@ def test_unauthorized_chat_is_ignored():
     assert telegram.messages == []
 
 
-def test_help_lists_read_only_commands_and_no_trade_actions():
+def test_help_lists_testnet_manual_close_and_no_manual_open():
     service, telegram = make_service()
     assert service.handle_message({"chat": {"id": 123}, "text": "/help"}) is True
     text = telegram.messages[-1]
@@ -176,7 +210,11 @@ def test_help_lists_read_only_commands_and_no_trade_actions():
     assert "/pozisyon" in text
     assert "/sinyal" in text
     assert "/rapor" in text
-    assert "al/sat/kapat" in text.lower()
+    assert "/sat" in text
+    assert "/kapat" in text
+    assert "/manuel" in text
+    assert "/devam" in text
+    assert "pozisyon AÇMAZ" in text
 
 
 def test_status_account_position_orders_signal_risk_sources():
@@ -201,10 +239,36 @@ def test_status_account_position_orders_signal_risk_sources():
     assert "PONG" in combined
 
 
-def test_mutating_commands_are_explicitly_blocked():
+def test_opening_mutating_commands_remain_blocked():
     service, telegram = make_service()
-    assert service.handle_message({"chat": {"id": 123}, "text": "/close"}) is True
+    assert service.handle_message({"chat": {"id": 123}, "text": "/buy"}) is True
     assert "komut kapalı" in telegram.messages[-1].lower()
+
+
+def test_manual_sat_closes_testnet_position_and_locks_auto_entries():
+    service, telegram = make_service()
+    assert service.handle_message({"chat": {"id": 123}, "text": "/sat"}) is True
+    assert "POZİSYON KAPATILDI" in telegram.messages[-1]
+    assert service.execution.closed == 1
+    assert service.execution.get_position()["position_amt"] == 0
+    assert service.operator_control.read()["manual_entry_lock"] is True
+
+
+def test_plain_sat_is_an_exact_authorized_operator_command():
+    service, telegram = make_service()
+    assert service.handle_message({"chat": {"id": 123}, "text": "sat"}) is True
+    assert service.execution.closed == 1
+    assert "POZİSYON KAPATILDI" in telegram.messages[-1]
+
+
+def test_manuel_and_devam_toggle_auto_entry_lock_without_orders():
+    service, telegram = make_service()
+    assert service.handle_message({"chat": {"id": 123}, "text": "/manuel"}) is True
+    assert service.operator_control.read()["manual_entry_lock"] is True
+    assert service.execution.closed == 0
+    assert service.handle_message({"chat": {"id": 123}, "text": "/devam"}) is True
+    assert service.operator_control.read()["manual_entry_lock"] is False
+    assert service.execution.closed == 0
 
 
 def test_registers_botfather_command_menu():
@@ -213,8 +277,8 @@ def test_registers_botfather_command_menu():
     method, payload = telegram.posts[-1]
     assert method == "setMyCommands"
     commands = {row["command"] for row in payload["commands"]}
-    assert {"yardim", "durum", "hesap", "pozisyon", "emirler", "sinyal", "risk", "kaynaklar", "piyasa", "rapor", "ping"}.issubset(commands)
-    assert "close" not in commands
+    assert {"yardim", "durum", "hesap", "pozisyon", "emirler", "sinyal", "risk", "kaynaklar", "piyasa", "rapor", "manuel", "devam", "sat", "kapat", "ping"}.issubset(commands)
+    assert "buy" not in commands
 
 
 def test_manual_daily_report_is_turkish_and_uses_authoritative_daily_fields():
@@ -250,3 +314,19 @@ def test_english_command_aliases_remain_compatible():
     assert "BTC BOT DURUMU" in telegram.messages[-1]
     assert service.handle_message({"chat": {"id": 123}, "text": "/daily"}) is True
     assert "GÜNLÜK BTC RAPORU" in telegram.messages[-1]
+
+
+def test_manual_close_is_hard_blocked_outside_testnet():
+    service, telegram = make_service()
+    service.settings.ENV = "production"
+    assert service.handle_message({"chat": {"id": 123}, "text": "/sat"}) is True
+    assert "MAINNET_EXECUTION_BLOCKED" in telegram.messages[-1]
+    assert service.execution.closed == 0
+
+
+def test_manual_close_is_hard_blocked_when_shadow_or_read_only():
+    service, telegram = make_service()
+    service.settings.SHADOW_MODE = True
+    assert service.handle_message({"chat": {"id": 123}, "text": "/sat"}) is True
+    assert "SHADOW_MODE_ACTIVE" in telegram.messages[-1]
+    assert service.execution.closed == 0

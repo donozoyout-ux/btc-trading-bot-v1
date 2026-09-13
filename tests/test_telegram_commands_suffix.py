@@ -7,7 +7,7 @@ def test_botfather_command_suffix_is_accepted():
     assert "BTC BOT DURUMU" in telegram.messages[-1]
 
 
-def test_plain_text_is_ignored():
+def test_non_operator_plain_text_is_ignored():
     service, telegram = make_service()
     assert service.handle_message({"chat": {"id": 123}, "text": "status"}) is False
     assert telegram.messages == []
