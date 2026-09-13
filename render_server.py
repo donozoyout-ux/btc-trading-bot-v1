@@ -12,6 +12,7 @@ no interactive admin-token login wall.
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
@@ -28,6 +29,7 @@ from data.render_market_client import (
     StrictPublicBinanceFuturesClient,
 )
 from engines.mistake_learning_engine import MistakeLearningEngine
+from engines.live_readiness import evaluate_live_readiness
 
 
 ROOT = Path(__file__).resolve().parent
@@ -65,6 +67,70 @@ class RenderDashboardRuntime(base.DashboardRuntime):
         )
         super().__init__(market_client=market_client)
         self.learning_engine = MistakeLearningEngine(self.settings.JOURNAL_DIR)
+        self._readiness_lock = threading.Lock()
+        self._readiness_cached_at = 0.0
+        self._readiness_cache = None
+
+    def _read_execution_events(self) -> list[dict]:
+        path = self.execution_journal.events_file
+        if not path.is_file():
+            return []
+        events = []
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    try:
+                        events.append(json.loads(line))
+                    except (TypeError, ValueError):
+                        continue
+        except OSError:
+            return []
+        return events[-5000:]
+
+    def live_readiness(self, force: bool = False) -> dict:
+        """Compute advisory production-readiness from TESTNET exchange evidence."""
+        with self._readiness_lock:
+            if (
+                not force
+                and self._readiness_cache is not None
+                and time.time() - self._readiness_cached_at < 30
+            ):
+                return dict(self._readiness_cache)
+
+            account = self.account(force=force)
+            market = self.binance.status()
+            status = execution_status()
+            data_error = None
+            fills = []
+            if self.account_client is not None and self.account_client.configured:
+                try:
+                    fills = self.account_client.get_user_trades("BTCUSDT", limit=1000)
+                except Exception as exc:
+                    data_error = getattr(exc, "category", type(exc).__name__)
+
+            payload = evaluate_live_readiness(
+                fills=fills,
+                wallet_balance_usdt=account.get("wallet_balance_usdt"),
+                account_connected=bool(account.get("connected")),
+                market_basis=str(market.get("market_basis") or "UNKNOWN"),
+                execution_thread=str(status.get("execution_thread") or "UNKNOWN"),
+                execution_error=status.get("execution_error"),
+                critical_events=self._read_execution_events(),
+                now_ms=int(time.time() * 1000),
+                fill_limit=1000,
+            )
+            payload["data_error"] = data_error
+            payload["market_data_source"] = market.get("market_data_source")
+            payload["market_basis"] = market.get("market_basis")
+            payload["execution_error"] = status.get("execution_error")
+            payload["note"] = (
+                "Advisory only. READY never enables production execution automatically."
+            )
+            self._readiness_cache = dict(payload)
+            self._readiness_cached_at = time.time()
+            return dict(payload)
 
     def snapshot(self, force: bool = False) -> dict:
         """Annotate Render snapshots with source authority and learning state.
@@ -340,9 +406,35 @@ def _render_index_html() -> bytes:
         <p id="renderRuntimeMessage">Render servisi açıldı. Canlı piyasa verisi yükleniyor…</p>
       </div>
     </section>
+    <section id="liveReadinessPanel" class="glass render-runtime-strip">
+      <div class="section-head">
+        <span>Canlıya Hazırlık / Live Readiness</span>
+        <span id="liveReadinessBadge" class="badge warning">HESAPLANIYOR</span>
+      </div>
+      <div class="intelligence-grid">
+        <div><span>SKOR</span><strong id="readinessScore">—</strong></div>
+        <div><span>KAPALI İŞLEM</span><strong id="readinessTrades">—</strong></div>
+        <div><span>TESTNET SÜRESİ</span><strong id="readinessDays">—</strong></div>
+        <div><span>NET PnL</span><strong id="readinessPnl">—</strong></div>
+        <div><span>PROFIT FACTOR</span><strong id="readinessPf">—</strong></div>
+        <div><span>MAX DRAWDOWN</span><strong id="readinessDd">—</strong></div>
+        <div><span>WIN RATE</span><strong id="readinessWin">—</strong></div>
+      </div>
+      <div id="readinessCriteria" class="intelligence-grid"></div>
+      <div class="reason-box">
+        <span>SONUÇ</span>
+        <p id="readinessMessage">Binance TESTNET işlem geçmişi değerlendiriliyor…</p>
+        <small id="readinessScope" class="muted">—</small>
+      </div>
+    </section>
     """
     html = html.replace('<!-- RENDER_RUNTIME_SLOT -->', panel, 1)
-    html = html.replace('</body>', '  <script src="/render-bridge.js" defer></script>\n</body>', 1)
+    html = html.replace(
+        '</body>',
+        '  <script src="/render-bridge.js" defer></script>\n'
+        '  <script src="/live-readiness.js" defer></script>\n</body>',
+        1,
+    )
     return html.encode("utf-8")
 
 
@@ -353,6 +445,18 @@ class RenderDashboardHandler(base.DashboardHandler):
         path = urlparse(self.path).path
         if path == "/api/bootstrap":
             self._send_json(bootstrap_payload())
+            return
+        if path == "/api/live-readiness":
+            runtime = getattr(base, "RUNTIME", None)
+            if runtime is None or not hasattr(runtime, "live_readiness"):
+                self._send_json({"status": "NOT_READY", "error": "READINESS_UNAVAILABLE"}, 503)
+                return
+            try:
+                force = urlparse(self.path).query == "force=1"
+                self._send_json(runtime.live_readiness(force=force))
+            except Exception:
+                logger.warning("Live readiness endpoint failed")
+                self._send_json({"status": "NOT_READY", "error": "READINESS_UNAVAILABLE"}, 503)
             return
         if path in {"/", "/index.html"}:
             content = _render_index_html()
