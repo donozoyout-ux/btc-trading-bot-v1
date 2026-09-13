@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from config.constants import ManagementProfile, MarketRegime, PositionManagementState, StructureType, TradeDirection, VolatilityLevel
 from data.binance_execution_client import ExecutionError
+from engines.baselineless_profit_guard import BaselineLessProfitGuard
 from engines.fast_profit_guard import FastProfitGuard
 from engines.position_manager import PositionManager
 from engines.restart_baseline_recovery import RestartBaselineRecovery
@@ -50,6 +51,9 @@ class SaferTestnetExecutor(TestnetExecutor):
         self.fast_profit_partial_taken = bool(persisted.get("fast_profit_partial_taken", False))
         self.fast_profit_armed = bool(persisted.get("fast_profit_armed", False))
         self.fast_profit_last_action = persisted.get("fast_profit_last_action")
+        self.baselineless_peak_profit_pct = float(persisted.get("baselineless_peak_profit_pct") or 0.0)
+        self.baselineless_armed = bool(persisted.get("baselineless_armed", False))
+        self.baselineless_last_action = persisted.get("baselineless_last_action")
         self.position_manager = PositionManager(
             recovery_wait_enabled=getattr(self.settings, "RECOVERY_WAIT_ENABLED", True),
             early_exit_enabled=getattr(self.settings, "EARLY_EXIT_ENABLED", True),
@@ -99,6 +103,26 @@ class SaferTestnetExecutor(TestnetExecutor):
             fade_exit_giveback_r=getattr(self.settings, "FAST_PROFIT_FADE_EXIT_GIVEBACK_R", .60),
             fade_exit_min_current_r=getattr(self.settings, "FAST_PROFIT_FADE_EXIT_MIN_CURRENT_R", .10),
             min_stop_improvement_r=getattr(self.settings, "FAST_PROFIT_MIN_STOP_IMPROVEMENT_R", .05),
+        )
+        self.baselineless_profit_guard = BaselineLessProfitGuard(
+            enabled=getattr(self.settings, "BASELINELESS_PROFIT_GUARD_ENABLED", True),
+            arm_pct=getattr(self.settings, "BASELINELESS_PROFIT_ARM_PCT", .0015),
+            lock_1_trigger_pct=getattr(self.settings, "BASELINELESS_LOCK_1_TRIGGER_PCT", .0020),
+            lock_1_pct=getattr(self.settings, "BASELINELESS_LOCK_1_PCT", .0010),
+            lock_2_trigger_pct=getattr(self.settings, "BASELINELESS_LOCK_2_TRIGGER_PCT", .0030),
+            lock_2_pct=getattr(self.settings, "BASELINELESS_LOCK_2_PCT", .0015),
+            lock_3_trigger_pct=getattr(self.settings, "BASELINELESS_LOCK_3_TRIGGER_PCT", .0040),
+            lock_3_pct=getattr(self.settings, "BASELINELESS_LOCK_3_PCT", .0022),
+            lock_4_trigger_pct=getattr(self.settings, "BASELINELESS_LOCK_4_TRIGGER_PCT", .0060),
+            lock_4_pct=getattr(self.settings, "BASELINELESS_LOCK_4_PCT", .0035),
+            lock_5_trigger_pct=getattr(self.settings, "BASELINELESS_LOCK_5_TRIGGER_PCT", .0080),
+            lock_5_pct=getattr(self.settings, "BASELINELESS_LOCK_5_PCT", .0050),
+            trail_arm_pct=getattr(self.settings, "BASELINELESS_TRAIL_ARM_PCT", .0040),
+            trail_gap_pct=getattr(self.settings, "BASELINELESS_TRAIL_GAP_PCT", .0025),
+            exit_arm_pct=getattr(self.settings, "BASELINELESS_EXIT_ARM_PCT", .0035),
+            exit_giveback_fraction=getattr(self.settings, "BASELINELESS_EXIT_GIVEBACK_FRACTION", .40),
+            exit_min_profit_pct=getattr(self.settings, "BASELINELESS_EXIT_MIN_PROFIT_PCT", .0005),
+            min_stop_improvement_pct=getattr(self.settings, "BASELINELESS_MIN_STOP_IMPROVEMENT_PCT", .0002),
         )
         self.baseline_recovery = RestartBaselineRecovery("BTCUSDT")
 
@@ -312,6 +336,9 @@ class SaferTestnetExecutor(TestnetExecutor):
             self.fast_profit_partial_taken = False
             self.fast_profit_armed = False
             self.fast_profit_last_action = None
+            self.baselineless_peak_profit_pct = 0.0
+            self.baselineless_armed = False
+            self.baselineless_last_action = None
             self._write_runtime_state(last_execution_result="OPENED")
             result["protection_plan"] = {
                 "mode": "SPLIT_TP_WHEN_EXCHANGE_ALLOWS",
@@ -351,6 +378,9 @@ class SaferTestnetExecutor(TestnetExecutor):
             "fast_profit_partial_taken": getattr(self, "fast_profit_partial_taken", False),
             "fast_profit_armed": getattr(self, "fast_profit_armed", False),
             "fast_profit_last_action": getattr(self, "fast_profit_last_action", None),
+            "baselineless_peak_profit_pct": getattr(self, "baselineless_peak_profit_pct", 0.0),
+            "baselineless_armed": getattr(self, "baselineless_armed", False),
+            "baselineless_last_action": getattr(self, "baselineless_last_action", None),
         })
         self.execution_journal.write_state(persisted)
 
@@ -771,6 +801,9 @@ class SaferTestnetExecutor(TestnetExecutor):
             self.fast_profit_partial_taken = False
             self.fast_profit_armed = False
             self.fast_profit_last_action = None
+            self.baselineless_peak_profit_pct = 0.0
+            self.baselineless_armed = False
+            self.baselineless_last_action = None
             self._write_runtime_state()
         return after
 
@@ -1084,6 +1117,145 @@ class SaferTestnetExecutor(TestnetExecutor):
 
         return None
 
+    def _baselineless_exit_and_reconcile(self, position: Dict[str, Any], state, payload: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            close_order = self.client.close_position_market("BTCUSDT")
+            after = self.client.get_position("BTCUSDT")
+            self._known_position = after
+            if float(after.get("position_amt") or 0) != 0:
+                raise ExecutionError("BASELINELESS_EXIT_POSITION_NOT_FLAT")
+            cleanup = self.cleanup_flat_reduce_only_orders()
+            final = self.client.get_position("BTCUSDT")
+            remaining = self.client.get_open_orders("BTCUSDT") + self.client.get_open_algo_orders("BTCUSDT")
+            stale = [row for row in remaining if self._is_reduce_only(row)]
+            if float(final.get("position_amt") or 0) != 0 or stale:
+                raise ExecutionError("BASELINELESS_EXIT_RECONCILIATION_FAILED")
+            self._known_position = final
+            self._protective_orders = []
+            self.execution_journal.record(
+                decision_id=self._entry_context.get("entry_decision_id"),
+                action="BASELINELESS_PROFIT_EXIT", status="CONFIRMED", details=payload,
+                position_before=position, position_after=final,
+            )
+            self._entry_context = {}
+            self.protection_reconciliation_required = False
+            self.protection_reconciliation_reason = None
+            self.protection_reconciliation_expected_target_ids = []
+            self.baselineless_peak_profit_pct = 0.0
+            self.baselineless_armed = False
+            self.baselineless_last_action = "CLOSE_FULL"
+            self._write_runtime_state(last_execution_result="BASELINELESS_PROFIT_EXIT")
+            return {"position": final, "order": close_order, "stale_orders_cancelled": cleanup["cancelled"]}
+        except Exception as exc:
+            current = None
+            verified_stop = False
+            try:
+                current = self.client.get_position("BTCUSDT")
+                if float(current.get("position_amt") or 0) != 0:
+                    quantity = abs(float(current.get("position_amt") or 0))
+                    orders = self.client.get_open_algo_orders("BTCUSDT")
+                    verified_stop = any(self._validate_stop(row, current, quantity) for row in orders)
+            except Exception:
+                verified_stop = False
+            if current is None or (float(current.get("position_amt") or 0) != 0 and not verified_stop):
+                state.activate_emergency_latch("BASELINELESS_EXIT_RECONCILIATION_FAILURE")
+            self.execution_journal.record(
+                decision_id=self._entry_context.get("entry_decision_id"),
+                action="BASELINELESS_EXIT_RECONCILIATION_FAILURE",
+                status="EXISTING_STOP_PRESERVED" if verified_stop else "KILL_SWITCH",
+                reason=getattr(exc, "category", type(exc).__name__),
+                details=payload, position_before=position, position_after=current,
+            )
+            self._write_runtime_state(last_execution_result="BASELINELESS_EXIT_RECONCILIATION_FAILURE")
+            raise ExecutionError("BASELINELESS_EXIT_RECONCILIATION_FAILED") from None
+
+    def manage_baselineless_profit_guard(self, position: Dict[str, Any], state) -> Optional[Dict[str, Any]]:
+        """Protect recovered profit when immutable initial risk is unavailable."""
+        if self._has_verified_exchange_baseline():
+            return None
+        if not getattr(self.settings, "BASELINELESS_PROFIT_GUARD_ENABLED", True):
+            return None
+        if self.protection_reconciliation_required:
+            return None
+
+        entry = self._safe_float(position.get("entry_price"))
+        mark = self._safe_float(position.get("mark_price"))
+        quantity = abs(self._safe_float(position.get("position_amt")) or 0.0)
+        if not entry or entry <= 0 or quantity <= 0:
+            return None
+        if not mark or mark <= 0:
+            try:
+                mark = float(self.client.get_mark_price("BTCUSDT"))
+            except Exception:
+                return None
+
+        orders = self.client.get_open_algo_orders("BTCUSDT")
+        stops = [row for row in orders if self._order_type(row) == "STOP_MARKET"]
+        if len(stops) != 1 or not self._validate_stop(stops[0], dict(position, mark_price=mark), quantity):
+            return None
+        current_stop = self._trigger_price(stops[0])
+        if current_stop is None:
+            return None
+
+        direction = "LONG" if float(position.get("position_amt") or 0) > 0 else "SHORT"
+        before_peak = self.baselineless_peak_profit_pct
+        before_armed = self.baselineless_armed
+        decision = self.baselineless_profit_guard.evaluate(
+            direction=direction,
+            entry=float(entry),
+            mark=float(mark),
+            current_stop=float(current_stop),
+            previous_peak_profit_pct=self.baselineless_peak_profit_pct,
+            stop_min_gap=self._price_tick_gap("BTCUSDT", float(mark)),
+        )
+        self.baselineless_peak_profit_pct = decision.peak_profit_pct
+        self.baselineless_armed = decision.armed
+
+        payload = {
+            "state": decision.state,
+            "reason_codes": [decision.reason],
+            "fallback_mode": "ENTRY_PERCENT_FALLBACK",
+            "position_side": direction,
+            "entry": float(entry),
+            "mark": float(mark),
+            "current_profit_pct": decision.current_profit_pct,
+            "peak_profit_pct": decision.peak_profit_pct,
+            "giveback_pct": decision.giveback_pct,
+            "giveback_fraction": decision.giveback_fraction,
+            "protected_profit_pct": decision.protected_profit_pct,
+            "old_stop": current_stop,
+            "new_stop": decision.new_stop if decision.new_stop is not None else current_stop,
+            "stop_action": {"action": "TIGHTEN_STOP", "new_stop": decision.new_stop} if decision.new_stop is not None else {},
+            "target_action": {"action": "CLOSE_FULL"} if decision.action == "CLOSE_FULL" else {},
+        }
+
+        self.last_management_decision = payload
+        if decision.action == "NONE":
+            if decision.armed != before_armed or decision.peak_profit_pct >= before_peak + .0001:
+                self._write_runtime_state(last_execution_result=decision.state)
+            return None
+
+        if decision.action == "TIGHTEN_STOP" and decision.new_stop is not None:
+            self._replace_stop_safely(position, float(decision.new_stop))
+            payload["protected_profit_pct"] = decision.desired_lock_pct
+            self.baselineless_last_action = "TIGHTEN_STOP"
+            self.execution_journal.record(
+                decision_id=self._entry_context.get("entry_decision_id"),
+                action="BASELINELESS_PROFIT_STOP_TIGHTENED",
+                status="CONFIRMED", details=payload, position_after=position,
+            )
+            self._notify_management_transition("PROFIT_PROTECTION", payload)
+            self._write_runtime_state(last_execution_result="BASELINELESS_PROFIT_STOP_TIGHTENED")
+            return {"status": "BASELINELESS_PROFIT_STOP_TIGHTENED", "position": position, "position_intelligence": payload}
+
+        if decision.action == "CLOSE_FULL":
+            result = self._baselineless_exit_and_reconcile(position, state, payload)
+            self.baselineless_last_action = "CLOSE_FULL"
+            self._notify_management_transition("PROFIT_FADE", payload)
+            return {"status": "BASELINELESS_PROFIT_EXIT", "position": result["position"], "position_intelligence": payload}
+
+        return None
+
     def manage_existing_position(self, state) -> Dict[str, Any]:
         try:
             position = self.reconcile_position()
@@ -1101,6 +1273,11 @@ class SaferTestnetExecutor(TestnetExecutor):
         if result["status"] == "POSITION_MANAGEMENT":
             result["protection_reconciliation"] = self._reconcile_active_protection(position)
         if float(position.get("position_amt") or 0) != 0 and not self._has_verified_exchange_baseline():
+            if result["status"] == "POSITION_MANAGEMENT" and not self.protection_reconciliation_required:
+                fallback = self.manage_baselineless_profit_guard(position, state)
+                if fallback is not None:
+                    fallback["protection_reconciliation"] = result.get("protection_reconciliation")
+                    return fallback
             result["status"] = "RECOVERED_POSITION_CONTEXT_UNAVAILABLE"
             result["position_intelligence"] = self.last_management_decision or {
                 "state": "NO_CHANGE", "reason_codes": ["RECOVERED_POSITION_CONTEXT_UNAVAILABLE"], "adaptive_actions": "NONE",
