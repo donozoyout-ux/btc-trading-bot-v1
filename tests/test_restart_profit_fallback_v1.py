@@ -5,6 +5,7 @@ import pytest
 
 from engines.restart_profit_fallback import RestartProfitFallback
 from execution.restart_profit_fallback_manager import RestartProfitFallbackManager
+from execution.safer_testnet_executor import SaferTestnetExecutor
 
 
 class MemoryRepo:
@@ -184,7 +185,8 @@ def test_manager_current_screenshot_like_profit_takes_partial_and_tightens_short
     new_stop = executor.stop_replacements[-1]
     assert new_stop < 77141.4
     assert new_stop > 76824.0
-    assert repo.load(manager.KEY)["peak_pnl_usdt"] == pytest.approx(13.17)
+    # Peak is rebased to the remaining runner after the intentional 30% partial.
+    assert repo.load(manager.KEY)["peak_pnl_usdt"] == pytest.approx((77141.4 - 76824.0) * 0.0279)
 
 
 def test_manager_never_runs_without_valid_exchange_stop():
@@ -225,3 +227,58 @@ def test_manager_peak_state_survives_restart_and_can_close_on_giveback():
     assert result["status"] == "RESTART_PROFIT_FALLBACK_EXIT"
     assert executor.closed == 1
     assert client.position["position_amt"] == 0.0
+
+
+
+def test_close_position_stop_without_quantity_is_valid_full_position_protection():
+    executor = SaferTestnetExecutor.__new__(SaferTestnetExecutor)
+    position = {
+        "symbol": "BTCUSDT",
+        "position_amt": -0.0398,
+        "mark_price": 76824.0,
+    }
+    order = {
+        "algoId": 99,
+        "orderType": "STOP_MARKET",
+        "side": "BUY",
+        "triggerPrice": "77030.9",
+        "closePosition": "true",
+    }
+    assert executor._validate_stop(order, position, 0.0398) is True
+
+
+def test_missing_quantity_stop_without_close_position_semantics_is_invalid():
+    executor = SaferTestnetExecutor.__new__(SaferTestnetExecutor)
+    position = {
+        "symbol": "BTCUSDT",
+        "position_amt": -0.0398,
+        "mark_price": 76824.0,
+    }
+    order = {
+        "algoId": 100,
+        "orderType": "STOP_MARKET",
+        "side": "BUY",
+        "triggerPrice": "77030.9",
+        "reduceOnly": True,
+    }
+    assert executor._validate_stop(order, position, 0.0398) is False
+
+
+def test_partial_peak_rebase_prevents_false_giveback_exit_at_unchanged_price():
+    client = Client(mark=76824.0, pnl=13.17)
+    executor = Executor(client)
+    repo = MemoryRepo()
+    manager = RestartProfitFallbackManager(executor, settings(), state_repository=repo)
+
+    first = manager.manage(client.position, SimpleNamespace())
+    assert first["status"] == "RESTART_PROFIT_FALLBACK_PARTIAL"
+    assert manager.partial_taken is True
+
+    # Simulate the exchange's remaining-position unrealized PnL at the same mark.
+    remaining = abs(float(client.position["position_amt"]))
+    client.position["unrealized_pnl"] = (77141.4 - 76824.0) * remaining
+    second = manager.manage(client.position, SimpleNamespace())
+
+    assert second is None
+    assert executor.closed == 0
+    assert len(executor.partial_calls) == 1
