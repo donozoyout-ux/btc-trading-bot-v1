@@ -480,6 +480,21 @@ def _warm_snapshot() -> None:
             "Render snapshot warm-up complete: {}",
             snapshot.get("final_decision", "UNKNOWN"),
         )
+        readiness_fn = getattr(base.RUNTIME, "live_readiness", None)
+        if callable(readiness_fn):
+            readiness = readiness_fn(force=True)
+            perf = readiness.get("performance") or {}
+            logger.info(
+                "LIVE READINESS: {} | PASS {}/{} | TRADES {} | DAYS {} | PF {} | DD {}% | HARD_BLOCKERS {}",
+                readiness.get("status", "NOT_READY"),
+                readiness.get("passed", 0),
+                readiness.get("total", 0),
+                perf.get("total_trades", 0),
+                perf.get("observation_days", 0),
+                perf.get("profit_factor", 0),
+                perf.get("max_drawdown_pct", 0),
+                ",".join(readiness.get("hard_failures") or []) or "NONE",
+            )
     except Exception as exc:
         # Do not crash the web service because one external data source is down.
         logger.warning("Render snapshot warm-up degraded: {}", type(exc).__name__)
