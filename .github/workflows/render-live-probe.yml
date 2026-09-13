@@ -1,0 +1,96 @@
+name: Render Live Probe
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-live-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Wait for matching Render deploy
+        shell: bash
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          URL="https://btc-trading-bot-v1.onrender.com/api/bootstrap"
+          EXPECTED_SHORT="${EXPECTED_COMMIT:0:12}"
+
+          for attempt in $(seq 1 36); do
+            echo "Probe attempt ${attempt}/36 for Render commit ${EXPECTED_SHORT}"
+            if curl --silent --show-error --location --connect-timeout 10 --max-time 30 \
+              --header "User-Agent: btc-trading-bot-render-probe/1.0" \
+              --output /tmp/bootstrap.json "${URL}"; then
+              python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("/tmp/bootstrap.json").read_text(encoding="utf-8"))
+          doctor = data.get("execution_doctor") or {}
+          safe = {
+              "ok": data.get("ok"),
+              "ui": data.get("ui"),
+              "render_git_commit": data.get("render_git_commit"),
+              "orders_enabled": data.get("orders_enabled"),
+              "execution_thread": data.get("execution_thread"),
+              "bot_status": data.get("bot_status"),
+              "smoke_test": data.get("smoke_test"),
+              "last_execution_result": data.get("last_execution_result"),
+              "execution_error": data.get("execution_error"),
+              "cycle_count": data.get("cycle_count"),
+              "last_cycle_at": data.get("last_cycle_at"),
+              "market_data_source": data.get("market_data_source"),
+              "market_data_trading_safe": data.get("market_data_trading_safe"),
+              "execution_boundary_ready": doctor.get("execution_boundary_ready"),
+              "execution_blockers": doctor.get("blockers"),
+              "operator_smoke_available": doctor.get("operator_smoke_available"),
+          }
+          print(json.dumps(safe, ensure_ascii=False))
+          PY
+
+              DEPLOYED=$(python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("/tmp/bootstrap.json").read_text(encoding="utf-8"))
+          print(data.get("render_git_commit") or "")
+          PY
+              )
+              THREAD=$(python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("/tmp/bootstrap.json").read_text(encoding="utf-8"))
+          print(data.get("execution_thread") or "")
+          PY
+              )
+              ORDERS=$(python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("/tmp/bootstrap.json").read_text(encoding="utf-8"))
+          print("true" if data.get("orders_enabled") else "false")
+          PY
+              )
+
+              if [[ "${DEPLOYED}" == "${EXPECTED_SHORT}" ]]; then
+                if [[ "${ORDERS}" == "true" && "${THREAD}" != "RUNNING" && "${THREAD}" != "STARTING" ]]; then
+                  echo "::error::Matching Render deploy found but TESTNET execution thread is ${THREAD:-UNKNOWN}."
+                  exit 1
+                fi
+                echo "Matching Render deploy is live."
+                exit 0
+              fi
+            fi
+            sleep 10
+          done
+
+          echo "::error::Render did not expose expected commit ${EXPECTED_SHORT} within probe window."
+          exit 1
