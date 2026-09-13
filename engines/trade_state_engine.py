@@ -132,8 +132,20 @@ class ActiveTradeStateEngine:
         if initial_stop is not None and current_stop is not None:
             risk = abs(float(entry) - initial_stop)
             protected_r = ((current_stop - float(entry)) if side == "LONG" else (float(entry) - current_stop)) / risk if risk else None
-        pi_status = "AVAILABLE" if baseline_verified and intelligence else "WAITING_FIRST_CLOSED_5M" if baseline_verified else "RECOVERED_CONTEXT_PARTIAL"
-        management = intelligence.get("state") or ("İlk kapalı 5D mum bekleniyor" if baseline_verified else "Yeniden başlatma sonrası bağlam kısmi")
+        fallback_mode = intelligence.get("fallback_mode") == "ENTRY_PERCENT_FALLBACK"
+        fallback_current_pct = _num(intelligence.get("current_profit_pct"))
+        fallback_peak_pct = _num(intelligence.get("peak_profit_pct"))
+        if fallback_peak_pct is None:
+            fallback_peak_pct = _num(execution.get("baselineless_peak_profit_pct"))
+        fallback_giveback_fraction = _num(intelligence.get("giveback_fraction"))
+        fallback_protected_pct = _num(intelligence.get("protected_profit_pct"))
+        if baseline_verified:
+            pi_status = "AVAILABLE" if intelligence else "WAITING_FIRST_CLOSED_5M"
+        elif fallback_mode or execution.get("baselineless_armed"):
+            pi_status = "BASELINELESS_PROFIT_GUARD"
+        else:
+            pi_status = "RECOVERED_CONTEXT_PARTIAL"
+        management = intelligence.get("state") or ("İlk kapalı 5D mum bekleniyor" if baseline_verified else "Kâr koruma fallback aktif" if execution.get("baselineless_armed") else "Yeniden başlatma sonrası bağlam kısmi")
         reason_codes = list(intelligence.get("reason_codes") or [])
         if not baseline_verified:
             reason_codes.append("INITIAL_STOP_BASELINE_UNAVAILABLE")
@@ -154,6 +166,11 @@ class ActiveTradeStateEngine:
             "tp2_price": targets[1][0] if len(targets) > 1 else None, "tp2_quantity": _num(targets[1][1].get("quantity")) if len(targets) > 1 else None,
             "entry_opened_at": opened_at, "age_minutes": max(0, (int(time.time()*1000) - int(opened_at)) / 60000) if opened_at else None,
             "initial_stop": initial_stop, "initial_stop_source": context.get("initial_stop_source") or ("PERSISTED_ENTRY_CONTEXT" if baseline_verified else "UNAVAILABLE"), **r, "protected_r": protected_r,
+            "fallback_mode": "ENTRY_PERCENT_FALLBACK" if (fallback_mode or execution.get("baselineless_armed")) else None,
+            "fallback_current_profit_pct": fallback_current_pct,
+            "fallback_peak_profit_pct": fallback_peak_pct,
+            "fallback_giveback_fraction": fallback_giveback_fraction,
+            "fallback_protected_profit_pct": fallback_protected_pct,
             "management_state": management, "management_profile": context.get("management_profile") or intelligence.get("management_profile"),
             "thesis_state": "VALID" if intelligence.get("thesis_valid") is True else "INVALID" if intelligence.get("thesis_valid") is False else "UNAVAILABLE",
             "reason_codes": reason_codes, "context_status": context_status, "position_intelligence_status": pi_status,
@@ -162,7 +179,16 @@ class ActiveTradeStateEngine:
         }
         if baseline_verified:
             result["trade_summary"] = {"title": f"{side} pozisyon {r['current_r']:+.2f}R seviyesinde.", "state": management, "explanation": f"MFE {r['mfe_r']:.2f}R, geri verme {r['giveback_r']:.2f}R.", "next_expected_action": "Bir sonraki kapalı 5D mumda yeniden değerlendirilecek."}
+        elif fallback_mode or execution.get("baselineless_armed"):
+            current_text = f"%{fallback_current_pct * 100:+.2f}" if fallback_current_pct is not None else "mevcut kâr"
+            peak_text = f"%{fallback_peak_pct * 100:.2f}" if fallback_peak_pct is not None else "—"
+            result["trade_summary"] = {
+                "title": f"Başlangıç R yok; giriş-yüzdesi kâr koruması aktif ({current_text}).",
+                "state": management,
+                "explanation": f"Orijinal başlangıç stopu doğrulanamadı. Fallback tepe hareketi {peak_text}; R uydurulmadan yalnızca doğrulanmış exchange STOP sıkılaştırılır.",
+                "next_expected_action": "Kâr arttıkça STOP sıkılaşır; tepe kârın %40'ı geri verilirse kalan pozisyon kapatılabilir.",
+            }
         else:
             result["trade_summary"] = {"title": "Binance pozisyonu bulundu.", "state": "RESTART_CONTEXT_PARTIAL", "explanation": "Orijinal başlangıç stopu Binance geçmişinden doğrulanamadı.", "next_expected_action": "Exchange koruması izleniyor; R tabanlı yönetim güvenlik nedeniyle devre dışı."}
-        result["trade_state_features"] = {**(features or {}), "side": side, "current_r": r["current_r"], "mfe_r": r["mfe_r"], "giveback_r": r["giveback_r"], "protected_r": protected_r, "position_age": result["age_minutes"], "current_unrealized_pnl": result["unrealized_pnl"], "profit_protection_state": result["protection_status"]}
+        result["trade_state_features"] = {**(features or {}), "side": side, "current_r": r["current_r"], "mfe_r": r["mfe_r"], "giveback_r": r["giveback_r"], "protected_r": protected_r, "fallback_current_profit_pct": fallback_current_pct, "fallback_peak_profit_pct": fallback_peak_pct, "fallback_giveback_fraction": fallback_giveback_fraction, "fallback_protected_profit_pct": fallback_protected_pct, "position_age": result["age_minutes"], "current_unrealized_pnl": result["unrealized_pnl"], "profit_protection_state": result["protection_status"]}
         return result
