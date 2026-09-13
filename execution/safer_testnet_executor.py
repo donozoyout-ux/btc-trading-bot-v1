@@ -422,6 +422,161 @@ class SaferTestnetExecutor(TestnetExecutor):
             sum(self._order_quantity(row) or 0.0 for row in targets) <= quantity + tolerance,
         ])
 
+    def _stop_shape_safe_for_repair(self, order: Dict[str, Any], position: Dict[str, Any]) -> bool:
+        """Return True only for a protective STOP that can be safely consolidated.
+
+        Quantity is intentionally not checked here: this helper exists to repair
+        stale-size duplicate stops after a confirmed partial. Side, reduce-only
+        semantics and trigger direction remain mandatory.
+        """
+        close_side = "SELL" if float(position.get("position_amt") or 0) > 0 else "BUY"
+        trigger = self._trigger_price(order)
+        mark = self._safe_float(position.get("mark_price"))
+        if trigger is None or trigger <= 0 or mark is None or mark <= 0:
+            return False
+        directionally_valid = trigger < mark if close_side == "SELL" else trigger > mark
+        return all([
+            self._order_type(order) == "STOP_MARKET",
+            str(order.get("side") or "").upper() == close_side,
+            self._is_reduce_only(order),
+            directionally_valid,
+        ])
+
+    def _repair_duplicate_stops_safely(self, position: Dict[str, Any], stops: list[Dict[str, Any]]) -> bool:
+        """Consolidate duplicate protective stops without weakening protection."""
+        if len(stops) < 2 or not all(self._stop_shape_safe_for_repair(row, position) for row in stops):
+            return False
+        quantity = abs(float(position.get("position_amt") or 0))
+        if quantity <= 0:
+            return False
+        is_long = float(position.get("position_amt") or 0) > 0
+        valid = [row for row in stops if self._validate_stop(row, position, quantity)]
+        # Tightest safe stop is highest for LONG and lowest for SHORT.
+        ordered = sorted(
+            stops,
+            key=lambda row: float(self._trigger_price(row) or 0),
+            reverse=is_long,
+        )
+        tightest = ordered[0]
+
+        try:
+            if valid:
+                # Keep the tightest already-valid stop and cancel only stale
+                # duplicates. This avoids a needless create/cancel cycle.
+                valid_ordered = sorted(
+                    valid,
+                    key=lambda row: float(self._trigger_price(row) or 0),
+                    reverse=is_long,
+                )
+                keep = valid_ordered[0]
+                keep_id = keep.get("algoId")
+                if keep_id is None:
+                    return False
+                for row in stops:
+                    if row.get("algoId") != keep_id:
+                        if row.get("algoId") is None:
+                            return False
+                        self.client.cancel_algo_order(algo_id=int(row["algoId"]))
+            else:
+                # All duplicates are structurally protective but stale-sized.
+                # Reuse the tightest trigger and the existing safe replacement
+                # path to create one exact-current-quantity stop.
+                trigger = self._trigger_price(tightest)
+                if trigger is None:
+                    return False
+                self._replace_stop_safely(position, float(trigger))
+        except Exception:
+            self._mark_protection_reconciliation_required(position, "DUPLICATE_STOP_REPAIR_FAILED")
+            return False
+
+        final = self.client.get_open_algo_orders("BTCUSDT")
+        final_stops = [row for row in final if self._order_type(row) == "STOP_MARKET"]
+        repaired = len(final_stops) == 1 and self._validate_stop(final_stops[0], position, quantity)
+        if not repaired:
+            self._mark_protection_reconciliation_required(position, "DUPLICATE_STOP_REPAIR_UNPROVEN")
+            return False
+
+        self.protection_reconciliation_required = False
+        self.protection_reconciliation_reason = None
+        self.protection_reconciliation_expected_target_ids = []
+        self.execution_journal.record(
+            decision_id=self._entry_context.get("entry_decision_id"),
+            action="DUPLICATE_STOP_REPAIRED",
+            status="CONFIRMED",
+            reason="Consolidated safe duplicate STOP_MARKET protection",
+            position_after=position,
+            details={
+                "final_stop_order_id": final_stops[0].get("algoId"),
+                "final_stop_trigger": self._trigger_price(final_stops[0]),
+                "quantity": quantity,
+            },
+        )
+        self._write_runtime_state(last_execution_result="DUPLICATE_STOP_REPAIRED")
+        return True
+
+    def _resize_single_target_safely(self, position: Dict[str, Any], target: Dict[str, Any]) -> bool:
+        """Resize one oversized reduce-only target without changing its trigger."""
+        quantity = abs(float(position.get("position_amt") or 0))
+        if quantity <= 0 or not self._validate_target(target, position):
+            return False
+        target_quantity = self._order_quantity(target)
+        trigger = self._trigger_price(target)
+        tolerance = max(1e-12, quantity * 1e-9)
+        if target_quantity is None or trigger is None:
+            return False
+        if target_quantity <= quantity + tolerance:
+            return True
+
+        side = "SELL" if float(position.get("position_amt") or 0) > 0 else "BUY"
+        old_id = target.get("algoId")
+        if old_id is None:
+            return False
+        try:
+            new_order = self.client.place_protective_order(
+                "BTCUSDT", side, "TAKE_PROFIT_MARKET", quantity, float(trigger)
+            )
+            new_id = new_order.get("binance_order_id")
+            verified = self.client.get_open_algo_orders("BTCUSDT")
+            new_row = next((row for row in verified if row.get("algoId") == new_id), None)
+            new_qty = self._order_quantity(new_row or {})
+            stop_valid = any(self._validate_stop(row, position, quantity) for row in verified)
+            if (
+                new_row is None
+                or not self._validate_target(new_row, position)
+                or new_qty is None
+                or abs(new_qty - quantity) > tolerance
+                or not stop_valid
+            ):
+                if new_id is not None:
+                    try:
+                        self.client.cancel_algo_order(algo_id=int(new_id))
+                    except Exception:
+                        pass
+                return False
+            self.client.cancel_algo_order(algo_id=int(old_id))
+        except Exception:
+            self._mark_protection_reconciliation_required(position, "OVERSIZED_TARGET_RESIZE_FAILED")
+            return False
+
+        final = self.client.get_open_algo_orders("BTCUSDT")
+        final_targets = [row for row in final if self._order_type(row) == "TAKE_PROFIT_MARKET"]
+        total = sum(self._order_quantity(row) or 0.0 for row in final_targets)
+        valid = bool(final_targets) and all(self._validate_target(row, position) for row in final_targets)
+        if not valid or total > quantity + tolerance:
+            self._mark_protection_reconciliation_required(position, "OVERSIZED_TARGET_RESIZE_UNPROVEN")
+            return False
+
+        self.execution_journal.record(
+            decision_id=self._entry_context.get("entry_decision_id"),
+            action="OVERSIZED_TARGET_RESIZED",
+            status="CONFIRMED",
+            reason="Resized stale target quantity after partial position reduction",
+            position_after=position,
+            details={"target": trigger, "quantity": quantity, "target_order_id": new_id},
+        )
+        self._write_runtime_state(last_execution_result="OVERSIZED_TARGET_RESIZED")
+        return True
+
     def _mark_protection_reconciliation_required(self, position: Dict[str, Any], reason: str) -> None:
         should_record = not self.protection_reconciliation_required or self.protection_reconciliation_reason != reason
         self.protection_reconciliation_required = True
@@ -514,10 +669,14 @@ class SaferTestnetExecutor(TestnetExecutor):
         orders = self.client.get_open_algo_orders("BTCUSDT")
         stops = [row for row in orders if self._order_type(row) == "STOP_MARKET"]
         stop_resized = False
+        if len(stops) > 1 and self._repair_duplicate_stops_safely(position, stops):
+            orders = self.client.get_open_algo_orders("BTCUSDT")
+            stops = [row for row in orders if self._order_type(row) == "STOP_MARKET"]
+            stop_resized = True
         if len(stops) != 1:
             self._restore_protective_roles(position, orders)
             self._mark_protection_reconciliation_required(position, "AUTHORITATIVE_STOP_SET_AMBIGUOUS")
-            return {"status": "PROTECTION_RECONCILIATION_REQUIRED", "stop_resized": False}
+            return {"status": "PROTECTION_RECONCILIATION_REQUIRED", "stop_resized": stop_resized}
         stop = stops[0]
         trigger = self._trigger_price(stop)
         if trigger is None or trigger <= 0:
@@ -869,6 +1028,12 @@ class SaferTestnetExecutor(TestnetExecutor):
         quantity = abs(float(position.get("position_amt") or 0))
         stops = [row for row in orders if self._order_type(row) == "STOP_MARKET"]
         targets = [row for row in orders if self._order_type(row) == "TAKE_PROFIT_MARKET"]
+
+        if len(stops) > 1 and self._repair_duplicate_stops_safely(position, stops):
+            orders = self.client.get_open_algo_orders("BTCUSDT")
+            stops = [row for row in orders if self._order_type(row) == "STOP_MARKET"]
+            targets = [row for row in orders if self._order_type(row) == "TAKE_PROFIT_MARKET"]
+
         valid_stop = len(stops) == 1 and self._validate_stop(stops[0], position, quantity)
         valid_targets = [row for row in targets if self._validate_target(row, position)]
         target_total = sum(self._order_quantity(row) or 0.0 for row in valid_targets)
@@ -886,8 +1051,18 @@ class SaferTestnetExecutor(TestnetExecutor):
             self._transition_protection_alert(state, reason)
             return {"status": "UNPROTECTED_POSITION", "position": position, "open_orders": orders}
         if targets and not valid_target_set:
-            self._mark_protection_reconciliation_required(position, "TARGET_SET_INVALID")
-            return {"status": "PROTECTION_RECONCILIATION_REQUIRED", "position": position, "open_orders": orders}
+            repaired_target = False
+            if len(targets) == 1 and len(valid_targets) == 1 and target_total > quantity:
+                repaired_target = self._resize_single_target_safely(position, targets[0])
+            if repaired_target:
+                orders = self.client.get_open_algo_orders("BTCUSDT")
+                targets = [row for row in orders if self._order_type(row) == "TAKE_PROFIT_MARKET"]
+                valid_targets = [row for row in targets if self._validate_target(row, position)]
+                target_total = sum(self._order_quantity(row) or 0.0 for row in valid_targets)
+                valid_target_set = bool(valid_targets) and target_total <= quantity + max(1e-12, quantity * 1e-9)
+            if not valid_target_set:
+                self._mark_protection_reconciliation_required(position, "TARGET_SET_INVALID")
+                return {"status": "PROTECTION_RECONCILIATION_REQUIRED", "position": position, "open_orders": orders}
         if not valid_target_set:
             first_detection = self.protection_reconciliation_reason != "TARGET_PROTECTION_MISSING"
             self.protection_reconciliation_required = True
