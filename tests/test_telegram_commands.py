@@ -11,6 +11,9 @@ class FakeTelegram:
     def __init__(self):
         self.messages = []
         self.posts = []
+        self.webhooks = []
+        self.deleted_webhooks = 0
+        self.webhook_secret = "test-webhook-secret"
 
     def send_message(self, text):
         self.messages.append(text)
@@ -21,6 +24,14 @@ class FakeTelegram:
         if method == "getUpdates":
             return {"ok": True, "result": []}
         return {"ok": True, "result": True}
+
+    def set_webhook(self, url):
+        self.webhooks.append(url)
+        return {"configured": True}
+
+    def delete_webhook(self, *, drop_pending_updates=False):
+        self.deleted_webhooks += 1
+        return {"deleted": True}
 
 
 class FakeExecution:
@@ -134,6 +145,25 @@ class FakeDashboard:
             },
         }
 
+    def live_readiness(self, force=False):
+        return {
+            "status": "NOT_READY",
+            "passed": 4,
+            "total": 9,
+            "performance": {
+                "total_trades": 14,
+                "observation_days": 6.6,
+                "net_pnl_usdt": -0.25,
+                "profit_factor": 0.98,
+                "max_drawdown_pct": 0.55,
+                "win_rate_pct": 50.0,
+            },
+            "criteria": [
+                {"label": "Kapalı işlem", "value": "14 / 50", "passed": False},
+                {"label": "Futures-native veri", "value": "SPOT_PROXY", "passed": False},
+            ],
+        }
+
 
 def settings():
     return SimpleNamespace(
@@ -210,6 +240,7 @@ def test_help_lists_testnet_manual_close_and_no_manual_open():
     assert "/pozisyon" in text
     assert "/sinyal" in text
     assert "/rapor" in text
+    assert "/hazirlik" in text
     assert "/sat" in text
     assert "/kapat" in text
     assert "/manuel" in text
@@ -307,7 +338,7 @@ def test_registers_botfather_command_menu():
     method, payload = telegram.posts[-1]
     assert method == "setMyCommands"
     commands = {row["command"] for row in payload["commands"]}
-    assert {"yardim", "durum", "hesap", "pozisyon", "emirler", "sinyal", "risk", "kaynaklar", "piyasa", "rapor", "manuel", "devam", "sat", "kapat", "smoke", "ping"}.issubset(commands)
+    assert {"yardim", "durum", "hesap", "pozisyon", "emirler", "sinyal", "risk", "kaynaklar", "piyasa", "rapor", "hazirlik", "manuel", "devam", "sat", "kapat", "smoke", "ping"}.issubset(commands)
     assert "buy" not in commands
 
 
@@ -360,3 +391,43 @@ def test_manual_close_is_hard_blocked_when_shadow_or_read_only():
     assert service.handle_message({"chat": {"id": 123}, "text": "/sat"}) is True
     assert "SHADOW_MODE_ACTIVE" in telegram.messages[-1]
     assert service.execution.closed == 0
+
+
+
+def test_pause_and_resume_aliases_toggle_operator_entry_lock():
+    service, telegram = make_service()
+    assert service.handle_message({"chat": {"id": 123}, "text": "/pause"}) is True
+    assert service.operator_control.read()["manual_entry_lock"] is True
+    assert "MANUEL OPERATÖR MODU" in telegram.messages[-1]
+    assert service.handle_message({"chat": {"id": 123}, "text": "/resume"}) is True
+    assert service.operator_control.read()["manual_entry_lock"] is False
+    assert "OTOMATİK GİRİŞLER AÇILDI" in telegram.messages[-1]
+
+
+def test_readiness_command_reports_live_gate_metrics():
+    service, telegram = make_service()
+    assert service.handle_message({"chat": {"id": 123}, "text": "/readiness"}) is True
+    message = telegram.messages[-1]
+    assert "CANLIYA HAZIRLIK" in message
+    assert "4/9 PASS" in message
+    assert "14/50" in message
+    assert "0.98" in message
+    assert "Futures-native veri" in message
+
+
+def test_webhook_activation_registers_commands_and_url():
+    service, telegram = make_service()
+    service.activate_webhook("https://example.onrender.com/api/telegram/webhook")
+    assert telegram.webhooks == ["https://example.onrender.com/api/telegram/webhook"]
+    assert any(method == "setMyCommands" for method, _ in telegram.posts)
+    assert service.webhook_secret_matches("test-webhook-secret") is True
+    assert service.webhook_secret_matches("wrong") is False
+
+
+def test_duplicate_webhook_update_is_processed_once():
+    service, telegram = make_service()
+    update = {"update_id": 77, "message": {"chat": {"id": 123}, "text": "/ping"}}
+    assert service.handle_update(update) is True
+    assert service.handle_update(update) is False
+    assert len(telegram.messages) == 1
+    assert "PONG" in telegram.messages[0]
