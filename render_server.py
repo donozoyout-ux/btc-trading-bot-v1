@@ -110,6 +110,34 @@ class RenderDashboardRuntime(base.DashboardRuntime):
                 except Exception as exc:
                     data_error = getattr(exc, "category", type(exc).__name__)
 
+            fill_position_sides = {
+                str(row.get("positionSide") or "BOTH").upper()
+                for row in fills
+            }
+            positions = account.get("positions") or []
+            if fill_position_sides & {"LONG", "SHORT"}:
+                ending_quantities = {
+                    "LONG": sum(
+                        max(0.0, float(row.get("position_amount") or 0.0))
+                        for row in positions
+                        if row.get("symbol") == "BTCUSDT"
+                    ),
+                    "SHORT": sum(
+                        abs(min(0.0, float(row.get("position_amount") or 0.0)))
+                        for row in positions
+                        if row.get("symbol") == "BTCUSDT"
+                    ),
+                    "BOTH": 0.0,
+                }
+            else:
+                ending_quantities = {
+                    "BOTH": sum(
+                        float(row.get("position_amount") or 0.0)
+                        for row in positions
+                        if row.get("symbol") == "BTCUSDT"
+                    )
+                }
+
             payload = evaluate_live_readiness(
                 fills=fills,
                 wallet_balance_usdt=account.get("wallet_balance_usdt"),
@@ -119,6 +147,7 @@ class RenderDashboardRuntime(base.DashboardRuntime):
                 execution_error=status.get("execution_error"),
                 critical_events=self._read_execution_events(),
                 trade_history_available=data_error is None,
+                ending_quantities=ending_quantities,
                 now_ms=int(time.time() * 1000),
                 fill_limit=1000,
             )
