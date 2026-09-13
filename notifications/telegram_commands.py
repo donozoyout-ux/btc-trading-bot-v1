@@ -38,6 +38,7 @@ class TelegramCommandService:
         ("devam", "Otomatik yeni girişleri tekrar aç"),
         ("sat", "Açık TESTNET pozisyonunu marketten kapat"),
         ("kapat", "Açık TESTNET pozisyonunu marketten kapat"),
+        ("smoke", "Kontrollü TESTNET aç-kapat testini çalıştır"),
         ("ping", "Telegram bağlantısını test et"),
     )
 
@@ -64,6 +65,7 @@ class TelegramCommandService:
         execution_client: Optional[BinanceFuturesExecutionClient] = None,
         daily_report_state=None,
         operator_control_state=None,
+        smoke_test_runner: Optional[Callable[[], Dict[str, Any]]] = None,
         sleep_fn=time.sleep,
     ) -> None:
         self.settings = settings
@@ -93,6 +95,9 @@ class TelegramCommandService:
         self.daily_report_state = daily_report_state or create_state_repository(report_path)
         self.manual_trading_enabled = bool(getattr(settings, "TELEGRAM_MANUAL_TRADING_ENABLED", False))
         self.operator_control = operator_control_state or OperatorControlState(getattr(settings, "JOURNAL_DIR", "journal_logs"))
+        self.smoke_test_runner = smoke_test_runner
+        self._last_smoke_at = 0.0
+        self._smoke_cooldown_seconds = 300.0
 
     @property
     def enabled(self) -> bool:
@@ -155,6 +160,7 @@ class TelegramCommandService:
             "🧪 Mod: Binance Futures TESTNET",
             "💵 Gerçek para: KAPALI",
             "🕹️ /sat veya /kapat: mevcut TESTNET pozisyonunu kapatır.",
+            "🧪 /smoke: yalnızca FLAT hesapta kontrollü TESTNET BUY → reduce-only close testi yapar.",
             "🔒 /manuel: yeni otomatik girişleri kilitler. /devam: tekrar açar.",
             "⚠️ Telegram pozisyon AÇMAZ veya yön tersine çevirmez.",
         ])
@@ -211,6 +217,39 @@ class TelegramCommandService:
             "▶️ OTOMATİK GİRİŞLER AÇILDI", "",
             "Bot yeni uygun sinyallerde tekrar işlem açabilir.",
             "Mevcut TESTNET güvenlik kuralları aynen devam eder.",
+        ])
+
+    def _manual_smoke(self) -> str:
+        self._assert_manual_boundary()
+        if self.smoke_test_runner is None:
+            raise ExecutionError("SMOKE_TEST_UNAVAILABLE")
+
+        now = time.time()
+        if self._last_smoke_at and now - self._last_smoke_at < self._smoke_cooldown_seconds:
+            raise ExecutionError("SMOKE_TEST_COOLDOWN")
+
+        # Refuse immediately when an existing strategy position is open.
+        # The smoke runtime also re-checks this under the shared execution mutex.
+        if self.execution is not None:
+            position = self.execution.get_position("BTCUSDT")
+            if float(position.get("position_amt") or 0) != 0:
+                raise ExecutionError("POSITION_ALREADY_OPEN")
+
+        with OPERATOR_EXECUTION_MUTEX:
+            result = self.smoke_test_runner()
+
+        if result.get("status") != "PASS" or result.get("final_position") != "FLAT":
+            raise ExecutionError("SMOKE_TEST_FAILED")
+
+        self._last_smoke_at = now
+        return "\n".join([
+            "✅ TESTNET SMOKE TEST PASS", "",
+            "Test BUY: PASS",
+            "Pozisyon doğrulama: PASS",
+            "Reduce-only close: PASS",
+            "Final pozisyon: FLAT",
+            "",
+            "💵 Gerçek para: KAPALI",
         ])
 
     def _manual_close(self) -> str:
@@ -614,6 +653,8 @@ class TelegramCommandService:
                 response = self._manual_resume()
             elif command in {"sat", "kapat"}:
                 response = self._manual_close()
+            elif command == "smoke":
+                response = self._manual_smoke()
             elif command == "ping":
                 response = "🏓 PONG\n\nTelegram komut kanalı aktif."
             else:
