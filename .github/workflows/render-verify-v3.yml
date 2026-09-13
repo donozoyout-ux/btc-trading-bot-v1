@@ -72,3 +72,35 @@ jobs:
           }
           print(json.dumps(safe, ensure_ascii=False))
           PY
+
+
+          curl --silent --show-error --location --fail-with-body --connect-timeout 15 --max-time 90 --header "User-Agent: btc-trading-bot-render-verify/1.0" --output /tmp/account.json "https://btc-trading-bot-v1.onrender.com/api/account"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('/tmp/account.json').read_text(encoding='utf-8'))
+          positions = []
+          for p in data.get('positions') or []:
+              if str(p.get('symbol')) == 'BTCUSDT':
+                  positions.append({
+                      'symbol': p.get('symbol'),
+                      'position_amt': p.get('position_amt'),
+                      'side': p.get('side'),
+                      'entry_price': p.get('entry_price'),
+                      'mark_price': p.get('mark_price'),
+                      'unrealized_pnl': p.get('unrealized_pnl'),
+                  })
+          orders = []
+          for o in data.get('open_orders') or []:
+              orders.append({
+                  'orderType': o.get('orderType') or o.get('type'),
+                  'side': o.get('side'),
+                  'triggerPrice': o.get('triggerPrice') or o.get('stopPrice') or o.get('trigger_price'),
+                  'quantity': o.get('quantity') or o.get('origQty') or o.get('requested_quantity'),
+                  'reduceOnly': o.get('reduceOnly') if 'reduceOnly' in o else o.get('reduce_only'),
+                  'closePosition': o.get('closePosition'),
+                  'status': o.get('algoStatus') or o.get('status'),
+                  'algoId': o.get('algoId') or o.get('binance_order_id'),
+              })
+          print(json.dumps({'positions': positions, 'open_orders': orders}, ensure_ascii=False))
+          PY
