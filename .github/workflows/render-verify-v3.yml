@@ -28,6 +28,8 @@ jobs:
               'ui': data.get('ui'),
               'bot_status': data.get('bot_status'),
               'execution_thread': data.get('execution_thread'),
+              'execution_error': data.get('execution_error'),
+              'last_execution_result': data.get('last_execution_result'),
               'orders_enabled': data.get('orders_enabled'),
               'market_data_source': data.get('market_data_source'),
               'render_git_commit': data.get('render_git_commit'),
@@ -62,6 +64,10 @@ jobs:
                   'fast_profit_armed': execution.get('fast_profit_armed'),
                   'fast_profit_partial_taken': execution.get('fast_profit_partial_taken'),
                   'fast_profit_last_action': execution.get('fast_profit_last_action'),
+                  'protection_reconciliation_required': execution.get('protection_reconciliation_required'),
+                  'protection_reconciliation_reason': execution.get('protection_reconciliation_reason'),
+                  'active_alert_state': execution.get('active_alert_state'),
+                  'last_error': execution.get('last_error'),
               },
           }
           print(json.dumps(safe, ensure_ascii=False))
