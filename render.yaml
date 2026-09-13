@@ -27,7 +27,7 @@ services:
       - key: SHADOW_MODE
         value: "false"
       - key: RUN_EXECUTION_SMOKE_TEST
-        value: "true"
+        value: "false"
       - key: TEST_ORDER_NOTIONAL_USDT
         value: "10"
       - key: MAX_OPEN_POSITIONS
