@@ -386,3 +386,60 @@ def test_testnet_trade_telegram_has_explicit_real_money_boundary():
     TelegramEventNotifier(client).notify("SMOKE_TEST_PASS", {"message": "ok"}, "smoke")
     assert "MODE: BINANCE FUTURES TESTNET" in client.messages[0]
     assert "REAL MONEY: NO" in client.messages[0]
+
+def test_smoke_refuses_existing_position_without_flattening_it(tmp_path):
+    settings = enabled_settings(tmp_path, RUN_EXECUTION_SMOKE_TEST=True)
+    client = FakeExecutionClient(position_amt=0.002)
+    dashboard = SimpleNamespace(
+        binance=SimpleNamespace(get_mark_price=lambda symbol: 80000.0),
+        state=BotState(),
+    )
+    runtime = TestnetExecutionRuntime(settings, client=client, dashboard_runtime=dashboard, sleep_fn=lambda _: None)
+
+    with pytest.raises(ExecutionError, match="POSITION_ALREADY_OPEN"):
+        runtime.run_smoke_test()
+
+    assert client.close_calls == 0
+    assert client.position["position_amt"] == 0.002
+    assert client.position["side"] == "LONG"
+
+
+def test_operator_requested_smoke_can_run_without_startup_smoke_flag(tmp_path):
+    settings = enabled_settings(tmp_path, RUN_EXECUTION_SMOKE_TEST=False)
+    client = FakeExecutionClient()
+    dashboard = SimpleNamespace(
+        binance=SimpleNamespace(get_mark_price=lambda symbol: 80000.0),
+        state=BotState(),
+    )
+    runtime = TestnetExecutionRuntime(settings, client=client, dashboard_runtime=dashboard, sleep_fn=lambda _: None)
+
+    result = runtime.run_smoke_test(operator_requested=True)
+
+    assert result["status"] == "PASS"
+    assert result["final_position"] == "FLAT"
+    assert client.market_calls[0]["reduce_only"] is False
+    assert client.market_calls[-1]["reduce_only"] is True
+
+
+def test_auto_loop_reports_cycle_heartbeat(tmp_path):
+    settings = enabled_settings(tmp_path, RUN_EXECUTION_SMOKE_TEST=False)
+    client = FakeExecutionClient()
+    events = []
+    dashboard = SimpleNamespace(
+        binance=SimpleNamespace(get_mark_price=lambda symbol: 80000.0),
+        state=BotState(),
+        snapshot=lambda force=False: snapshot(9, "NO-ENTRY-HEARTBEAT", eligible=False),
+    )
+    runtime = TestnetExecutionRuntime(
+        settings,
+        client=client,
+        dashboard_runtime=dashboard,
+        sleep_fn=lambda _: None,
+        status_callback=lambda **changes: events.append(changes),
+    )
+
+    runtime.run_loop(max_cycles=1)
+
+    assert any(event.get("cycle_count") == 1 for event in events)
+    assert any(event.get("last_cycle_at") for event in events)
+
