@@ -1,9 +1,10 @@
 """Authenticated Telegram operator surface for the Render TESTNET bot.
 
 Only the configured TELEGRAM_CHAT_ID can use commands. Read-only commands are
-always safe. Manual mutation is deliberately limited to TESTNET position close
-and an operator entry lock; it can never open, reverse, leverage, or trade
-MAINNET.
+always safe. Manual mutation is limited to TESTNET position close, an operator
+entry lock, and a tightly bounded smoke BUY -> reduce-only close. It can never
+open a discretionary strategy position, reverse direction, change leverage, or
+trade MAINNET.
 """
 
 from __future__ import annotations
@@ -162,7 +163,7 @@ class TelegramCommandService:
             "🕹️ /sat veya /kapat: mevcut TESTNET pozisyonunu kapatır.",
             "🧪 /smoke: yalnızca FLAT hesapta kontrollü TESTNET BUY → reduce-only close testi yapar.",
             "🔒 /manuel: yeni otomatik girişleri kilitler. /devam: tekrar açar.",
-            "⚠️ Telegram pozisyon AÇMAZ veya yön tersine çevirmez.",
+            "⚠️ Telegram kalıcı pozisyon AÇMAZ veya yön tersine çevirmez; /smoke test pozisyonunu kapatır.",
         ])
         return "\n".join(lines)
 
