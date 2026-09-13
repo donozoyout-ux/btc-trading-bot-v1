@@ -9,6 +9,7 @@ from config.settings import BotSettings, get_settings
 from core.state import BotState
 from data.binance_execution_client import BinanceFuturesExecutionClient, ExecutionError
 from execution.operator_control import OPERATOR_EXECUTION_MUTEX, OperatorControlState
+from execution.restart_profit_fallback_manager import RestartProfitFallbackManager
 from execution.safer_testnet_executor import SaferTestnetExecutor
 from journal.execution_journal import ExecutionJournal
 from notifications.telegram_client import TelegramClient
@@ -38,6 +39,11 @@ class TestnetExecutionRuntime:
         self.notifier = TelegramEventNotifier(telegram, self.settings.TELEGRAM_DEDUPE_TTL_SECONDS)
         self.executor = SaferTestnetExecutor(self.client, settings=self.settings, execution_journal=self.journal, event_notifier=self.notifier)
         self.operator_control = OperatorControlState(self.settings.JOURNAL_DIR)
+        self.restart_profit_fallback = RestartProfitFallbackManager(
+            self.executor,
+            self.settings,
+            self.settings.JOURNAL_DIR,
+        )
         if dashboard_runtime is None:
             from dashboard_server import DashboardRuntime
             dashboard_runtime = DashboardRuntime(settings=self.settings)
@@ -159,6 +165,18 @@ class TestnetExecutionRuntime:
         with OPERATOR_EXECUTION_MUTEX:
             managed = self.executor.manage_existing_position(self.state)
             if managed["status"] != "FLAT":
+                # When immutable R baseline is missing, the normal manager stays
+                # fail-closed, but a separate USDT fallback may preserve profit
+                # using only exchange-proven entry/mark/size/current STOP data.
+                if managed["status"] == "RECOVERED_POSITION_CONTEXT_UNAVAILABLE":
+                    fallback = self.restart_profit_fallback.manage(
+                        managed.get("position") or {},
+                        self.state,
+                    )
+                    if fallback is not None:
+                        return fallback
+                    return managed
+
                 # Reconciliation and real-time exchange protection always run
                 # first. Thesis management remains on the CLOSED 5M clock.
                 if managed["status"] == "POSITION_MANAGEMENT":
@@ -173,6 +191,8 @@ class TestnetExecutionRuntime:
                         managed["position"],
                     )
                 return managed
+
+            self.restart_profit_fallback.reset()
             operator = self.operator_control.read()
             if operator.get("manual_entry_lock"):
                 return {

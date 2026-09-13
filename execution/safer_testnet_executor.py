@@ -378,13 +378,17 @@ class SaferTestnetExecutor(TestnetExecutor):
             and (trigger < mark if close_side == "SELL" else trigger > mark)
         )
         tolerance = max(1e-12, expected_quantity * 1e-9)
+        close_position = str(order.get("closePosition") or "").strip().lower() in {"1", "true", "yes", "on"}
+        quantity_valid = close_position or (
+            quantity is not None and abs(quantity - expected_quantity) <= tolerance
+        )
         return all([
             self._order_type(order) == "STOP_MARKET",
             trigger is not None and trigger > 0,
             directionally_valid,
             str(order.get("side") or "").upper() == close_side,
             self._is_reduce_only(order),
-            quantity is not None and abs(quantity - expected_quantity) <= tolerance,
+            quantity_valid,
         ])
 
     def _price_tick_gap(self, symbol: str, mark: float) -> float:
