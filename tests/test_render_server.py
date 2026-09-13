@@ -90,3 +90,50 @@ def test_render_bootstrap_exposes_safe_execution_thread_status():
         assert payload["execution_error"] is None
     finally:
         render_server._update_execution_status(**previous)
+
+def test_execution_doctor_reports_secret_free_ready_boundary(tmp_path):
+    settings = BotSettings(
+        _env_file=None,
+        ENV="testnet",
+        BINANCE_TESTNET=True,
+        BINANCE_API_KEY="doctor-key",
+        BINANCE_API_SECRET="doctor-secret",
+        ACCOUNT_READ_ONLY=False,
+        ORDER_SUBMISSION_ENABLED=True,
+        SHADOW_MODE=False,
+        TELEGRAM_ENABLED=True,
+        TELEGRAM_BOT_TOKEN="doctor-token",
+        TELEGRAM_CHAT_ID="123",
+        TELEGRAM_MANUAL_TRADING_ENABLED=True,
+        JOURNAL_DIR=str(tmp_path),
+    )
+
+    payload = render_server.execution_doctor_payload(settings)
+
+    assert payload["execution_boundary_ready"] is True
+    assert payload["blockers"] == []
+    assert payload["operator_smoke_available"] is True
+    serialized = str(payload)
+    assert "doctor-key" not in serialized
+    assert "doctor-secret" not in serialized
+    assert "doctor-token" not in serialized
+
+
+def test_render_bootstrap_exposes_auto_loop_heartbeat():
+    previous = render_server.execution_status()
+    try:
+        render_server._update_execution_status(
+            execution_thread="RUNNING",
+            bot_status="RUNNING",
+            loop_started_at=1000,
+            last_cycle_at=2000,
+            cycle_count=7,
+        )
+        payload = render_server.bootstrap_payload()
+        assert payload["loop_started_at"] == 1000
+        assert payload["last_cycle_at"] == 2000
+        assert payload["cycle_count"] == 7
+        assert "execution_doctor" in payload
+    finally:
+        render_server._update_execution_status(**previous)
+
