@@ -1144,6 +1144,10 @@ class SaferTestnetExecutor(TestnetExecutor):
             self.baselineless_peak_profit_pct = 0.0
             self.baselineless_armed = False
             self.baselineless_last_action = "CLOSE_FULL"
+            self.fast_profit_mfe_r = 0.0
+            self.fast_profit_partial_taken = False
+            self.fast_profit_armed = False
+            self.fast_profit_last_action = None
             self._write_runtime_state(last_execution_result="BASELINELESS_PROFIT_EXIT")
             return {"position": final, "order": close_order, "stale_orders_cancelled": cleanup["cancelled"]}
         except Exception as exc:
@@ -1278,10 +1282,14 @@ class SaferTestnetExecutor(TestnetExecutor):
                 if fallback is not None:
                     fallback["protection_reconciliation"] = result.get("protection_reconciliation")
                     return fallback
-            result["status"] = "RECOVERED_POSITION_CONTEXT_UNAVAILABLE"
-            result["position_intelligence"] = self.last_management_decision or {
-                "state": "NO_CHANGE", "reason_codes": ["RECOVERED_POSITION_CONTEXT_UNAVAILABLE"], "adaptive_actions": "NONE",
-            }
+            if (self.last_management_decision or {}).get("fallback_mode") == "ENTRY_PERCENT_FALLBACK":
+                result["status"] = "BASELINELESS_PROFIT_GUARD"
+                result["position_intelligence"] = self.last_management_decision
+            else:
+                result["status"] = "RECOVERED_POSITION_CONTEXT_UNAVAILABLE"
+                result["position_intelligence"] = self.last_management_decision or {
+                    "state": "NO_CHANGE", "reason_codes": ["RECOVERED_POSITION_CONTEXT_UNAVAILABLE"], "adaptive_actions": "NONE",
+                }
             return result
         if result["status"] == "POSITION_MANAGEMENT" and not self.protection_reconciliation_required:
             fast = self.manage_fast_profit_guard(position, state)
