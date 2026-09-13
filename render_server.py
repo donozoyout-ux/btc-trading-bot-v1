@@ -118,6 +118,7 @@ class RenderDashboardRuntime(base.DashboardRuntime):
                 execution_thread=str(status.get("execution_thread") or "UNKNOWN"),
                 execution_error=status.get("execution_error"),
                 critical_events=self._read_execution_events(),
+                trade_history_available=data_error is None,
                 now_ms=int(time.time() * 1000),
                 fill_limit=1000,
             )
@@ -485,14 +486,16 @@ def _warm_snapshot() -> None:
             readiness = readiness_fn(force=True)
             perf = readiness.get("performance") or {}
             logger.info(
-                "LIVE READINESS: {} | PASS {}/{} | TRADES {} | DAYS {} | PF {} | DD {}% | HARD_BLOCKERS {}",
+                "LIVE READINESS: {} | PASS {}/{} | FILLS {} | TRADES {} | DAYS {} | PF {} | DD {}% | DATA_ERROR {} | HARD_BLOCKERS {}",
                 readiness.get("status", "NOT_READY"),
                 readiness.get("passed", 0),
                 readiness.get("total", 0),
+                readiness.get("fill_records_observed", 0),
                 perf.get("total_trades", 0),
                 perf.get("observation_days", 0),
                 perf.get("profit_factor", 0),
                 perf.get("max_drawdown_pct", 0),
+                readiness.get("data_error") or "NONE",
                 ",".join(readiness.get("hard_failures") or []) or "NONE",
             )
     except Exception as exc:
