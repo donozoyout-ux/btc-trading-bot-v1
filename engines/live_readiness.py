@@ -25,46 +25,84 @@ def _fill_time(fill: Dict[str, Any]) -> int:
     return int(fill.get("time") or fill.get("timestamp") or 0)
 
 
-def reconstruct_trade_cycles(fills: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _position_side(fill: Dict[str, Any]) -> str:
+    value = str(fill.get("positionSide") or "BOTH").upper()
+    return value if value in {"BOTH", "LONG", "SHORT"} else "BOTH"
+
+
+def _fill_delta(fill: Dict[str, Any]) -> float:
+    qty = abs(_number(fill.get("qty") or fill.get("quantity")))
+    if qty <= EPSILON:
+        return 0.0
+    side = str(fill.get("side") or "").upper()
+    position_side = _position_side(fill)
+    if position_side == "LONG":
+        return qty if side == "BUY" else -qty
+    if position_side == "SHORT":
+        return qty if side == "SELL" else -qty
+    return qty if side == "BUY" else -qty
+
+
+def reconstruct_trade_cycles(
+    fills: Iterable[Dict[str, Any]],
+    *,
+    ending_quantities: Optional[Dict[str, float]] = None,
+) -> List[Dict[str, Any]]:
     """Rebuild completed position lifecycles from Binance USER_DATA fills.
 
-    One-way mode (positionSide=BOTH) and hedge-mode LONG/SHORT fills are both
-    supported. A lifecycle is emitted only when the reconstructed position
-    returns to flat, so open positions never inflate the completed-trade count.
+    When ending quantities are supplied, the position at the beginning of the
+    Binance history window is inferred backwards from the current exchange
+    position. A lifecycle already open before the oldest returned fill is
+    left-censored and excluded until the account returns to flat.
     """
 
-    rows = sorted((dict(row) for row in fills), key=_fill_time)
+    rows = sorted(
+        (dict(row) for row in fills),
+        key=lambda row: (_fill_time(row), int(row.get("id") or row.get("tradeId") or 0)),
+    )
+    totals: Dict[str, float] = {}
+    for row in rows:
+        delta = _fill_delta(row)
+        if abs(delta) <= EPSILON:
+            continue
+        key = _position_side(row)
+        totals[key] = totals.get(key, 0.0) + delta
+
+    endings = {str(k).upper(): float(v) for k, v in (ending_quantities or {}).items()}
     states: Dict[str, Dict[str, Any]] = {}
     cycles: List[Dict[str, Any]] = []
 
+    def initial_quantity(key: str) -> float:
+        if ending_quantities is None:
+            return 0.0
+        return float(endings.get(key, 0.0)) - float(totals.get(key, 0.0))
+
+    def direction_for(key: str, quantity: float) -> Optional[str]:
+        if abs(quantity) <= EPSILON:
+            return None
+        if key in {"LONG", "SHORT"}:
+            return key
+        return "LONG" if quantity > 0 else "SHORT"
+
     def state_for(key: str) -> Dict[str, Any]:
         if key not in states:
+            quantity = initial_quantity(key)
             states[key] = {
-                "quantity": 0.0,
+                "quantity": quantity,
                 "entry_time": None,
-                "direction": None,
+                "direction": direction_for(key, quantity),
                 "realized_pnl": 0.0,
                 "commission": 0.0,
                 "fills": 0,
+                "left_censored": abs(quantity) > EPSILON,
             }
         return states[key]
 
     for row in rows:
-        qty = abs(_number(row.get("qty") or row.get("quantity")))
-        if qty <= EPSILON:
+        delta = _fill_delta(row)
+        if abs(delta) <= EPSILON:
             continue
-        side = str(row.get("side") or "").upper()
-        position_side = str(row.get("positionSide") or "BOTH").upper()
-        if position_side not in {"BOTH", "LONG", "SHORT"}:
-            position_side = "BOTH"
-
-        if position_side == "LONG":
-            delta = qty if side == "BUY" else -qty
-        elif position_side == "SHORT":
-            delta = qty if side == "SELL" else -qty
-        else:
-            delta = qty if side == "BUY" else -qty
-
+        position_side = _position_side(row)
         state = state_for(position_side)
         old_qty = float(state["quantity"])
         new_qty = old_qty + delta
@@ -74,16 +112,12 @@ def reconstruct_trade_cycles(fills: Iterable[Dict[str, Any]]) -> List[Dict[str, 
 
         if abs(old_qty) <= EPSILON and abs(new_qty) > EPSILON:
             state["entry_time"] = ts
-            state["direction"] = (
-                position_side
-                if position_side in {"LONG", "SHORT"}
-                else ("LONG" if new_qty > 0 else "SHORT")
-            )
+            state["direction"] = direction_for(position_side, new_qty)
             state["realized_pnl"] = 0.0
             state["commission"] = 0.0
             state["fills"] = 0
+            state["left_censored"] = False
 
-        # Opening and closing fees both belong to the active lifecycle.
         if abs(old_qty) > EPSILON or abs(new_qty) > EPSILON:
             state["realized_pnl"] += realized
             state["commission"] += commission
@@ -97,28 +131,30 @@ def reconstruct_trade_cycles(fills: Iterable[Dict[str, Any]]) -> List[Dict[str, 
             and ((old_qty > 0) != (new_qty > 0))
         )
         if returned_flat or crossed:
-            net = float(state["realized_pnl"]) - float(state["commission"])
-            cycles.append(
-                {
-                    "entry_time": int(state["entry_time"] or ts),
-                    "exit_time": ts,
-                    "direction": state["direction"],
-                    "realized_pnl_usdt": round(float(state["realized_pnl"]), 8),
-                    "commission_usdt": round(float(state["commission"]), 8),
-                    "net_pnl_usdt": round(net, 8),
-                    "fills": int(state["fills"]),
-                }
-            )
+            if not state["left_censored"]:
+                net = float(state["realized_pnl"]) - float(state["commission"])
+                cycles.append(
+                    {
+                        "entry_time": int(state["entry_time"] or ts),
+                        "exit_time": ts,
+                        "direction": state["direction"],
+                        "realized_pnl_usdt": round(float(state["realized_pnl"]), 8),
+                        "commission_usdt": round(float(state["commission"]), 8),
+                        "net_pnl_usdt": round(net, 8),
+                        "fills": int(state["fills"]),
+                    }
+                )
 
             if crossed:
                 state.update(
                     {
                         "quantity": new_qty,
                         "entry_time": ts,
-                        "direction": "LONG" if new_qty > 0 else "SHORT",
+                        "direction": direction_for(position_side, new_qty),
                         "realized_pnl": 0.0,
                         "commission": 0.0,
                         "fills": 0,
+                        "left_censored": True,
                     }
                 )
                 continue
@@ -131,6 +167,7 @@ def reconstruct_trade_cycles(fills: Iterable[Dict[str, Any]]) -> List[Dict[str, 
                     "realized_pnl": 0.0,
                     "commission": 0.0,
                     "fills": 0,
+                    "left_censored": False,
                 }
             )
             continue
@@ -138,7 +175,6 @@ def reconstruct_trade_cycles(fills: Iterable[Dict[str, Any]]) -> List[Dict[str, 
         state["quantity"] = new_qty
 
     return cycles
-
 
 def _max_drawdown_pct(cycles: List[Dict[str, Any]], starting_equity: float) -> float:
     equity = max(float(starting_equity), 1.0)
@@ -229,11 +265,12 @@ def evaluate_live_readiness(
     execution_error: Optional[str],
     critical_events: Iterable[Dict[str, Any]] = (),
     trade_history_available: bool = True,
+    ending_quantities: Optional[Dict[str, float]] = None,
     now_ms: int,
     fill_limit: int = 1000,
 ) -> Dict[str, Any]:
     fills_list = list(fills)
-    cycles = reconstruct_trade_cycles(fills_list)
+    cycles = reconstruct_trade_cycles(fills_list, ending_quantities=ending_quantities)
     performance = summarize_performance(
         cycles,
         wallet_balance_usdt=wallet_balance_usdt,
