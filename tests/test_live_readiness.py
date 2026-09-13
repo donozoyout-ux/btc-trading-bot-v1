@@ -106,3 +106,18 @@ def test_trade_history_unavailable_is_hard_failure():
     assert account_row["passed"] is False
     assert account_row["value"] == "HISTORY_UNAVAILABLE"
     assert "account_connected" in payload["hard_failures"]
+
+
+def test_truncated_history_is_anchored_from_known_flat_ending():
+    fills = [
+        # This closes a long that was opened before the returned history window.
+        _fill(1_000, "SELL", 0.01, realized=2.0, commission=0.01),
+        # This complete lifecycle is fully observable and should count.
+        _fill(2_000, "BUY", 0.02, commission=0.01),
+        _fill(3_000, "SELL", 0.02, realized=3.0, commission=0.01),
+    ]
+    cycles = reconstruct_trade_cycles(fills, ending_quantities={"BOTH": 0.0})
+    assert len(cycles) == 1
+    assert cycles[0]["entry_time"] == 2_000
+    assert cycles[0]["exit_time"] == 3_000
+    assert cycles[0]["net_pnl_usdt"] == 2.98
