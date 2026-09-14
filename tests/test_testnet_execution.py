@@ -42,9 +42,15 @@ class FakeExecutionClient:
         self.wallet_balance = wallet_balance
         self.mark_price = mark_price
         self.fill_price = fill_price
+        self.leverage = 1
 
     def get_server_time(self): return 123456789
     def get_mark_price(self, symbol="BTCUSDT"): return self.mark_price
+    def set_leverage(self, symbol, leverage):
+        self.leverage = int(leverage)
+        self.position["leverage"] = self.leverage
+        return {"symbol": symbol, "leverage": self.leverage}
+    def get_symbol_leverage(self, symbol="BTCUSDT"): return self.leverage
     def get_account_summary(self): return {"wallet_balance": self.wallet_balance, "available_balance": self.wallet_balance, "margin_balance": self.wallet_balance, "unrealized_pnl": 0.0, "positions": [], "open_orders": []}
     def get_position(self, symbol="BTCUSDT"): return dict(self.position)
     def get_positions(self, symbol=None):
@@ -443,3 +449,17 @@ def test_auto_loop_reports_cycle_heartbeat(tmp_path):
     assert any(event.get("cycle_count") == 1 for event in events)
     assert any(event.get("last_cycle_at") for event in events)
 
+
+
+def test_runtime_authentication_sets_and_verifies_configured_leverage(tmp_path):
+    settings = enabled_settings(tmp_path, MAX_ACCOUNT_LEVERAGE=5)
+    client = FakeExecutionClient()
+    runtime = TestnetExecutionRuntime(
+        settings=settings,
+        client=client,
+        dashboard_runtime=SimpleNamespace(state=BotState(), binance=SimpleNamespace(get_mark_price=lambda symbol: 80000.0)),
+        sleep_fn=lambda _: None,
+    )
+    result = runtime.authenticate()
+    assert client.leverage == 5
+    assert result["verified_leverage"] == 5
