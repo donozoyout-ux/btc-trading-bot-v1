@@ -169,6 +169,67 @@ class RenderDashboardRuntime(base.DashboardRuntime):
             self._readiness_cached_at = time.time()
             return dict(payload)
 
+    def trade_report(self, force: bool = False) -> dict:
+        """Return today's TESTNET trade-by-trade performance with safe exit labels."""
+        account = self.account(force=force)
+        daily = dict(account.get("daily_performance") or {})
+        ledger = dict(account.get("daily_trade_ledger") or {})
+        trades = [dict(row) for row in ledger.get("trades") or []]
+        events = self._read_execution_events()
+
+        journal_map = {
+            "FAST_PROFIT_EXIT": "FAST_PROFIT_EXIT",
+            "EARLY_EXIT": "EARLY_EXIT",
+            "SMOKE_CLOSE": "SMOKE_TEST",
+            "MANUAL_CLOSE": "MANUAL_CLOSE",
+            "OPERATOR_CLOSE": "MANUAL_CLOSE",
+            "PROFIT_PARTIAL": "PROFIT_PARTIAL",
+            "FAST_PROFIT_PARTIAL": "PROFIT_PARTIAL",
+        }
+        for trade in trades:
+            if not str(trade.get("exit_reason") or "").startswith("MARKET_EXIT"):
+                continue
+            closed_at = int(trade.get("closed_at") or 0)
+            nearest = None
+            nearest_gap = None
+            for event in events:
+                action = str(event.get("action") or "").upper()
+                if action not in journal_map:
+                    continue
+                ts = int(event.get("timestamp") or 0)
+                gap = abs(ts - closed_at)
+                if gap <= 120_000 and (nearest_gap is None or gap < nearest_gap):
+                    nearest = action
+                    nearest_gap = gap
+            if nearest is not None:
+                trade["exit_reason"] = journal_map[nearest]
+                trade["exit_reason_source"] = "EXECUTION_JOURNAL"
+            else:
+                trade["exit_reason_source"] = "BINANCE_ORDER_HISTORY"
+
+        ledger["trades"] = trades
+        losses = [row for row in trades if float(row.get("net_pnl_usdt") or 0.0) < 0]
+        wins = [row for row in trades if float(row.get("net_pnl_usdt") or 0.0) > 0]
+        return {
+            "status": "AVAILABLE" if ledger.get("status") == "AVAILABLE" else "UNAVAILABLE",
+            "timezone": "Europe/Istanbul",
+            "date_istanbul": ledger.get("date_istanbul") or daily.get("date_istanbul"),
+            "daily_performance": daily,
+            "daily_trade_ledger": ledger,
+            "trades": trades,
+            "winning_trades": wins,
+            "losing_trades": losses,
+            "largest_loss_usdt": min(
+                (float(row.get("net_pnl_usdt") or 0.0) for row in losses),
+                default=0.0,
+            ),
+            "largest_win_usdt": max(
+                (float(row.get("net_pnl_usdt") or 0.0) for row in wins),
+                default=0.0,
+            ),
+            "generated_at": int(time.time() * 1000),
+        }
+
     def snapshot(self, force: bool = False) -> dict:
         """Annotate Render snapshots with source authority and learning state.
 
@@ -483,6 +544,18 @@ class RenderDashboardHandler(base.DashboardHandler):
         if path == "/api/bootstrap":
             self._send_json(bootstrap_payload())
             return
+        if path == "/api/trade-report":
+            runtime = getattr(base, "RUNTIME", None)
+            if runtime is None or not hasattr(runtime, "trade_report"):
+                self._send_json({"status": "UNAVAILABLE", "error": "TRADE_REPORT_UNAVAILABLE"}, 503)
+                return
+            try:
+                force = urlparse(self.path).query == "force=1"
+                self._send_json(runtime.trade_report(force=force))
+            except Exception:
+                logger.warning("Trade report endpoint failed")
+                self._send_json({"status": "UNAVAILABLE", "error": "TRADE_REPORT_UNAVAILABLE"}, 503)
+            return
         if path == "/api/live-readiness":
             runtime = getattr(base, "RUNTIME", None)
             if runtime is None or not hasattr(runtime, "live_readiness"):
@@ -562,6 +635,34 @@ def _warm_snapshot() -> None:
             "Render snapshot warm-up complete: {}",
             snapshot.get("final_decision", "UNKNOWN"),
         )
+        trade_report_fn = getattr(base.RUNTIME, "trade_report", None)
+        if callable(trade_report_fn):
+            report = trade_report_fn(force=True)
+            daily = report.get("daily_performance") or {}
+            ledger = report.get("daily_trade_ledger") or {}
+            logger.info(
+                "DAILY TRADE REPORT: DATE {} | NET {} | REALIZED {} | COMMISSION {} | FUNDING {} | CLOSED {} | WINS {} | LOSSES {}",
+                report.get("date_istanbul") or "UNKNOWN",
+                daily.get("net_pnl_usdt"),
+                daily.get("realized_pnl_usdt"),
+                daily.get("commission_usdt"),
+                daily.get("funding_usdt"),
+                ledger.get("closed_trades_today"),
+                ledger.get("winning_trades_today"),
+                ledger.get("losing_trades_today"),
+            )
+            for trade in report.get("trades") or []:
+                logger.info(
+                    "DAILY TRADE #{}: {} | ENTRY {} | EXIT {} | NET {} | REALIZED {} | COMMISSION {} | REASON {}",
+                    trade.get("trade_no"),
+                    trade.get("direction"),
+                    trade.get("entry_price"),
+                    trade.get("exit_price"),
+                    trade.get("net_pnl_usdt"),
+                    trade.get("realized_pnl_usdt"),
+                    trade.get("commission_usdt"),
+                    trade.get("exit_reason"),
+                )
         readiness_fn = getattr(base.RUNTIME, "live_readiness", None)
         if callable(readiness_fn):
             readiness = readiness_fn(force=True)
