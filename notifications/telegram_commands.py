@@ -33,6 +33,7 @@ class TelegramCommandService:
         ("pozisyon", "Açık BTCUSDT pozisyonunu göster"),
         ("emirler", "Açık STOP ve hedef emirlerini göster"),
         ("sinyal", "Güncel strateji kararını göster"),
+        ("neden", "Neden işlem açılmadığını göster"),
         ("risk", "Risk ve koruma durumunu göster"),
         ("kaynaklar", "Veri kaynaklarının durumunu göster"),
         ("piyasa", "Piyasa ve türev bağlamını göster"),
@@ -49,7 +50,7 @@ class TelegramCommandService:
     COMMAND_ALIASES = {
         "start": "yardim", "help": "yardim",
         "status": "durum", "account": "hesap", "position": "pozisyon",
-        "orders": "emirler", "signal": "sinyal", "sources": "kaynaklar",
+        "orders": "emirler", "signal": "sinyal", "why": "neden", "sources": "kaynaklar",
         "market": "piyasa", "report": "rapor", "daily": "rapor", "gunluk": "rapor",
         "readiness": "hazirlik", "live": "hazirlik",
         "pause": "manuel", "resume": "devam", "manual": "manuel",
@@ -425,6 +426,42 @@ class TelegramCommandService:
             f"Engel: {blockers_text}",
         ])
 
+    def _why(self) -> str:
+        snapshot = self._snapshot()
+        if not snapshot:
+            return "⚠️ Güncel strateji snapshot'ı alınamadı."
+        decision = snapshot.get("decision") or {}
+        strategy = snapshot.get("strategy") or {}
+        quality = strategy.get("entry_quality_assessment") or decision.get("entry_quality_assessment") or {}
+        blockers = strategy.get("hard_blockers") or strategy.get("blocking_reasons") or []
+        reasons = strategy.get("reasons") or []
+        if isinstance(blockers, (list, tuple)):
+            blocker_text = ", ".join(str(x) for x in blockers) or "YOK"
+        else:
+            blocker_text = self._text(blockers, "YOK")
+        if isinstance(reasons, (list, tuple)):
+            reason_text = " | ".join(str(x) for x in reasons[:3]) or self._text(decision.get("reason"), "Aktif setup yok")
+        else:
+            reason_text = self._text(reasons, self._text(decision.get("reason"), "Aktif setup yok"))
+        assessment = decision.get("risk_assessment") or {}
+        return "\n".join([
+            "🔎 NEDEN İŞLEM AÇILMADI?",
+            "",
+            f"Final karar: {self._text(snapshot.get('final_decision'), 'NO_TRADE')}",
+            f"Rejim: {self._text(decision.get('regime'))}",
+            f"Setup: {self._text(strategy.get('setup_type'), 'NONE')}",
+            f"Yön adayı: {self._text(strategy.get('direction'), 'WAIT')}",
+            f"5M tetik: {self._text(strategy.get('entry_trigger_state'), 'NO_SETUP')}",
+            f"Entry quality: {self._text(quality.get('decision'), 'BEKLE')}",
+            f"Risk: {self._text(decision.get('risk_status'), 'BEKLE')}",
+            f"Pozisyon boyutu: {self._num(assessment.get('position_size_btc'), 6)} BTC",
+            f"Engel: {blocker_text}",
+            f"Sebep: {reason_text}",
+            "",
+            f"Kaldıraç tavanı: {int(getattr(self.settings, 'MAX_ACCOUNT_LEVERAGE', 1))}x",
+            "Not: Kaldıraç tavanı, her işlemde bakiyenin tamamını o katsayıyla kullanmak anlamına gelmez.",
+        ])
+
     def _risk(self) -> str:
         snapshot = self._snapshot()
         if not snapshot:
@@ -716,6 +753,8 @@ class TelegramCommandService:
                 response = self._orders()
             elif command == "sinyal":
                 response = self._signal()
+            elif command == "neden":
+                response = self._why()
             elif command == "risk":
                 response = self._risk()
             elif command == "kaynaklar":
