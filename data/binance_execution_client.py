@@ -151,6 +151,35 @@ class BinanceFuturesExecutionClient:
             "open_orders": orders,
         }
 
+    def set_leverage(self, symbol: str, leverage: int) -> Dict[str, Any]:
+        """Set and verify isolated exchange leverage for TESTNET USD-M symbol."""
+        value = int(leverage)
+        if value < 1 or value > 125:
+            raise ExecutionError("INVALID_LEVERAGE")
+        payload = self._request(
+            "POST",
+            "/fapi/v1/leverage",
+            {"symbol": symbol, "leverage": value},
+        )
+        actual = int(float(payload.get("leverage") or 0))
+        if actual != value:
+            raise ExecutionError("LEVERAGE_CONFIGURATION_FAILED")
+        return {
+            "symbol": str(payload.get("symbol") or symbol),
+            "leverage": actual,
+            "max_notional_value": payload.get("maxNotionalValue"),
+        }
+
+    def get_symbol_leverage(self, symbol: str = "BTCUSDT") -> int:
+        rows = self.get_positions(symbol)
+        row = next((item for item in rows if str(item.get("symbol") or "").upper() == symbol.upper()), None)
+        if row is None:
+            raise ExecutionError("LEVERAGE_VERIFICATION_FAILED")
+        value = int(float(row.get("leverage") or 0))
+        if value <= 0:
+            raise ExecutionError("LEVERAGE_VERIFICATION_FAILED")
+        return value
+
     def get_mark_price(self, symbol: str = "BTCUSDT") -> float:
         payload = self._request("GET", "/fapi/v1/premiumIndex", {"symbol": symbol})
         try:
