@@ -85,9 +85,38 @@ class TestnetExecutionRuntime:
     def authenticate(self) -> Dict[str, Any]:
         self.executor._assert_execution_boundary()
         server_time = self.client.get_server_time()
+        leverage_result = self.client.set_leverage(
+            "BTCUSDT",
+            int(self.settings.MAX_ACCOUNT_LEVERAGE),
+        )
+        verified_leverage = self.client.get_symbol_leverage("BTCUSDT")
+        if verified_leverage != int(self.settings.MAX_ACCOUNT_LEVERAGE):
+            raise ExecutionError("LEVERAGE_CONFIGURATION_FAILED")
         account = self.client.get_account_summary()
-        self.executor._notify("BINANCE_CONNECTED", {"message": "Signed Binance Futures TESTNET account connected"}, "BINANCE_CONNECTED")
-        return {"server_time": server_time, "account": account}
+        self.executor.execution_journal.record(
+            decision_id=None,
+            action="LEVERAGE_CONFIGURED",
+            status="CONFIRMED",
+            details={
+                "symbol": "BTCUSDT",
+                "configured_leverage": int(self.settings.MAX_ACCOUNT_LEVERAGE),
+                "verified_leverage": verified_leverage,
+            },
+        )
+        self.executor._notify(
+            "BINANCE_CONNECTED",
+            {
+                "message": "Signed Binance Futures TESTNET account connected",
+                "leverage": verified_leverage,
+            },
+            "BINANCE_CONNECTED",
+        )
+        return {
+            "server_time": server_time,
+            "account": account,
+            "leverage": leverage_result,
+            "verified_leverage": verified_leverage,
+        }
 
     def run_smoke_test(self, *, operator_requested: bool = False) -> Dict[str, Any]:
         if not self.settings.RUN_EXECUTION_SMOKE_TEST and not operator_requested:
