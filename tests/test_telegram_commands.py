@@ -193,6 +193,7 @@ def settings():
         ORDER_SUBMISSION_ENABLED=True,
         ACCOUNT_READ_ONLY=False,
         SHADOW_MODE=False,
+        MAX_ACCOUNT_LEVERAGE=5,
     )
 
 
