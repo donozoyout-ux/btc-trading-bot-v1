@@ -532,6 +532,14 @@ class TelegramCommandService:
 
         daily = account.get("daily_performance") or {}
         ledger = account.get("daily_trade_ledger") or snapshot.get("daily_trade_ledger") or {}
+        report_fn = getattr(runtime, "trade_report", None) if runtime is not None else None
+        if callable(report_fn):
+            try:
+                detailed_report = report_fn(force=True) or {}
+                daily = detailed_report.get("daily_performance") or daily
+                ledger = detailed_report.get("daily_trade_ledger") or ledger
+            except Exception:
+                pass
         active = snapshot.get("active_trade") or {}
         target = snapshot.get("daily_profit_target") or {}
         now = datetime.now(self.daily_report_timezone)
@@ -559,6 +567,32 @@ class TelegramCommandService:
                 f"🟢 Kazanan: {ledger.get('winning_trades_today', 0)}",
                 f"🔴 Kaybeden: {ledger.get('losing_trades_today', 0)}",
             ])
+            trades = list(ledger.get("trades") or [])
+            if trades:
+                reason_labels = {
+                    "STOP_LOSS": "STOP",
+                    "TAKE_PROFIT": "TP",
+                    "FAST_PROFIT_EXIT": "KÂR KORUMA",
+                    "EARLY_EXIT": "ERKEN ÇIKIŞ",
+                    "PROFIT_PARTIAL": "KISMİ KÂR",
+                    "MANUAL_CLOSE": "MANUEL",
+                    "MARKET_EXIT_PROFIT": "MARKET/KÂR",
+                    "MARKET_EXIT_LOSS": "MARKET/ZARAR",
+                    "MARKET_EXIT": "MARKET",
+                    "SMOKE_TEST": "SMOKE",
+                }
+                lines.extend(["", "🧾 BUGÜNKÜ KAPANAN İŞLEMLER"])
+                for trade in trades[-8:]:
+                    direction = self._text(trade.get("direction"), "?")
+                    reason = reason_labels.get(
+                        self._text(trade.get("exit_reason"), "MARKET_EXIT"),
+                        self._text(trade.get("exit_reason"), "MARKET"),
+                    )
+                    lines.append(
+                        f"#{trade.get('trade_no', '?')} {direction} · "
+                        f"{self._num(trade.get('entry_price'))} → {self._num(trade.get('exit_price'))} · "
+                        f"{self._signed_num(trade.get('net_pnl_usdt'))} USDT · {reason}"
+                    )
 
         if active.get("status") == "ACTIVE":
             lines.extend([
