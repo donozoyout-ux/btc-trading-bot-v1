@@ -193,6 +193,7 @@ def settings():
         ORDER_SUBMISSION_ENABLED=True,
         ACCOUNT_READ_ONLY=False,
         SHADOW_MODE=False,
+        MAX_ACCOUNT_LEVERAGE=5,
     )
 
 
@@ -249,6 +250,7 @@ def test_help_lists_testnet_manual_close_and_no_manual_open():
     assert "/durum" in text
     assert "/pozisyon" in text
     assert "/sinyal" in text
+    assert "/neden" in text
     assert "/rapor" in text
     assert "/hazirlik" in text
     assert "/sat" in text
@@ -445,3 +447,25 @@ def test_duplicate_webhook_update_is_processed_once():
     assert service.handle_update(update) is False
     assert len(telegram.messages) == 1
     assert "PONG" in telegram.messages[0]
+
+
+def test_why_command_explains_current_no_entry_state():
+    service, telegram = make_service()
+    service.dashboard_provider().snapshot = lambda force=False: {
+        "final_decision": "NO_TRADE",
+        "decision": {"regime": "BULL", "risk_status": "WAIT"},
+        "strategy": {
+            "setup_type": "NONE",
+            "direction": "WAIT",
+            "entry_trigger_state": "NO_SETUP",
+            "eligible": False,
+            "hard_blockers": ["NO_DETERMINISTIC_SETUP"],
+            "reasons": [],
+        },
+    }
+    assert service.handle_message({"chat": {"id": 123}, "text": "/neden"}) is True
+    message = telegram.messages[-1]
+    assert "NEDEN İŞLEM AÇILMADI" in message
+    assert "NO_TRADE" in message
+    assert "NO_DETERMINISTIC_SETUP" in message
+    assert "5x" in message

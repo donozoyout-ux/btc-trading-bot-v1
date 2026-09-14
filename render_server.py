@@ -635,6 +635,20 @@ def _warm_snapshot() -> None:
             "Render snapshot warm-up complete: {}",
             snapshot.get("final_decision", "UNKNOWN"),
         )
+        strategy = snapshot.get("strategy") or {}
+        decision = snapshot.get("decision") or {}
+        blockers = strategy.get("hard_blockers") or strategy.get("blocking_reasons") or []
+        logger.info(
+            "STRATEGY SNAPSHOT: FINAL {} | REGIME {} | SETUP {} | DIRECTION {} | TRIGGER {} | ELIGIBLE {} | RISK {} | BLOCKERS {}",
+            snapshot.get("final_decision", "UNKNOWN"),
+            decision.get("regime", "UNKNOWN"),
+            strategy.get("setup_type", "NONE"),
+            strategy.get("direction", "WAIT"),
+            strategy.get("entry_trigger_state", "UNKNOWN"),
+            strategy.get("eligible", False),
+            decision.get("risk_status", "UNKNOWN"),
+            ",".join(str(item) for item in blockers) if isinstance(blockers, (list, tuple)) and blockers else "NONE",
+        )
         trade_report_fn = getattr(base.RUNTIME, "trade_report", None)
         if callable(trade_report_fn):
             report = trade_report_fn(force=True)
