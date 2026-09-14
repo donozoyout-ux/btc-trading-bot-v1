@@ -47,6 +47,13 @@ class ActivePositionClient:
     def get_server_time(self):
         return 123456789
 
+    def set_leverage(self, symbol, leverage):
+        self.position["leverage"] = int(leverage)
+        return {"symbol": symbol, "leverage": int(leverage)}
+
+    def get_symbol_leverage(self, symbol="BTCUSDT"):
+        return int(self.position.get("leverage") or 5)
+
     def get_account_summary(self):
         return {"wallet_balance": 1000.0, "positions": [dict(self.position)]}
 
