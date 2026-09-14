@@ -602,10 +602,75 @@ class BinanceFuturesAccountClient:
             raise BinanceAccountError("ACCOUNT_UNAVAILABLE")
         return [dict(item) for item in payload]
 
+    def get_order_history(
+        self,
+        symbol: str = "BTCUSDT",
+        *,
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None,
+        limit: int = 1000,
+    ) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {"symbol": symbol, "limit": min(int(limit), 1000)}
+        if start_time is not None:
+            params["startTime"] = int(start_time)
+        if end_time is not None:
+            params["endTime"] = int(end_time)
+        payload = self._signed_get("/fapi/v1/allOrders", params)
+        return payload if isinstance(payload, list) else []
+
+    def get_algo_order_history(
+        self,
+        symbol: str = "BTCUSDT",
+        *,
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None,
+        limit: int = 1000,
+    ) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {
+            "algoType": "CONDITIONAL",
+            "symbol": symbol,
+            "limit": min(int(limit), 1000),
+        }
+        if start_time is not None:
+            params["startTime"] = int(start_time)
+        if end_time is not None:
+            params["endTime"] = int(end_time)
+        payload = self._signed_get("/fapi/v1/allAlgoOrders", params)
+        return payload if isinstance(payload, list) else []
+
     def get_daily_trade_ledger(self, symbol: str = "BTCUSDT", now: Optional[datetime] = None) -> Dict[str, Any]:
         start_ms, end_ms = self._istanbul_day_bounds_ms(now)
         rows = self.get_user_trades(symbol)
-        result = DailyTradeLedger().build(rows, day_start_ms=start_ms, day_end_ms=end_ms, symbol=symbol)
+        ending_position = sum(
+            float(row.get("position_amount") or 0.0)
+            for row in self.get_open_positions()
+            if row.get("symbol") == symbol
+        )
+        try:
+            order_history = self.get_order_history(
+                symbol,
+                start_time=start_ms,
+                end_time=end_ms - 1,
+            )
+        except BinanceAccountError:
+            order_history = []
+        try:
+            algo_history = self.get_algo_order_history(
+                symbol,
+                start_time=start_ms,
+                end_time=end_ms - 1,
+            )
+        except BinanceAccountError:
+            algo_history = []
+        result = DailyTradeLedger().build(
+            rows,
+            day_start_ms=start_ms,
+            day_end_ms=end_ms,
+            symbol=symbol,
+            ending_position=ending_position,
+            order_history=order_history,
+            algo_history=algo_history,
+        )
         result.update({
             "timezone": "Europe/Istanbul",
             "date_istanbul": datetime.fromtimestamp(start_ms / 1000, ZoneInfo("Europe/Istanbul")).date().isoformat(),
