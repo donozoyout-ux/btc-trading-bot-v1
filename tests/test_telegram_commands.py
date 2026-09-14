@@ -96,6 +96,16 @@ class FakeDashboard:
             "daily_trade_ledger": {
                 "status": "AVAILABLE", "opened_trades_today": 2,
                 "closed_trades_today": 1, "winning_trades_today": 1, "losing_trades_today": 0,
+                "trades": [
+                    {
+                        "trade_no": 1,
+                        "direction": "LONG",
+                        "entry_price": 79_000.0,
+                        "exit_price": 80_000.0,
+                        "net_pnl_usdt": 1.75,
+                        "exit_reason": "TAKE_PROFIT",
+                    }
+                ],
             },
         }
         self.binance = SimpleNamespace(status=lambda: {
@@ -352,6 +362,10 @@ def test_manual_daily_report_is_turkish_and_uses_authoritative_daily_fields():
     assert "Komisyon: -1.25 USDT" in message
     assert "Bugün açılan işlem: 2" in message
     assert "Kazanan: 1" in message
+    assert "BUGÜNKÜ KAPANAN İŞLEMLER" in message
+    assert "#1 LONG" in message
+    assert "+1.75 USDT" in message
+    assert "TP" in message
     assert "AÇIK POZİSYON" in message
     assert "Mevcut R: +0.50R" in message
 
