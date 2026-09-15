@@ -59,6 +59,7 @@ class RenderDashboardRuntime(base.DashboardRuntime):
     """Dashboard runtime with Render-safe real market-data fallback."""
 
     def __init__(self) -> None:
+        settings = base.get_settings()
         market_client = RenderResilientBinanceFuturesMarketClient(
             primary=StrictPublicBinanceFuturesClient(
                 api_key=None,
@@ -71,8 +72,12 @@ class RenderDashboardRuntime(base.DashboardRuntime):
                 api_secret=None,
                 testnet=True,
             ),
+            # In explicit Binance TESTNET mode, keep strategy data and signed
+            # execution on the same Futures test environment when production
+            # Futures public REST is restricted from the Render region.
+            prefer_testnet_futures=bool(settings.BINANCE_TESTNET),
         )
-        super().__init__(market_client=market_client)
+        super().__init__(settings=settings, market_client=market_client)
         self.learning_engine = MistakeLearningEngine(self.settings.JOURNAL_DIR)
         self._readiness_lock = threading.Lock()
         self._readiness_cached_at = 0.0

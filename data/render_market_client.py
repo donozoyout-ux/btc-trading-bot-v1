@@ -1,16 +1,13 @@
 """Render-safe Binance public market-data adapters.
 
-Render can receive HTTP 451 from Binance production USD-M Futures REST. The
-runtime therefore uses a strict source hierarchy:
+Render can receive HTTP 451 from Binance production USD-M Futures REST. In an
+explicit Binance Futures TESTNET runtime, the safe fallback is the Binance
+Futures TESTNET public API so market data and signed execution stay on the same
+Futures environment. Outside that explicit mode, the existing Spot proxy remains
+available only as a labelled compatibility fallback.
 
-1. Binance production USD-M Futures public data (native / preferred)
-2. Binance production SPOT public market-data endpoint as a real-price proxy
-3. Binance Futures TESTNET public data for display diagnostics only
-
-The spot proxy is real production market data and may drive TESTNET forward-test
-price/structure decisions. It is explicitly labelled as a SPOT proxy, not native
-Futures data. Derivatives never come from the spot proxy. TESTNET fallback
-values are display-only and can never CONFIRM/WARN/REJECT a strategy decision.
+Production-readiness still requires production Futures-native market data;
+TESTNET Futures data is suitable only for TESTNET forward testing.
 """
 
 from __future__ import annotations
@@ -162,6 +159,7 @@ class RenderResilientBinanceFuturesMarketClient:
         fallback=None,
         spot_proxy=None,
         *,
+        prefer_testnet_futures: bool = False,
         restriction_cooldown_seconds: int = 300,
         clock=time.monotonic,
     ) -> None:
@@ -175,6 +173,7 @@ class RenderResilientBinanceFuturesMarketClient:
             api_key=None, api_secret=None, testnet=True
         )
         self.spot_proxy = spot_proxy or BinanceSpotPublicMarketClient()
+        self.prefer_testnet_futures = bool(prefer_testnet_futures)
         self.restriction_cooldown_seconds = max(30, int(restriction_cooldown_seconds))
         self._clock = clock
         self._production_blocked_until = 0.0
@@ -185,8 +184,8 @@ class RenderResilientBinanceFuturesMarketClient:
             name: None for name in self.OPTIONAL_METHODS
         }
         self._fallback_derivatives: Dict[str, Dict[str, Any]] = {}
-        # A Spot source must successfully serve a real market call before it can
-        # grant forward-test authority. Derivatives failure alone cannot do so.
+        # Spot remains a labelled compatibility fallback only. In explicit
+        # TESTNET mode, Futures TESTNET can carry strategy authority instead.
         self._spot_proxy_last_error: Optional[str] = "NOT_VALIDATED"
 
     @property
@@ -194,6 +193,8 @@ class RenderResilientBinanceFuturesMarketClient:
         # Real production price data is sufficient for TESTNET forward testing.
         # SPOT_PROXY is deliberately exposed so it can never be mistaken for a
         # native Futures feed when the project later considers real money.
+        if self.active_environment == "TESTNET_PUBLIC_FALLBACK":
+            return self.prefer_testnet_futures
         return self.active_environment in {
             "PRODUCTION_FUTURES_PUBLIC",
             "BINANCE_SPOT_PUBLIC_PROXY",
@@ -222,7 +223,12 @@ class RenderResilientBinanceFuturesMarketClient:
         self._production_blocked_until = self._clock() + self.restriction_cooldown_seconds
         logger.warning(
             "BINANCE FUTURES PRODUCTION PUBLIC: RESTRICTED_HTTP_451 | "
-            "TRYING BINANCE_SPOT_PUBLIC_PROXY | RETRY_AFTER_SECONDS: {}",
+            "FALLBACK {} | RETRY_AFTER_SECONDS: {}",
+            (
+                "BINANCE_TESTNET_FUTURES_PUBLIC"
+                if self.prefer_testnet_futures
+                else "BINANCE_SPOT_PUBLIC_PROXY"
+            ),
             self.restriction_cooldown_seconds,
         )
 
@@ -239,7 +245,7 @@ class RenderResilientBinanceFuturesMarketClient:
             "value": value,
             "source": "BINANCE_TESTNET_FALLBACK",
             "observed_at": int(time.time() * 1000),
-            "trading_authority": False,
+            "trading_authority": self.prefer_testnet_futures,
         }
 
     def _testnet_display_call(self, method: str, *args, **kwargs):
@@ -278,6 +284,8 @@ class RenderResilientBinanceFuturesMarketClient:
 
     def _market_call(self, method: str, *args, **kwargs):
         if self._production_is_blocked():
+            if self.prefer_testnet_futures:
+                return self._testnet_display_call(method, *args, **kwargs)
             return self._spot_market_call(method, *args, **kwargs)
 
         try:
@@ -287,10 +295,11 @@ class RenderResilientBinanceFuturesMarketClient:
                 self._mark_production_restricted()
             else:
                 logger.warning(
-                    "Binance Futures production public market data unavailable; "
-                    "trying real Spot proxy: {}",
+                    "Binance Futures production public market data unavailable: {}",
                     type(exc).__name__,
                 )
+            if self.prefer_testnet_futures:
+                return self._testnet_display_call(method, *args, **kwargs)
             return self._spot_market_call(method, *args, **kwargs)
 
         self.production_public_status = "AVAILABLE"
@@ -300,17 +309,14 @@ class RenderResilientBinanceFuturesMarketClient:
         return result
 
     def _derivative_call(self, method: str, *args, **kwargs):
-        """Return only authoritative production Futures derivatives data.
-
-        During a production restriction we may query TESTNET solely to retain
-        display diagnostics, but the returned strategy value remains ``None``.
-        """
+        """Return Futures derivatives from production or explicit TESTNET fallback."""
         if self._production_is_blocked():
+            if self.prefer_testnet_futures:
+                return self._testnet_display_call(method, *args, **kwargs)
             try:
                 self._testnet_display_call(method, *args, **kwargs)
             except self.EXPECTED_ERRORS:
                 pass
-            # Restore the real price source label only after Spot was validated.
             if self._spot_proxy_last_error is None:
                 self.active_environment = "BINANCE_SPOT_PUBLIC_PROXY"
                 self.fallback_active = True
@@ -321,6 +327,8 @@ class RenderResilientBinanceFuturesMarketClient:
         except self.EXPECTED_ERRORS as exc:
             if self._is_http_451(exc):
                 self._mark_production_restricted()
+            if self.prefer_testnet_futures:
+                return self._testnet_display_call(method, *args, **kwargs)
             try:
                 self._testnet_display_call(method, *args, **kwargs)
             except self.EXPECTED_ERRORS:
@@ -343,12 +351,12 @@ class RenderResilientBinanceFuturesMarketClient:
         return {key: dict(value) for key, value in self._fallback_derivatives.items()}
 
     def status(self) -> Dict[str, Any]:
-        if self._production_is_blocked():
+        attempted = [
+            value for value in self._optional_availability.values() if value is not None
+        ]
+        if self._production_is_blocked() and not self.prefer_testnet_futures:
             derivatives_status = "UNAVAILABLE"
         else:
-            attempted = [
-                value for value in self._optional_availability.values() if value is not None
-            ]
             if not attempted:
                 derivatives_status = "UNKNOWN"
             elif len(attempted) == len(self.OPTIONAL_METHODS) and all(attempted):
@@ -376,6 +384,7 @@ class RenderResilientBinanceFuturesMarketClient:
             "spot_proxy_status": spot_status,
             "spot_proxy_error": None if self._spot_proxy_last_error in {None, "NOT_VALIDATED"} else self._spot_proxy_last_error,
             "derivatives_status": derivatives_status,
+            "testnet_futures_strategy_authority": self.prefer_testnet_futures,
         }
 
     def get_klines(self, *args, **kwargs):
