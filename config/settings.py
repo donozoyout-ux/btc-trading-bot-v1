@@ -71,6 +71,9 @@ class BotSettings(BaseSettings):
     NEWS_RSS_URLS: str = "https://www.coindesk.com/arc/outboundfeeds/rss/,https://cointelegraph.com/rss"
     NEWS_CACHE_SECONDS: int = Field(default=300, ge=60, le=3600)
     AI_ENABLED: bool = False
+    AI_PROVIDER: str = "groq"
+    GROQ_API_KEY: Optional[str] = None
+    GROQ_MODEL: str = "openai/gpt-oss-20b"
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-5.6-luna"
     AI_SHADOW_MIN_INTERVAL_SECONDS: int = Field(default=300, ge=60, le=3600)
