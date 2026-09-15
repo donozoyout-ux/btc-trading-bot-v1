@@ -48,6 +48,20 @@ class PriceSource:
         return self.price
 
 
+class TestnetFuturesSource(PriceSource):
+    def get_open_interest(self, *_args, **_kwargs):
+        return 12345.0
+
+    def get_funding_rate(self, *_args, **_kwargs):
+        return 0.0001
+
+    def get_long_short_ratio(self, *_args, **_kwargs):
+        return 0.9
+
+    def get_taker_volume_ratio(self, *_args, **_kwargs):
+        return 0.8
+
+
 class UnavailablePrice:
     def get_mark_price(self, *_args, **_kwargs):
         raise requests.ConnectionError("unavailable")
@@ -135,6 +149,37 @@ def test_http_451_uses_real_spot_proxy_then_retries_native_futures():
     assert client.status()["market_data_source"] == "PRODUCTION_FUTURES_PUBLIC"
     assert client.status()["market_basis"] == "FUTURES_NATIVE"
     assert client.status()["fallback_active"] is False
+
+
+def test_explicit_testnet_mode_uses_futures_testnet_after_451_and_is_trading_safe():
+    clock = FakeClock()
+    primary = Primary451ThenHealthy()
+    spot = PriceSource(64000.0)
+    testnet = TestnetFuturesSource(63000.0)
+    client = RenderResilientBinanceFuturesMarketClient(
+        primary=primary,
+        spot_proxy=spot,
+        fallback=testnet,
+        prefer_testnet_futures=True,
+        restriction_cooldown_seconds=30,
+        clock=clock,
+    )
+
+    assert client.get_mark_price("BTCUSDT") == 63000.0
+    assert primary.calls == 1
+    assert spot.calls == 0
+    assert testnet.calls == 1
+    assert client.get_open_interest("BTCUSDT") == 12345.0
+    assert client.get_funding_rate("BTCUSDT") == 0.0001
+    assert client.get_long_short_ratio("BTCUSDT") == 0.9
+
+    status = client.status()
+    assert status["production_public_status"] == "HTTP_451_RESTRICTED"
+    assert status["market_data_source"] == "TESTNET_PUBLIC_FALLBACK"
+    assert status["market_basis"] == "TESTNET_FUTURES"
+    assert status["market_data_trading_safe"] is True
+    assert status["testnet_futures_strategy_authority"] is True
+    assert status["derivatives_status"] in {"AVAILABLE", "DEGRADED"}
 
 
 def test_spot_proxy_failure_uses_testnet_display_fallback_and_blocks_entries():
