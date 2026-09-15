@@ -44,6 +44,7 @@ from engines.trade_state_engine import ActiveTradeStateEngine
 from integrations.ai_analyst import AIAnalystError, AIAnalystV2
 from integrations.news_engine import NewsEngineV2
 from journal.shadow_journal import ShadowDecisionJournal
+from journal.ai_shadow_journal import AIShadowJournal
 from journal.execution_journal import ExecutionJournal
 from notifications.telegram_client import TelegramClient, TelegramError
 from notifications.telegram_notifier import TelegramEventNotifier
@@ -236,6 +237,7 @@ class DashboardRuntime:
         news_engine=None,
         ai_analyst=None,
         shadow_journal=None,
+        ai_shadow_journal=None,
     ):
         self.settings = settings or get_settings()
         for secret in (
@@ -303,6 +305,7 @@ class DashboardRuntime:
         self.mtf_interpreter = MultiTimeframeInterpreter()
         self.strategy_orchestrator = StrategyOrchestrator()
         self.shadow_journal = shadow_journal or ShadowDecisionJournal(self.settings.JOURNAL_DIR)
+        self.ai_shadow_journal = ai_shadow_journal or AIShadowJournal(self.settings.JOURNAL_DIR)
         self.execution_journal = ExecutionJournal(self.settings.JOURNAL_DIR)
         self.trade_state_engine = ActiveTradeStateEngine("BTCUSDT")
         self.pipeline = MasterPipeline(self.settings)
@@ -434,6 +437,14 @@ class DashboardRuntime:
         news = snapshot.get("news", {})
         account = snapshot.get("account", {})
         source = (snapshot.get("sources") or {}).get("binance") or {}
+        execution_policy = snapshot.get("execution_policy") or {}
+        evidence_gate_authorized = not execution_policy.get("enabled") or all(
+            (
+                str(strategy.get("setup_type") or "").upper() == str(execution_policy.get("allowed_setup") or "").upper(),
+                str(strategy.get("direction") or "").upper() == str(execution_policy.get("allowed_direction") or "").upper(),
+                str(decision.get("regime") or "").upper() == str(execution_policy.get("allowed_regime") or "").upper(),
+            )
+        )
 
         timeframes = {}
         for tf in ("4h", "1h", "15m", "5m"):
@@ -452,9 +463,27 @@ class DashboardRuntime:
                 "rsi14": latest.get("rsi14"),
                 "adx14": latest.get("adx14"),
                 "atr14": latest.get("atr14"),
+                "patterns": frame.get("patterns") or [],
+                "support_zones": frame.get("support_zones") or [],
+                "resistance_zones": frame.get("resistance_zones") or [],
             }
+        timeframes["15m"].update({
+            "setup": strategy.get("setup_type"),
+            "location": decision.get("location"),
+            "support_resistance_proximity": strategy.get("entry_quality_assessment"),
+        })
+        patterns_5m = [str(value).upper() for value in timeframes["5m"].get("patterns") or []]
+        timeframes["5m"].update({
+            "trigger_state": strategy.get("entry_trigger_state"),
+            "rejection": any("REJECTION" in value for value in patterns_5m),
+            "engulfing": any("ENGULF" in value for value in patterns_5m),
+            "micro_bos": timeframes["5m"].get("bos"),
+            "volume_confirmation": timeframes["5m"].get("volume_state"),
+            "conflicting_micro_structure": timeframes["5m"].get("choch"),
+        })
 
         return {
+            "closed_5m_candle_timestamp": (snapshot.get("meta") or {}).get("closed_5m_timestamp"),
             "shadow_contract": {
                 "execution_authority": False,
                 "deterministic_final_decision": snapshot.get("final_decision"),
@@ -462,6 +491,8 @@ class DashboardRuntime:
                 "hard_blockers": strategy.get("hard_blockers")
                 or strategy.get("blocking_reasons")
                 or [],
+                "risk_authorized": str(decision.get("risk_status") or "").upper() == "ACCEPT_TRADE",
+                "evidence_gate_authorized": evidence_gate_authorized,
             },
             "market": {
                 "price": snapshot.get("market", {}).get("price"),
@@ -483,6 +514,10 @@ class DashboardRuntime:
                 "warnings": strategy.get("warnings"),
                 "reasons": strategy.get("reasons"),
                 "trade_plan": strategy.get("trade_plan"),
+                "eligibility": strategy.get("eligible"),
+                "hard_blockers": strategy.get("hard_blockers") or strategy.get("blocking_reasons") or [],
+                "deterministic_reasons": strategy.get("reasons") or decision.get("reason_codes") or [],
+                "final_decision": snapshot.get("final_decision"),
             },
             "zones": (snapshot.get("zones") or [])[:8],
             "derivatives": snapshot.get("derivatives", {}),
@@ -503,11 +538,19 @@ class DashboardRuntime:
                 "kill_switch": state.get("kill_switch"),
                 "daily_loss_state": state.get("daily_loss_guard"),
                 "consecutive_loss_guard": state.get("consecutive_loss_guard"),
+                "performance_guard": decision.get("performance_guard") or state.get("performance_guard"),
+                "evidence_gate": strategy.get("evidence_gate") or decision.get("evidence_gate"),
+                "evidence_execution_policy": execution_policy,
+                "configured_risk": (snapshot.get("risk_capital") or {}).get("configured_risk_pct"),
                 "risk_config": snapshot.get("risk_config", {}),
             },
             "performance": {
                 "daily_performance": account.get("daily_performance"),
-                "daily_trade_ledger": snapshot.get("daily_trade_ledger"),
+                "recent_completed_trades": ((snapshot.get("daily_trade_ledger") or {}).get("trades") or [])[-10:],
+                "rolling_profit_factor": (account.get("daily_performance") or {}).get("profit_factor"),
+                "loss_streak": (snapshot.get("state") or {}).get("consecutive_losses"),
+                "daily_pnl": (account.get("daily_performance") or {}).get("net_pnl_usdt"),
+                "max_drawdown": (account.get("daily_performance") or {}).get("max_drawdown_pct"),
             },
         }
 
@@ -621,10 +664,9 @@ class DashboardRuntime:
             mtf = self.mtf_interpreter.interpret(chart_intelligence)
             strategy = self.strategy_orchestrator.summarize(report, chart_intelligence, mtf, news)
             decision_id = f"SHADOW-BTCUSDT-{report.timestamp}"
-            ai_analysis_key = (
-                f"BTCUSDT:{closed_5m_timestamp}:"
-                f"{report.final_decision.value}:{report.setup.value}"
-            )
+            # A closed candle is the sole cache boundary. State changes inside
+            # that candle must never create extra provider calls.
+            ai_analysis_key = f"BTCUSDT:{closed_5m_timestamp}"
 
             candle_payload: Dict[str, Any] = {}
             indicator_payload: Dict[str, Any] = {}
@@ -655,6 +697,7 @@ class DashboardRuntime:
                 "unrealized_pnl_usdt": account["unrealized_pnl_usdt"],
                 "open_position_count": len(account["positions"]),
                 "open_order_count": len(account["open_orders"]),
+                "daily_performance": account.get("daily_performance"),
             }
             market_status_fn = getattr(self.binance, "status", None)
             market_status = (
@@ -733,6 +776,7 @@ class DashboardRuntime:
                     "mode": "TESTNET AUTO EXECUTION" if self.execution_enabled else "DEMO / SHADOW / READ ONLY",
                     "symbol": "BTCUSDT",
                     "generated_at": int(time.time() * 1000),
+                    "closed_5m_timestamp": closed_5m_timestamp,
                     "refresh_seconds": CACHE_TTL_SECONDS,
                     "orders_enabled": self.execution_enabled,
                     "shadow_mode": self.settings.SHADOW_MODE,
@@ -742,6 +786,13 @@ class DashboardRuntime:
                 "experimental_setups": {
                     "setup_b_short_enabled": self.settings.ENABLE_SETUP_B_SHORT,
                     "setup_c_short_enabled": self.settings.ENABLE_SETUP_C_SHORT,
+                },
+                "execution_policy": {
+                    "enabled": self.settings.EVIDENCE_EXECUTION_GATE_ENABLED,
+                    "allowed_setup": self.settings.EVIDENCE_ALLOWED_SETUP,
+                    "allowed_direction": self.settings.EVIDENCE_ALLOWED_DIRECTION,
+                    "allowed_regime": self.settings.EVIDENCE_ALLOWED_REGIME,
+                    "require_futures_native": self.settings.EVIDENCE_REQUIRE_FUTURES_NATIVE,
                 },
                 "market": {
                     "price": current_price,
@@ -853,6 +904,11 @@ class DashboardRuntime:
                 snapshot["ai_analyst"] = self._last_ai_result
             snapshot["final_decision"] = self.strategy_orchestrator.final_decision(report, snapshot["ai_analyst"])
             snapshot["system_state"]["last_decision"] = snapshot["final_decision"]
+            self.ai_shadow_journal.record(snapshot, closed_5m_timestamp)
+            self.ai_shadow_journal.reconcile_completed_trades(
+                (snapshot.get("daily_trade_ledger") or {}).get("trades") or []
+            )
+            snapshot["ai_performance"] = self.ai_shadow_journal.summary()
             self.shadow_journal.record(snapshot)
             if self.telegram.configured:
                 snapshot["telegram_notification"] = self.notify_current_decision(snapshot)
