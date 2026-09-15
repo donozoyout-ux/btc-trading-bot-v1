@@ -459,7 +459,20 @@ class TelegramCommandService:
             f"Sebep: {reason_text}",
             "",
             f"Kaldıraç tavanı: {int(getattr(self.settings, 'MAX_ACCOUNT_LEVERAGE', 1))}x",
-            "Not: Kaldıraç tavanı, her işlemde bakiyenin tamamını o katsayıyla kullanmak anlamına gelmez.",
+            (
+                "Execution whitelist: "
+                f"{self._text(getattr(self.settings, 'EVIDENCE_ALLOWED_REGIME', '—'))} + "
+                f"{self._text(getattr(self.settings, 'EVIDENCE_ALLOWED_SETUP', '—'))} + "
+                f"{self._text(getattr(self.settings, 'EVIDENCE_ALLOWED_DIRECTION', '—'))}"
+                if getattr(self.settings, "EVIDENCE_EXECUTION_GATE_ENABLED", False)
+                else "Execution whitelist: KAPALI"
+            ),
+            (
+                "Futures-native veri zorunlu: EVET"
+                if getattr(self.settings, "EVIDENCE_REQUIRE_FUTURES_NATIVE", False)
+                else "Futures-native veri zorunlu: HAYIR"
+            ),
+            "Not: Analiz motoru diğer yön/setup sinyallerini göstermeye devam eder; whitelist dışı sinyaller emir açamaz.",
         ])
 
     def _risk(self) -> str:
