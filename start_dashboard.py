@@ -45,6 +45,16 @@ def _apply_render_testnet_defaults() -> None:
         # Operator-requested Telegram manual close is TESTNET-only. It never
         # opens/reverses a position and still depends on all execution flags.
         os.environ.setdefault("TELEGRAM_MANUAL_TRADING_ENABLED", "true")
+        # Current 3-year baseline evidence supports only STRONG_BEAR +
+        # TREND_PULLBACK + SHORT. Keep all other signals visible in analysis,
+        # but do not submit TESTNET orders for unproven paths.
+        os.environ.setdefault("EVIDENCE_EXECUTION_GATE_ENABLED", "true")
+        os.environ.setdefault("EVIDENCE_ALLOWED_SETUP", "TREND_PULLBACK")
+        os.environ.setdefault("EVIDENCE_ALLOWED_DIRECTION", "SHORT")
+        os.environ.setdefault("EVIDENCE_ALLOWED_REGIME", "STRONG_BEAR")
+        # Render Oregon is currently falling back to spot-proxy market data.
+        # Do not evaluate a Futures execution strategy against non-native basis.
+        os.environ.setdefault("EVIDENCE_REQUIRE_FUTURES_NATIVE", "true")
 
 
 def _safe_startup_status() -> None:
@@ -59,6 +69,16 @@ def _safe_startup_status() -> None:
     print(f"ACCOUNT_READ_ONLY: {str(settings.ACCOUNT_READ_ONLY).lower()}")
     print(f"ORDER_SUBMISSION_ENABLED: {str(settings.ORDER_SUBMISSION_ENABLED).lower()}")
     print(f"SHADOW_MODE: {str(settings.SHADOW_MODE).lower()}")
+    print(
+        "EVIDENCE EXECUTION GATE: "
+        + (
+            f"ON | {settings.EVIDENCE_ALLOWED_REGIME} + "
+            f"{settings.EVIDENCE_ALLOWED_SETUP} + {settings.EVIDENCE_ALLOWED_DIRECTION} | "
+            f"FUTURES_NATIVE_REQUIRED={settings.EVIDENCE_REQUIRE_FUTURES_NATIVE}"
+            if settings.EVIDENCE_EXECUTION_GATE_ENABLED
+            else "OFF"
+        )
+    )
     print(f"TELEGRAM_ENABLED: {os.environ.get('TELEGRAM_ENABLED', 'false').lower()}")
     print(f"TELEGRAM_BOT_TOKEN configured: {'YES' if os.environ.get('TELEGRAM_BOT_TOKEN') else 'NO'}")
     print(f"TELEGRAM_CHAT_ID configured: {'YES' if os.environ.get('TELEGRAM_CHAT_ID') else 'NO'}")

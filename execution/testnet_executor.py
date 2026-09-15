@@ -266,6 +266,73 @@ class TestnetExecutor(BaseExecutor):
             self._record_order(decision_id, "PROTECTIVE_ORDER", order, self._known_position, self._known_position)
         return orders
 
+    @staticmethod
+    def _gate_value(value: Any) -> str:
+        text = str(value or "").strip().upper()
+        return text.rsplit(".", 1)[-1] if "." in text else text
+
+    def _evidence_execution_gate(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+        """Restrict order submission to the historically supported slice.
+
+        This gate is execution-only. The strategy pipeline still evaluates and
+        exposes every setup so rejected paths remain observable for research.
+        """
+        if not self.settings.EVIDENCE_EXECUTION_GATE_ENABLED:
+            return {
+                "allowed": True,
+                "reason": "DISABLED",
+                "setup": None,
+                "direction": None,
+                "regime": None,
+                "market_basis": None,
+            }
+
+        strategy = snapshot.get("strategy") or {}
+        decision = snapshot.get("decision") or {}
+        source = (snapshot.get("sources") or {}).get("binance") or {}
+
+        setup = self._gate_value(strategy.get("setup_type") or decision.get("setup"))
+        direction = self._gate_value(strategy.get("direction"))
+        if not direction:
+            final = self._gate_value(snapshot.get("final_decision") or decision.get("final_decision"))
+            direction = "LONG" if final == "LONG_ENTRY" else "SHORT" if final == "SHORT_ENTRY" else final
+        regime = self._gate_value(decision.get("regime"))
+
+        market_basis = self._gate_value(source.get("market_basis"))
+        if not market_basis:
+            market_source = self._gate_value(
+                source.get("market_data_source") or source.get("environment")
+            )
+            if "SPOT" in market_source:
+                market_basis = "SPOT_PROXY"
+            elif "PRODUCTION_FUTURES" in market_source:
+                market_basis = "FUTURES_NATIVE"
+            elif "TESTNET" in market_source and "FUTURES" in market_source:
+                market_basis = "TESTNET_FUTURES"
+            else:
+                market_basis = "UNKNOWN"
+
+        details = {
+            "setup": setup,
+            "direction": direction,
+            "regime": regime,
+            "market_basis": market_basis,
+            "allowed_setup": self._gate_value(self.settings.EVIDENCE_ALLOWED_SETUP),
+            "allowed_direction": self._gate_value(self.settings.EVIDENCE_ALLOWED_DIRECTION),
+            "allowed_regime": self._gate_value(self.settings.EVIDENCE_ALLOWED_REGIME),
+            "require_futures_native": bool(self.settings.EVIDENCE_REQUIRE_FUTURES_NATIVE),
+        }
+
+        if setup != details["allowed_setup"]:
+            return {**details, "allowed": False, "reason": "UNVALIDATED_SETUP"}
+        if direction != details["allowed_direction"]:
+            return {**details, "allowed": False, "reason": "UNVALIDATED_DIRECTION"}
+        if regime != details["allowed_regime"]:
+            return {**details, "allowed": False, "reason": "UNVALIDATED_REGIME"}
+        if details["require_futures_native"] and market_basis != "FUTURES_NATIVE":
+            return {**details, "allowed": False, "reason": "NON_FUTURES_NATIVE_MARKET_DATA"}
+        return {**details, "allowed": True, "reason": "PASS"}
+
     def _execution_performance_guard(
         self,
         wallet_balance_usdt: float,
@@ -455,6 +522,21 @@ class TestnetExecutor(BaseExecutor):
         if not eligible:
             self._write_runtime_state()
             return {"status": "NO_ELIGIBLE_SIGNAL"}
+        evidence_gate = self._evidence_execution_gate(snapshot)
+        if not evidence_gate.get("allowed"):
+            self.execution_journal.record(
+                decision_id=decision_id,
+                action="EVIDENCE_EXECUTION_GATE",
+                status="BLOCKED",
+                reason=str(evidence_gate.get("reason") or "EVIDENCE_GATE"),
+                details=evidence_gate,
+            )
+            self._write_runtime_state(last_execution_result="EVIDENCE_GATE_BLOCKED")
+            return {
+                "status": "EVIDENCE_GATE_BLOCKED",
+                "gate": evidence_gate,
+            }
+
         plan = strategy.get("trade_plan") or decision.get("trade_plan") or {}
         risk = decision.get("risk_assessment") or {}
         capital = snapshot.get("risk_capital") or {}
@@ -548,6 +630,7 @@ class TestnetExecutor(BaseExecutor):
             "strategy_price": strategy_price,
             "planned_entry": planned_entry,
             "performance_guard": performance_guard,
+            "evidence_execution_gate": evidence_gate,
             "effective_risk_pct": risk_pct,
             "effective_planned_risk_usdt": planned_risk_usdt,
             "effective_risk_sized_quantity": raw_quantity,
