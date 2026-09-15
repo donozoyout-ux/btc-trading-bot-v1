@@ -69,6 +69,16 @@ def _safe_startup_status() -> None:
     print(f"ACCOUNT_READ_ONLY: {str(settings.ACCOUNT_READ_ONLY).lower()}")
     print(f"ORDER_SUBMISSION_ENABLED: {str(settings.ORDER_SUBMISSION_ENABLED).lower()}")
     print(f"SHADOW_MODE: {str(settings.SHADOW_MODE).lower()}")
+    print(
+        "EVIDENCE EXECUTION GATE: "
+        + (
+            f"ON | {settings.EVIDENCE_ALLOWED_REGIME} + "
+            f"{settings.EVIDENCE_ALLOWED_SETUP} + {settings.EVIDENCE_ALLOWED_DIRECTION} | "
+            f"FUTURES_NATIVE_REQUIRED={settings.EVIDENCE_REQUIRE_FUTURES_NATIVE}"
+            if settings.EVIDENCE_EXECUTION_GATE_ENABLED
+            else "OFF"
+        )
+    )
     print(f"TELEGRAM_ENABLED: {os.environ.get('TELEGRAM_ENABLED', 'false').lower()}")
     print(f"TELEGRAM_BOT_TOKEN configured: {'YES' if os.environ.get('TELEGRAM_BOT_TOKEN') else 'NO'}")
     print(f"TELEGRAM_CHAT_ID configured: {'YES' if os.environ.get('TELEGRAM_CHAT_ID') else 'NO'}")
