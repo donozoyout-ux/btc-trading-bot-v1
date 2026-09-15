@@ -649,6 +649,66 @@ def _warm_snapshot() -> None:
             decision.get("risk_status", "UNKNOWN"),
             ",".join(str(item) for item in blockers) if isinstance(blockers, (list, tuple)) and blockers else "NONE",
         )
+        account = base.RUNTIME.account(force=True)
+        positions = [
+            row for row in (account.get("positions") or [])
+            if row.get("symbol") == "BTCUSDT"
+        ]
+        logger.info(
+            "ACCOUNT RISK SNAPSHOT: WALLET {} | AVAILABLE {} | MARGIN_BALANCE {} | UNREALIZED {} | MARGIN_USED {} | POSITIONS {} | OPEN_ORDERS {}",
+            account.get("wallet_balance_usdt"),
+            account.get("available_balance_usdt"),
+            account.get("margin_balance_usdt"),
+            account.get("unrealized_pnl_usdt"),
+            account.get("margin_used_usdt"),
+            len(positions),
+            len(account.get("open_orders") or []),
+        )
+        for pos in positions:
+            logger.info(
+                "OPEN BTC POSITION: SIDE {} | QTY {} | ENTRY {} | MARK {} | NOTIONAL {} | LEVERAGE {}x | UPNL {} | LIQ {} | MARGIN_TYPE {}",
+                pos.get("side"),
+                pos.get("position_amount"),
+                pos.get("entry_price"),
+                pos.get("mark_price"),
+                pos.get("notional"),
+                pos.get("leverage"),
+                pos.get("unrealized_pnl"),
+                pos.get("liquidation_price"),
+                pos.get("margin_type"),
+            )
+        account_client = getattr(base.RUNTIME, "account_client", None)
+        if account_client is not None and getattr(account_client, "configured", False):
+            try:
+                algo_orders = account_client.get_open_algo_orders()
+            except Exception as exc:
+                algo_orders = []
+                logger.warning(
+                    "ACCOUNT RISK SNAPSHOT: PROTECTIVE_ORDER_READ_FAILED {}",
+                    getattr(exc, "category", type(exc).__name__),
+                )
+            protective = [
+                row for row in algo_orders
+                if row.get("symbol") == "BTCUSDT"
+                and str(row.get("type") or "").upper() in {"STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT"}
+            ]
+            logger.info(
+                "PROTECTION SNAPSHOT: ALGO_ORDERS {} | PROTECTIVE {} | TYPES {}",
+                len(algo_orders),
+                len(protective),
+                ",".join(str(row.get("type") or "UNKNOWN") for row in protective) or "NONE",
+            )
+        risk_capital = snapshot.get("risk_capital") or {}
+        system_state = snapshot.get("system_state") or {}
+        logger.info(
+            "RISK SNAPSHOT: CAPITAL {} | RISK_PCT {} | PLANNED_RISK {} | DAILY_GUARD {} | LOSS_STREAK_GUARD {} | KILL_SWITCH {}",
+            risk_capital.get("sizing_capital_usdt"),
+            risk_capital.get("configured_risk_pct"),
+            risk_capital.get("planned_risk_usdt"),
+            system_state.get("daily_loss_guard"),
+            system_state.get("consecutive_loss_guard"),
+            system_state.get("kill_switch"),
+        )
         trade_report_fn = getattr(base.RUNTIME, "trade_report", None)
         if callable(trade_report_fn):
             report = trade_report_fn(force=True)
