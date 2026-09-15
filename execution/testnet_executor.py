@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import time
+from datetime import datetime
 from typing import Any, Dict, Optional
+from zoneinfo import ZoneInfo
 from loguru import logger
 
 from config.constants import DecisionStatus, RiskDecision, TriggerState
@@ -11,6 +14,7 @@ from core.models import DecisionReport, TradeRecord
 from core.state import BotState
 from data.binance_execution_client import BinanceFuturesExecutionClient, ExecutionError
 from execution.executor_base import BaseExecutor
+from engines.live_readiness import reconstruct_trade_cycles
 from journal.execution_journal import ExecutionJournal
 
 
@@ -262,6 +266,145 @@ class TestnetExecutor(BaseExecutor):
             self._record_order(decision_id, "PROTECTIVE_ORDER", order, self._known_position, self._known_position)
         return orders
 
+    def _execution_performance_guard(
+        self,
+        wallet_balance_usdt: float,
+        *,
+        now_ms: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Build a live entry guard from authoritative Binance TESTNET fills."""
+        if not self.settings.PERFORMANCE_GUARD_ENABLED:
+            return {
+                "allowed": True,
+                "risk_multiplier": 1.0,
+                "reason": "DISABLED",
+                "consecutive_losses": 0,
+                "rolling_profit_factor": None,
+                "daily_drawdown_pct": 0.0,
+            }
+
+        now_ms = int(now_ms or time.time() * 1000)
+        try:
+            fills = self.client.get_user_trades("BTCUSDT", limit=1000)
+        except Exception as exc:
+            return {
+                "allowed": False,
+                "risk_multiplier": 0.0,
+                "reason": "TRADE_HISTORY_UNAVAILABLE",
+                "error": getattr(exc, "category", type(exc).__name__),
+                "consecutive_losses": 0,
+                "rolling_profit_factor": None,
+                "daily_drawdown_pct": 0.0,
+            }
+
+        position_sides = {
+            str(row.get("positionSide") or "BOTH").upper()
+            for row in fills
+        }
+        ending_quantities = (
+            {"LONG": 0.0, "SHORT": 0.0, "BOTH": 0.0}
+            if position_sides & {"LONG", "SHORT"}
+            else {"BOTH": 0.0}
+        )
+        cycles = reconstruct_trade_cycles(
+            fills,
+            ending_quantities=ending_quantities,
+        )
+        cycles.sort(key=lambda row: int(row.get("exit_time") or 0))
+
+        streak = 0
+        for row in reversed(cycles):
+            if float(row.get("net_pnl_usdt") or 0.0) < 0:
+                streak += 1
+            else:
+                break
+
+        tz = ZoneInfo("Europe/Istanbul")
+        current_day = datetime.fromtimestamp(now_ms / 1000, tz=tz).date()
+        daily_cycles = [
+            row for row in cycles
+            if int(row.get("exit_time") or 0) > 0
+            and datetime.fromtimestamp(int(row["exit_time"]) / 1000, tz=tz).date() == current_day
+        ]
+        daily_net = sum(float(row.get("net_pnl_usdt") or 0.0) for row in daily_cycles)
+        wallet = max(float(wallet_balance_usdt or 0.0), 0.0)
+        start_equity = wallet - daily_net
+        daily_drawdown = (
+            max(0.0, -daily_net / start_equity)
+            if start_equity > 0
+            else 0.0
+        )
+
+        window = max(1, int(self.settings.PERFORMANCE_GUARD_ROLLING_WINDOW))
+        rolling = cycles[-window:]
+        gross_profit = sum(
+            max(0.0, float(row.get("net_pnl_usdt") or 0.0))
+            for row in rolling
+        )
+        gross_loss = abs(sum(
+            min(0.0, float(row.get("net_pnl_usdt") or 0.0))
+            for row in rolling
+        ))
+        rolling_pf = (
+            gross_profit / gross_loss
+            if gross_loss > 1e-12
+            else (99.0 if gross_profit > 1e-12 else 0.0)
+        )
+
+        if daily_drawdown >= float(self.settings.MAX_DAILY_LOSS_PCT):
+            return {
+                "allowed": False,
+                "risk_multiplier": 0.0,
+                "reason": "DAILY_REALIZED_LOSS_LIMIT",
+                "consecutive_losses": streak,
+                "rolling_profit_factor": round(rolling_pf, 3),
+                "daily_drawdown_pct": round(daily_drawdown * 100.0, 3),
+                "completed_trades": len(cycles),
+            }
+
+        last_exit = int(cycles[-1].get("exit_time") or 0) if cycles else 0
+        cooldown_ms = int(float(self.settings.PERFORMANCE_GUARD_COOLDOWN_HOURS) * 3600 * 1000)
+        cooldown_until = last_exit + cooldown_ms if last_exit else 0
+        streak_threshold = int(self.settings.PERFORMANCE_GUARD_CONSECUTIVE_LOSSES)
+        if streak >= streak_threshold and now_ms < cooldown_until:
+            return {
+                "allowed": False,
+                "risk_multiplier": 0.0,
+                "reason": "CONSECUTIVE_LOSS_COOLDOWN",
+                "consecutive_losses": streak,
+                "rolling_profit_factor": round(rolling_pf, 3),
+                "daily_drawdown_pct": round(daily_drawdown * 100.0, 3),
+                "cooldown_until": cooldown_until,
+                "completed_trades": len(cycles),
+            }
+
+        weak_rolling_pf = (
+            len(rolling) >= window
+            and rolling_pf < float(self.settings.PERFORMANCE_GUARD_MIN_PROFIT_FACTOR)
+        )
+        reduce_risk = streak > 0 or weak_rolling_pf
+        multiplier = (
+            float(self.settings.PERFORMANCE_GUARD_RISK_MULTIPLIER)
+            if reduce_risk
+            else 1.0
+        )
+        return {
+            "allowed": True,
+            "risk_multiplier": multiplier,
+            "reason": (
+                "REDUCED_RISK_AFTER_LOSS"
+                if streak > 0
+                else "REDUCED_RISK_WEAK_ROLLING_PF"
+                if weak_rolling_pf
+                else "PASS"
+            ),
+            "consecutive_losses": streak,
+            "rolling_profit_factor": round(rolling_pf, 3),
+            "daily_drawdown_pct": round(daily_drawdown * 100.0, 3),
+            "completed_trades": len(cycles),
+            "cooldown_until": cooldown_until if streak >= streak_threshold else None,
+        }
+
     def process_snapshot(self, snapshot: Dict[str, Any], state: BotState) -> Optional[Dict[str, Any]]:
         self._assert_execution_boundary()
         candle_rows = snapshot.get("candles", {}).get("5m", [])
@@ -311,6 +454,20 @@ class TestnetExecutor(BaseExecutor):
             raise ExecutionError("RISK_CAPITAL_UNAVAILABLE")
         sizing_capital = float(sizing_capital)
         state.account_balance_usdt = sizing_capital
+        performance_guard = self._execution_performance_guard(sizing_capital)
+        if not performance_guard.get("allowed"):
+            self.execution_journal.record(
+                decision_id=decision_id,
+                action="PERFORMANCE_GUARD_BLOCK",
+                status="BLOCKED",
+                reason=str(performance_guard.get("reason") or "PERFORMANCE_GUARD"),
+                details=performance_guard,
+            )
+            self._write_runtime_state(last_execution_result="PERFORMANCE_GUARD_BLOCKED")
+            return {
+                "status": "PERFORMANCE_GUARD_BLOCKED",
+                "guard": performance_guard,
+            }
         setup_type = str(strategy.get("setup_type") or decision.get("setup") or "")
         risk_pct = float(risk.get("risk_pct_used") or 0)
         planned_entry = float(plan.get("entry_price") or decision.get("price") or 0)
@@ -320,6 +477,28 @@ class TestnetExecutor(BaseExecutor):
             raise ExecutionError("INVALID_POSITION_SIZE")
         planned_risk_usdt = float(risk.get("risk_amount_usdt") or 0)
         raw_quantity = float(risk.get("position_size_btc") or 0)
+        risk_multiplier = float(performance_guard.get("risk_multiplier") or 0.0)
+        if risk_multiplier <= 0:
+            raise ExecutionError("PERFORMANCE_GUARD_INVALID_MULTIPLIER")
+        if risk_multiplier < 1.0:
+            original_risk_usdt = planned_risk_usdt
+            original_quantity = raw_quantity
+            planned_risk_usdt *= risk_multiplier
+            raw_quantity *= risk_multiplier
+            risk_pct *= risk_multiplier
+            self.execution_journal.record(
+                decision_id=decision_id,
+                action="PERFORMANCE_GUARD_RISK_REDUCTION",
+                status="APPLIED",
+                reason=str(performance_guard.get("reason") or "REDUCED_RISK"),
+                details={
+                    **performance_guard,
+                    "original_risk_usdt": original_risk_usdt,
+                    "effective_risk_usdt": planned_risk_usdt,
+                    "original_quantity": original_quantity,
+                    "effective_quantity": raw_quantity,
+                },
+            )
         if raw_quantity <= 0 or planned_risk_usdt <= 0 or risk_pct <= 0:
             raise ExecutionError("INVALID_POSITION_SIZE")
         if raw_quantity * planned_entry > sizing_capital * self.settings.MAX_ACCOUNT_LEVERAGE * (1 + 1e-9):
@@ -356,6 +535,10 @@ class TestnetExecutor(BaseExecutor):
             "strategy_market_basis": "SPOT_PROXY" if "SPOT" in market_source else "FUTURES",
             "strategy_price": strategy_price,
             "planned_entry": planned_entry,
+            "performance_guard": performance_guard,
+            "effective_risk_pct": risk_pct,
+            "effective_planned_risk_usdt": planned_risk_usdt,
+            "effective_risk_sized_quantity": raw_quantity,
         }
         self.execution_journal.record(decision_id=decision_id, action="ENTRY_SNAPSHOT", status="FROZEN", details=entry_snapshot)
         mark_value = self.client.get_mark_price("BTCUSDT")
