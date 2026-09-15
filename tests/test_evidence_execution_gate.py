@@ -85,6 +85,23 @@ def test_evidence_gate_blocks_non_strong_bear_regime(tmp_path):
     assert result["reason"] == "UNVALIDATED_REGIME"
 
 
+def test_evidence_gate_accepts_futures_testnet_basis_in_testnet_mode(tmp_path):
+    payload = allowed_snapshot()
+    payload["sources"]["binance"].update(
+        market_basis="TESTNET_FUTURES",
+        market_data_source="TESTNET_PUBLIC_FALLBACK",
+    )
+    executor = TestnetExecutor(
+        FakeExecutionClient(),
+        settings=gate_settings(tmp_path),
+        execution_journal=ExecutionJournal(str(tmp_path)),
+    )
+    result = executor._evidence_execution_gate(payload)
+    assert result["allowed"] is True
+    assert result["reason"] == "PASS"
+    assert "TESTNET_FUTURES" in result["allowed_futures_bases"]
+
+
 def test_evidence_gate_blocks_spot_proxy(tmp_path):
     payload = allowed_snapshot()
     payload["sources"]["binance"].update(
