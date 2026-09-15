@@ -329,9 +329,17 @@ class TestnetExecutor(BaseExecutor):
             return {**details, "allowed": False, "reason": "UNVALIDATED_DIRECTION"}
         if regime != details["allowed_regime"]:
             return {**details, "allowed": False, "reason": "UNVALIDATED_REGIME"}
-        if details["require_futures_native"] and market_basis != "FUTURES_NATIVE":
+        allowed_futures_bases = {"FUTURES_NATIVE"}
+        if bool(self.settings.BINANCE_TESTNET):
+            allowed_futures_bases.add("TESTNET_FUTURES")
+        if details["require_futures_native"] and market_basis not in allowed_futures_bases:
             return {**details, "allowed": False, "reason": "NON_FUTURES_NATIVE_MARKET_DATA"}
-        return {**details, "allowed": True, "reason": "PASS"}
+        return {
+            **details,
+            "allowed": True,
+            "reason": "PASS",
+            "allowed_futures_bases": sorted(allowed_futures_bases),
+        }
 
     def _execution_performance_guard(
         self,
