@@ -742,6 +742,28 @@ def _warm_snapshot() -> None:
                     trade.get("commission_usdt"),
                     trade.get("exit_reason"),
                 )
+        ai = snapshot.get("ai_analyst") or {}
+        news = snapshot.get("news") or {}
+        logger.info(
+            "AI SHADOW SNAPSHOT: STATUS {} | BIAS {} | QUALITY {} | OPINION {} | CONFIDENCE {} | MODEL {} | EXECUTION_AUTHORITY {}",
+            ai.get("status"),
+            ai.get("market_bias"),
+            ai.get("setup_quality"),
+            ai.get("trade_opinion"),
+            ai.get("confidence"),
+            ai.get("model"),
+            ai.get("execution_authority"),
+        )
+        logger.info(
+            "NEWS INTELLIGENCE: STATUS {} | RISK {} | SCORE {} | TRADE_RISK {} | SENTIMENT {} | SENTIMENT_SCORE {} | IMPORTANT_EVENTS {}",
+            news.get("status"),
+            news.get("news_risk"),
+            news.get("news_risk_score"),
+            news.get("trade_risk"),
+            news.get("sentiment"),
+            news.get("sentiment_score"),
+            len(news.get("important_events") or []),
+        )
         readiness_fn = getattr(base.RUNTIME, "live_readiness", None)
         if callable(readiness_fn):
             readiness = readiness_fn(force=True)

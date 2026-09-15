@@ -34,6 +34,8 @@ class TelegramCommandService:
         ("emirler", "Açık STOP ve hedef emirlerini göster"),
         ("sinyal", "Güncel strateji kararını göster"),
         ("neden", "Neden işlem açılmadığını göster"),
+        ("ai", "AI gölge piyasa analizini göster"),
+        ("haber", "Güncel haber risk analizini göster"),
         ("risk", "Risk ve koruma durumunu göster"),
         ("kaynaklar", "Veri kaynaklarının durumunu göster"),
         ("piyasa", "Piyasa ve türev bağlamını göster"),
@@ -51,6 +53,7 @@ class TelegramCommandService:
         "start": "yardim", "help": "yardim",
         "status": "durum", "account": "hesap", "position": "pozisyon",
         "orders": "emirler", "signal": "sinyal", "why": "neden", "sources": "kaynaklar",
+        "analysis": "ai", "analiz": "ai", "news": "haber",
         "market": "piyasa", "report": "rapor", "daily": "rapor", "gunluk": "rapor",
         "readiness": "hazirlik", "live": "hazirlik",
         "pause": "manuel", "resume": "devam", "manual": "manuel",
@@ -475,6 +478,84 @@ class TelegramCommandService:
             "Not: Analiz motoru diğer yön/setup sinyallerini göstermeye devam eder; whitelist dışı sinyaller emir açamaz.",
         ])
 
+    def _ai(self) -> str:
+        snapshot = self._snapshot()
+        if not snapshot:
+            return "⚠️ Güncel AI snapshot'ı alınamadı."
+        ai = snapshot.get("ai_analyst") or {}
+        source = (snapshot.get("sources") or {}).get("ai") or {}
+        if ai.get("status") != "AVAILABLE":
+            return "\n".join([
+                "🤖 AI MARKET ANALYST",
+                "",
+                f"Durum: {self._text(ai.get('status') or source.get('status'), 'UNAVAILABLE')}",
+                f"Yapılandırılmış: {'EVET' if source.get('configured') else 'HAYIR'}",
+                f"Model: {self._text(source.get('model'), '—')}",
+                "Execution authority: YOK",
+                "",
+                "AI kullanılamasa da deterministik strateji ve risk motoru çalışmaya devam eder.",
+            ])
+        confirmations = ai.get("confirmations") or []
+        conflicts = ai.get("conflicts") or []
+        risk_notes = ai.get("risk_notes") or []
+        invalidation = ai.get("invalidation_watch") or []
+        return "\n".join([
+            "🤖 AI MARKET ANALYST · SHADOW",
+            "",
+            f"Bias: {self._text(ai.get('market_bias'))}",
+            f"Setup quality: {self._text(ai.get('setup_quality'))}/100",
+            f"Görüş: {self._text(ai.get('trade_opinion'))}",
+            f"Güven: %{self._text(ai.get('confidence'))}",
+            f"En iyi setup: {self._text(ai.get('best_setup'))}",
+            "",
+            f"📌 Market: {self._text(ai.get('market_view'))}",
+            f"✅ Onaylar: {' | '.join(str(x) for x in confirmations[:4]) or 'YOK'}",
+            f"⚠️ Çatışmalar: {' | '.join(str(x) for x in conflicts[:4]) or 'YOK'}",
+            f"🛡️ Risk: {' | '.join(str(x) for x in risk_notes[:4]) or 'YOK'}",
+            f"📰 Haber: {self._text(ai.get('news_summary'))}",
+            f"📊 Türevler: {self._text(ai.get('derivatives_summary'))}",
+            f"👀 İzlenecek invalidation: {' | '.join(str(x) for x in invalidation[:3]) or 'YOK'}",
+            "",
+            f"Yorum: {self._text(ai.get('decision_explanation'))}",
+            "🔒 Execution authority: YOK",
+        ])
+
+    def _news(self) -> str:
+        snapshot = self._snapshot()
+        if not snapshot:
+            return "⚠️ Güncel haber snapshot'ı alınamadı."
+        news = snapshot.get("news") or {}
+        events = news.get("important_events") or []
+        clusters = news.get("event_clusters") or []
+        lines = [
+            "📰 BTC HABER ANALİZİ",
+            "",
+            f"Durum: {self._text(news.get('status'), 'UNAVAILABLE')}",
+            f"Risk: {self._text(news.get('news_risk'))} · Skor {self._text(news.get('news_risk_score'))}/100",
+            f"Trade riski: {self._text(news.get('trade_risk'))}",
+            f"Sentiment: {self._text(news.get('sentiment'))} · {self._text(news.get('sentiment_score'))}",
+        ]
+        if clusters:
+            lines.extend(["", "📚 Olay kümeleri:"])
+            for row in clusters[:4]:
+                lines.append(
+                    f"• {self._text(row.get('category'))}: {row.get('count', 0)} haber · "
+                    f"impact {self._num(row.get('max_impact_score'), 1)}"
+                )
+        if events:
+            lines.extend(["", "🔥 Önemli haberler:"])
+            for row in events[:5]:
+                age = row.get("age_hours")
+                age_text = f"{self._num(age, 1)}s" if age is not None else "?"
+                lines.append(
+                    f"• [{self._text(row.get('category'))}] "
+                    f"{self._text(row.get('title'))} · impact {self._num(row.get('impact_score'), 0)} · {age_text}"
+                )
+        else:
+            lines.extend(["", "Önemli güncel haber olayı yok."])
+        lines.extend(["", "ℹ️ Haber motoru tek başına emir açamaz."])
+        return "\n".join(lines)
+
     def _risk(self) -> str:
         snapshot = self._snapshot()
         if not snapshot:
@@ -768,6 +849,10 @@ class TelegramCommandService:
                 response = self._signal()
             elif command == "neden":
                 response = self._why()
+            elif command == "ai":
+                response = self._ai()
+            elif command == "haber":
+                response = self._news()
             elif command == "risk":
                 response = self._risk()
             elif command == "kaynaklar":

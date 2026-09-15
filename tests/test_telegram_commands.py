@@ -251,6 +251,8 @@ def test_help_lists_testnet_manual_close_and_no_manual_open():
     assert "/pozisyon" in text
     assert "/sinyal" in text
     assert "/neden" in text
+    assert "/ai" in text
+    assert "/haber" in text
     assert "/rapor" in text
     assert "/hazirlik" in text
     assert "/sat" in text
@@ -280,6 +282,68 @@ def test_status_account_position_orders_signal_risk_sources():
     assert "CoinGlass likidasyon: $VERİ YOK" in combined
     assert "Salt okunur" in combined
     assert "PONG" in combined
+
+
+def test_ai_and_news_commands_show_shadow_intelligence():
+    service, telegram = make_service()
+    dashboard = service.dashboard_provider()
+    dashboard.snapshot = lambda force=False: {
+        "ai_analyst": {
+            "status": "AVAILABLE",
+            "market_bias": "BEARISH",
+            "setup_quality": 72,
+            "trade_opinion": "WAIT",
+            "confidence": 81,
+            "best_setup": "TREND_PULLBACK SHORT",
+            "market_view": "Bearish structure but support is close.",
+            "confirmations": ["4H bearish", "1H lower high"],
+            "conflicts": ["5M bullish micro structure"],
+            "risk_notes": ["Support proximity"],
+            "news_summary": "No extreme macro event.",
+            "derivatives_summary": "Funding neutral.",
+            "invalidation_watch": ["1H CHoCH up"],
+            "decision_explanation": "Wait for cleaner location.",
+            "execution_authority": False,
+        },
+        "news": {
+            "status": "AVAILABLE",
+            "news_risk": "HIGH",
+            "news_risk_score": 71,
+            "trade_risk": "CAUTION",
+            "sentiment": "BEARISH",
+            "sentiment_score": -18.5,
+            "event_clusters": [
+                {"category": "ETF", "count": 2, "max_impact_score": 68}
+            ],
+            "important_events": [
+                {
+                    "category": "ETF",
+                    "title": "ETF outflow accelerates",
+                    "impact_score": 68,
+                    "age_hours": 1.2,
+                }
+            ],
+        },
+        "sources": {
+            "ai": {
+                "status": "AVAILABLE",
+                "configured": True,
+                "model": "gpt-5.6-luna",
+            }
+        },
+    }
+
+    assert service.handle_message({"chat": {"id": 123}, "text": "/ai"}) is True
+    ai_message = telegram.messages[-1]
+    assert "AI MARKET ANALYST" in ai_message
+    assert "72/100" in ai_message
+    assert "Execution authority: YOK" in ai_message
+
+    assert service.handle_message({"chat": {"id": 123}, "text": "/haber"}) is True
+    news_message = telegram.messages[-1]
+    assert "BTC HABER ANALİZİ" in news_message
+    assert "71/100" in news_message
+    assert "ETF outflow accelerates" in news_message
 
 
 def test_opening_mutating_commands_remain_blocked():
