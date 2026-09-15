@@ -1,4 +1,4 @@
-"""Optional OpenAI shadow market analyst with zero execution authority."""
+"""Provider-agnostic shadow market analyst with zero execution authority."""
 
 from __future__ import annotations
 
@@ -16,7 +16,11 @@ class AIAnalystError(RuntimeError):
 
 
 class AIAnalystV3:
-    ENDPOINT = "https://api.openai.com/v1/responses"
+    PROVIDER_ENDPOINTS = {
+        "openai": "https://api.openai.com/v1/responses",
+        "groq": "https://api.groq.com/openai/v1/responses",
+    }
+
     SCHEMA = {
         "type": "object",
         "additionalProperties": False,
@@ -56,26 +60,34 @@ class AIAnalystV3:
             "invalidation_watch": {"type": "array", "items": {"type": "string"}},
             "decision_explanation": {"type": "string"},
             "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
-            "execution_authority": {"type": "boolean", "const": False},
+            "execution_authority": {"type": "boolean", "enum": [False]},
         },
     }
 
     def __init__(
         self,
         api_key: Optional[str],
-        model: str = "gpt-5.6-luna",
+        model: str = "openai/gpt-oss-20b",
         enabled: bool = False,
         timeout: int = 20,
+        provider: str = "groq",
     ):
         self._api_key = (api_key or "").strip() or None
+        self.provider = str(provider or "groq").strip().lower()
         self.model = model
         self.enabled = bool(enabled)
         self.timeout = timeout
+        self.endpoint = self.PROVIDER_ENDPOINTS.get(self.provider)
         self._last_result: Optional[Dict[str, Any]] = None
 
     @property
     def configured(self) -> bool:
-        return bool(self.enabled and self._api_key)
+        return bool(
+            self.enabled
+            and self._api_key
+            and self.endpoint
+            and self.model
+        )
 
     def safe_status(self) -> Dict[str, Any]:
         return {
@@ -86,6 +98,7 @@ class AIAnalystV3:
             else "READY"
             if self.configured
             else "UNAVAILABLE",
+            "provider": self.provider.upper() if self.provider else None,
             "advisory_only": True,
             "shadow_mode": True,
             "execution_authority": False,
@@ -95,11 +108,11 @@ class AIAnalystV3:
     def status(self) -> Dict[str, Any]:
         return self.safe_status()
 
-    @staticmethod
-    def unavailable(category: str = "AI_UNAVAILABLE") -> Dict[str, Any]:
+    def unavailable(self, category: str = "AI_UNAVAILABLE") -> Dict[str, Any]:
         return {
             "status": "UNAVAILABLE",
             "error_category": category,
+            "provider": self.provider.upper() if self.provider else None,
             "market_view": "",
             "market_bias": "NEUTRAL",
             "setup_quality": 0,
@@ -123,12 +136,36 @@ class AIAnalystV3:
         if isinstance(payload.get("output_text"), str):
             return payload["output_text"]
         for item in payload.get("output", []):
+            if not isinstance(item, dict):
+                continue
             for content in item.get("content", []):
-                if content.get("type") == "output_text" and isinstance(
-                    content.get("text"), str
+                if (
+                    isinstance(content, dict)
+                    and content.get("type") == "output_text"
+                    and isinstance(content.get("text"), str)
                 ):
                     return content["text"]
         raise AIAnalystError("AI_RESPONSE_INVALID")
+
+    def _request_payload(self, prompt: str) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "store": False,
+            "input": prompt,
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "btc_market_analyst_v3",
+                    "schema": self.SCHEMA,
+                }
+            },
+            "max_output_tokens": 1200,
+        }
+        if self.provider == "openai":
+            payload["text"]["format"]["strict"] = True
+        elif self.provider == "groq":
+            payload["reasoning"] = {"effort": "low"}
+        return payload
 
     def analyze(self, context: Dict[str, Any]) -> Dict[str, Any]:
         if not self.configured:
@@ -146,44 +183,33 @@ class AIAnalystV3:
             "Use only supplied evidence. Explicitly surface conflicts between 4H/1H/15M/5M, "
             "derivatives, news, and trade location. "
             "setup_quality is an advisory evidence-quality score, not a probability of profit. "
+            "execution_authority MUST be false. "
             "Return only the required JSON schema.\n\n"
             + json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         )
-        payload = {
-            "model": self.model,
-            "store": False,
-            "input": prompt,
-            "text": {
-                "format": {
-                    "type": "json_schema",
-                    "name": "btc_market_analyst_v3",
-                    "strict": True,
-                    "schema": self.SCHEMA,
-                }
-            },
-            "max_output_tokens": 1200,
-        }
+
         try:
             response = requests.post(
-                self.ENDPOINT,
+                self.endpoint,
                 headers={
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json",
                 },
-                json=payload,
+                json=self._request_payload(prompt),
                 timeout=self.timeout,
             )
             if response.status_code in (401, 403):
-                raise AIAnalystError("AI_AUTH_ERROR")
+                raise AIAnalystError(f"{self.provider.upper()}_AUTH_ERROR")
             if response.status_code == 429:
-                raise AIAnalystError("AI_RATE_LIMIT")
+                raise AIAnalystError(f"{self.provider.upper()}_RATE_LIMIT")
             if response.status_code >= 400:
-                raise AIAnalystError("AI_API_ERROR")
+                raise AIAnalystError(f"{self.provider.upper()}_API_ERROR")
 
             parsed = json.loads(self._extract_text(response.json()))
             result = {
                 "status": "AVAILABLE",
                 "error_category": None,
+                "provider": self.provider.upper(),
                 "market_view": str(parsed.get("market_view", "")),
                 "market_bias": str(parsed.get("market_bias", "NEUTRAL")),
                 "setup_quality": max(
@@ -218,7 +244,7 @@ class AIAnalystV3:
         except AIAnalystError:
             raise
         except requests.RequestException:
-            raise AIAnalystError("AI_NETWORK_ERROR") from None
+            raise AIAnalystError(f"{self.provider.upper()}_NETWORK_ERROR") from None
         except (ValueError, TypeError, KeyError, json.JSONDecodeError):
             raise AIAnalystError("AI_RESPONSE_INVALID") from None
 
