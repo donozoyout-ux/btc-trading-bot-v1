@@ -418,24 +418,87 @@ class DashboardRuntime:
     def _ai_context(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         decision = snapshot.get("decision", {})
         state = snapshot.get("system_state", {})
+        strategy = snapshot.get("strategy", {})
+        chart = snapshot.get("chart_intelligence", {}).get("timeframes", {})
+        indicators = snapshot.get("indicators", {})
+        news = snapshot.get("news", {})
+        account = snapshot.get("account", {})
+        source = (snapshot.get("sources") or {}).get("binance") or {}
+
+        timeframes = {}
+        for tf in ("4h", "1h", "15m", "5m"):
+            frame = chart.get(tf) or {}
+            latest = (indicators.get(tf) or {}).get("latest") or {}
+            timeframes[tf] = {
+                "trend": frame.get("trend"),
+                "structure": frame.get("structure"),
+                "bos": frame.get("bos"),
+                "choch": frame.get("choch"),
+                "breakout_state": frame.get("breakout_state"),
+                "retest_state": frame.get("retest_state"),
+                "volume_state": frame.get("volume_state"),
+                "relative_volume": frame.get("relative_volume"),
+                "overextension_atr": frame.get("overextension_atr"),
+                "rsi14": latest.get("rsi14"),
+                "adx14": latest.get("adx14"),
+                "atr14": latest.get("atr14"),
+            }
+
         return {
+            "shadow_contract": {
+                "execution_authority": False,
+                "deterministic_final_decision": snapshot.get("final_decision"),
+                "setup_eligible": strategy.get("eligible"),
+                "hard_blockers": strategy.get("hard_blockers")
+                or strategy.get("blocking_reasons")
+                or [],
+            },
             "market": {
                 "price": snapshot.get("market", {}).get("price"),
+                "mark_price": snapshot.get("market", {}).get("mark_price"),
                 "regime": decision.get("regime"),
                 "volatility": decision.get("volatility"),
+                "market_basis": source.get("market_basis"),
+                "market_data_source": source.get("market_data_source")
+                or source.get("environment"),
             },
-            "chart": snapshot.get("chart_intelligence", {}).get("timeframes", {}),
-            "strategy": snapshot.get("strategy", {}),
+            "timeframes": timeframes,
+            "mtf": snapshot.get("mtf_interpretation", {}),
+            "strategy": {
+                "setup_type": strategy.get("setup_type"),
+                "direction": strategy.get("direction"),
+                "score": strategy.get("score"),
+                "entry_trigger_state": strategy.get("entry_trigger_state"),
+                "entry_quality_assessment": strategy.get("entry_quality_assessment"),
+                "warnings": strategy.get("warnings"),
+                "reasons": strategy.get("reasons"),
+                "trade_plan": strategy.get("trade_plan"),
+            },
+            "zones": (snapshot.get("zones") or [])[:8],
             "derivatives": snapshot.get("derivatives", {}),
-            "news": snapshot.get("news", {}),
+            "news": {
+                "status": news.get("status"),
+                "news_risk": news.get("news_risk"),
+                "news_risk_score": news.get("news_risk_score"),
+                "trade_risk": news.get("trade_risk"),
+                "sentiment": news.get("sentiment"),
+                "sentiment_score": news.get("sentiment_score"),
+                "event_clusters": (news.get("event_clusters") or [])[:6],
+                "important_events": (news.get("important_events") or [])[:8],
+            },
             "macro_context": snapshot.get("macro_context", {}),
             "risk": {
                 "status": decision.get("risk_status"),
                 "risk_reward": (decision.get("trade_plan") or {}).get("risk_reward"),
                 "kill_switch": state.get("kill_switch"),
                 "daily_loss_state": state.get("daily_loss_guard"),
+                "consecutive_loss_guard": state.get("consecutive_loss_guard"),
+                "risk_config": snapshot.get("risk_config", {}),
             },
-            "account": snapshot.get("account", {}),
+            "performance": {
+                "daily_performance": account.get("daily_performance"),
+                "daily_trade_ledger": snapshot.get("daily_trade_ledger"),
+            },
         }
 
     def analyze_ai(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
@@ -548,6 +611,10 @@ class DashboardRuntime:
             mtf = self.mtf_interpreter.interpret(chart_intelligence)
             strategy = self.strategy_orchestrator.summarize(report, chart_intelligence, mtf, news)
             decision_id = f"SHADOW-BTCUSDT-{report.timestamp}"
+            ai_analysis_key = (
+                f"BTCUSDT:{closed_5m_timestamp}:"
+                f"{report.final_decision.value}:{report.setup.value}"
+            )
 
             candle_payload: Dict[str, Any] = {}
             indicator_payload: Dict[str, Any] = {}
@@ -719,6 +786,10 @@ class DashboardRuntime:
                     "binance": {
                         "status": binance_source_status,
                         "environment": getattr(self.binance, "active_environment", "CUSTOM_PUBLIC"),
+                        "market_data_source": market_status.get("market_data_source"),
+                        "market_basis": market_status.get("market_basis"),
+                        "market_data_trading_safe": market_status.get("market_data_trading_safe"),
+                        "derivatives_status": market_status.get("derivatives_status"),
                         "fallback_active": bool(getattr(self.binance, "fallback_active", False)),
                         "errors": [e for e in [mark_err, oi_err, funding_err, ls_err, taker_err] if e],
                     },
@@ -755,9 +826,9 @@ class DashboardRuntime:
                     "max_consecutive_losses": self.settings.MAX_CONSECUTIVE_LOSSES,
                 },
             }
-            if self.ai_analyst.configured and self._last_ai_decision_id != decision_id:
+            if self.ai_analyst.configured and self._last_ai_decision_id != ai_analysis_key:
                 self._last_ai_result = self.analyze_ai(snapshot)
-                self._last_ai_decision_id = decision_id
+                self._last_ai_decision_id = ai_analysis_key
                 snapshot["ai_analyst"] = self._last_ai_result
             snapshot["final_decision"] = self.strategy_orchestrator.final_decision(report, snapshot["ai_analyst"])
             snapshot["system_state"]["last_decision"] = snapshot["final_decision"]
