@@ -245,6 +245,7 @@ class DashboardRuntime:
             self.settings.COINMARKETCAP_API_KEY,
             self.settings.TELEGRAM_BOT_TOKEN,
             self.settings.TELEGRAM_CHAT_ID,
+            self.settings.GROQ_API_KEY,
             self.settings.OPENAI_API_KEY,
             self.settings.DASHBOARD_ADMIN_TOKEN,
         ):
@@ -280,10 +281,19 @@ class DashboardRuntime:
             enabled=self.settings.NEWS_ENABLED,
             cache_seconds=self.settings.NEWS_CACHE_SECONDS,
         )
+        ai_provider = str(self.settings.AI_PROVIDER or "groq").strip().lower()
+        if ai_provider == "openai":
+            ai_key = self.settings.OPENAI_API_KEY
+            ai_model = self.settings.OPENAI_MODEL
+        else:
+            ai_provider = "groq"
+            ai_key = self.settings.GROQ_API_KEY
+            ai_model = self.settings.GROQ_MODEL
         self.ai_analyst = ai_analyst or AIAnalystV2(
-            api_key=self.settings.OPENAI_API_KEY,
-            model=self.settings.OPENAI_MODEL,
+            api_key=ai_key,
+            model=ai_model,
             enabled=self.settings.AI_ENABLED,
+            provider=ai_provider,
         )
         self.chart_reader = ChartReadingEngineV3(
             volume_expansion_threshold=self.settings.VOLUME_RVOL_THRESHOLD,
