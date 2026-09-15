@@ -489,6 +489,7 @@ class TelegramCommandService:
                 "🤖 AI MARKET ANALYST",
                 "",
                 f"Durum: {self._text(ai.get('status') or source.get('status'), 'UNAVAILABLE')}",
+                f"Provider: {self._text(ai.get('provider') or source.get('provider'), '—')}",
                 f"Yapılandırılmış: {'EVET' if source.get('configured') else 'HAYIR'}",
                 f"Model: {self._text(source.get('model'), '—')}",
                 "Execution authority: YOK",
@@ -499,9 +500,12 @@ class TelegramCommandService:
         conflicts = ai.get("conflicts") or []
         risk_notes = ai.get("risk_notes") or []
         invalidation = ai.get("invalidation_watch") or []
+        alignment = ai.get("timeframe_alignment") or {}
+        provider = self._text(ai.get("provider") or source.get("provider"), "—")
         return "\n".join([
-            "🤖 AI MARKET ANALYST · SHADOW",
+            f"🤖 AI MARKET ANALYST · {provider} · SHADOW",
             "",
+            f"Model: {self._text(ai.get('model') or source.get('model'), '—')}",
             f"Bias: {self._text(ai.get('market_bias'))}",
             f"Setup quality: {self._text(ai.get('setup_quality'))}/100",
             f"Görüş: {self._text(ai.get('trade_opinion'))}",
@@ -514,6 +518,10 @@ class TelegramCommandService:
             f"🛡️ Risk: {' | '.join(str(x) for x in risk_notes[:4]) or 'YOK'}",
             f"📰 Haber: {self._text(ai.get('news_summary'))}",
             f"📊 Türevler: {self._text(ai.get('derivatives_summary'))}",
+            "⏱ Zaman dilimleri: " + " | ".join(
+                f"{tf.upper()} {self._text(alignment.get(tf))}" for tf in ("4h", "1h", "15m", "5m")
+            ),
+            f"📍 Trade location: {self._text(ai.get('trade_location_assessment'))}",
             f"👀 İzlenecek invalidation: {' | '.join(str(x) for x in invalidation[:3]) or 'YOK'}",
             "",
             f"Yorum: {self._text(ai.get('decision_explanation'))}",

@@ -124,8 +124,11 @@ Telegram integration is outbound-only. Set `TELEGRAM_ENABLED=true`,
 `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID` in the local `.env`; the token and
 chat identifier are never included in browser payloads.
 
-Optional AI analysis uses the OpenAI Responses API only when `AI_ENABLED=true`
-and `OPENAI_API_KEY` is set. Its schema always returns
+Advisory AI analysis defaults to Groq's Responses API when `AI_ENABLED=true`,
+`AI_PROVIDER=groq`, and `GROQ_API_KEY` is set. The default model is
+`openai/gpt-oss-20b`; `AI_PROVIDER=openai` retains optional OpenAI compatibility.
+Missing keys and provider errors degrade to `UNAVAILABLE` without interrupting
+the deterministic bot. Its schema always returns
 `execution_authority=false`; it cannot alter deterministic setup, direction,
 trade plan, sizing, kill switch, or risk rejection.
 

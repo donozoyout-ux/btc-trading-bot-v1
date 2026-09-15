@@ -37,7 +37,13 @@ services:
       - key: NEWS_ENABLED
         value: "true"
       - key: AI_ENABLED
-        value: "false"
+        value: "true"
+      - key: AI_PROVIDER
+        value: "groq"
+      - key: GROQ_MODEL
+        value: "openai/gpt-oss-20b"
+      - key: GROQ_API_KEY
+        sync: false
       - key: TELEGRAM_ENABLED
         value: "true"
       - key: BINANCE_API_KEY

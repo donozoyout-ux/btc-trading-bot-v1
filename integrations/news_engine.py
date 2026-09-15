@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import requests
 
 
-class NewsEngineV3:
+class NewsEngineV4:
     CATEGORIES = {
         "FED": ("federal reserve", " fed ", "powell"),
         "CPI": ("cpi", "consumer price", "inflation"),
@@ -28,6 +28,13 @@ class NewsEngineV3:
         "LIQUIDATION": ("liquidation", "liquidated"),
         "BITCOIN": ("bitcoin", "btc"),
         "CRYPTO_MARKET": ("crypto", "digital asset"),
+        "GEOPOLITICS": ("war", "sanction", "geopolit", "military conflict"),
+        "STABLECOIN": ("stablecoin", "usdt", "usdc", "depeg"),
+        "MINING": ("bitcoin miner", "bitcoin mining", "hashrate"),
+        "WHALE_FLOW": ("whale", "large holder", "exchange inflow"),
+        "TREASURY": ("bitcoin treasury", "corporate treasury"),
+        "BANKING": ("bank failure", "banking crisis", "bank run"),
+        "ETF_FLOW": ("etf inflow", "etf outflow", "spot bitcoin etf flow"),
         "MACRO": (
             "jobs report",
             "payroll",
@@ -52,6 +59,13 @@ class NewsEngineV3:
         "MACRO": 65,
         "BITCOIN": 55,
         "CRYPTO_MARKET": 45,
+        "GEOPOLITICS": 70,
+        "STABLECOIN": 80,
+        "MINING": 45,
+        "WHALE_FLOW": 55,
+        "TREASURY": 55,
+        "BANKING": 75,
+        "ETF_FLOW": 80,
         "OTHER": 25,
     }
     SOURCE_WEIGHTS = {
@@ -179,8 +193,20 @@ class NewsEngineV3:
         return re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
 
     @classmethod
+    def _is_duplicate(cls, left: str, right: str) -> bool:
+        """Suppress syndicated headlines with small publisher wording changes."""
+        a, b = set(cls._title_key(left).split()), set(cls._title_key(right).split())
+        if not a or not b:
+            return False
+        return len(a & b) / len(a | b) >= 0.72
+
+    @classmethod
     def _category(cls, title: str) -> str:
         haystack = f" {title.lower()} "
+        # More specific V4 categories must win over their broad parents.
+        for category in ("ETF_FLOW", "TREASURY", "WHALE_FLOW", "STABLECOIN", "BANKING", "MINING", "GEOPOLITICS"):
+            if any(keyword in haystack for keyword in cls.CATEGORIES[category]):
+                return category
         for category, keywords in cls.CATEGORIES.items():
             if any(keyword in haystack for keyword in keywords):
                 return category
@@ -261,7 +287,7 @@ class NewsEngineV3:
             "sentiment_score": round(direction_score, 2),
             "importance": importance,
             "btc_relevance": "HIGH"
-            if category in ("BITCOIN", "ETF", "LIQUIDATION", "EXCHANGE", "HACK")
+            if category in ("BITCOIN", "ETF", "ETF_FLOW", "LIQUIDATION", "EXCHANGE", "HACK", "STABLECOIN")
             else "MEDIUM"
             if category != "OTHER"
             else "LOW",
@@ -339,15 +365,23 @@ class NewsEngineV3:
                     {"source": urlparse(url).netloc, "status": "UNAVAILABLE"}
                 )
 
-        # Deduplicate syndicated/repeated headlines across feeds.
+        # Deduplicate exact and near-identical syndicated headlines across feeds.
         deduped: Dict[str, Dict[str, Any]] = {}
         for item in items:
             key = item.get("title_key") or self._title_key(str(item.get("title")))
-            current = deduped.get(key)
+            matched_key = next(
+                (
+                    candidate
+                    for candidate, current_item in deduped.items()
+                    if self._is_duplicate(str(item.get("title") or ""), str(current_item.get("title") or ""))
+                ),
+                key,
+            )
+            current = deduped.get(matched_key)
             if current is None or float(item.get("impact_score") or 0) > float(
                 current.get("impact_score") or 0
             ):
-                deduped[key] = item
+                deduped[matched_key] = item
         items = list(deduped.values())
         items.sort(
             key=lambda row: (
@@ -389,8 +423,14 @@ class NewsEngineV3:
         fresh_severe = [
             row
             for row in recent
-            if float(row.get("risk_score") or 0) >= 65
-            and (row.get("age_hours") is None or float(row["age_hours"]) <= 6)
+            if float(row.get("risk_score") or 0) >= 85
+            and row.get("age_hours") is not None
+            and float(row["age_hours"]) <= 2
+            and row.get("btc_relevance") == "HIGH"
+            and row.get("category") in {
+                "FED", "FOMC", "CPI", "SEC", "REGULATION", "HACK",
+                "SECURITY", "LIQUIDATION", "STABLECOIN", "BANKING",
+            }
         ]
         news_risk = (
             "EXTREME"
@@ -419,6 +459,8 @@ class NewsEngineV3:
                     "count": 0,
                     "max_impact_score": 0.0,
                     "direction_score": 0.0,
+                    "freshest_age_hours": None,
+                    "max_risk_score": 0.0,
                 },
             )
             cluster["count"] += 1
@@ -427,6 +469,17 @@ class NewsEngineV3:
                 float(row.get("impact_score") or 0),
             )
             cluster["direction_score"] += float(row.get("sentiment_score") or 0)
+            cluster["max_risk_score"] = max(
+                cluster["max_risk_score"], float(row.get("risk_score") or 0)
+            )
+            age = row.get("age_hours")
+            if age is not None:
+                cluster["freshest_age_hours"] = min(
+                    float(age),
+                    float(cluster["freshest_age_hours"])
+                    if cluster["freshest_age_hours"] is not None
+                    else float(age),
+                )
         event_clusters = sorted(
             clusters.values(),
             key=lambda row: (row["max_impact_score"], row["count"]),
@@ -472,5 +525,6 @@ class NewsEngineV3:
         return result
 
 
-NewsEngineV2 = NewsEngineV3
-NewsEngine = NewsEngineV3
+NewsEngineV3 = NewsEngineV4
+NewsEngineV2 = NewsEngineV4
+NewsEngine = NewsEngineV4
