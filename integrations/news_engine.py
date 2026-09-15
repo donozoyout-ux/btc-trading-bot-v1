@@ -96,6 +96,35 @@ class NewsEngineV3:
         "liquidation",
     )
 
+    @classmethod
+    def _score_item(cls, item: Dict[str, Any]) -> Dict[str, Any]:
+        """Backward-compatible transparent headline scorer used by tests/tools."""
+        title = str(item.get("title") or "")
+        lowered = title.lower()
+        category = cls._category(title)
+        high_hits = sorted(term for term in cls.HIGH_IMPORTANCE if term in lowered)
+        direction_raw = cls._raw_direction(title)
+        result = dict(item)
+        result.update(
+            {
+                "category": category,
+                "risk_score": min(
+                    100,
+                    cls.CATEGORY_IMPACT.get(category, 25)
+                    + len(high_hits) * 8
+                    + (15 if any(term in lowered for term in cls.NEGATIVE) else 0),
+                ),
+                "risk_terms": high_hits,
+                "sentiment": "BULLISH"
+                if direction_raw > 0
+                else "BEARISH"
+                if direction_raw < 0
+                else "NEUTRAL",
+                "sentiment_score": direction_raw,
+            }
+        )
+        return result
+
     def __init__(
         self,
         urls: Iterable[str],
