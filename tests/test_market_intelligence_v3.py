@@ -5,16 +5,26 @@ from integrations.news_engine import NewsEngine
 
 
 def test_ai_v3_remains_shadow_only_when_unconfigured():
-    ai = AIAnalyst(None, "gpt-5.6-luna", enabled=True)
+    ai = AIAnalyst(None, "openai/gpt-oss-20b", enabled=True, provider="groq")
     result = ai.analyze({"shadow_contract": {"deterministic_final_decision": "NO_TRADE"}})
     assert result["status"] == "UNAVAILABLE"
     assert result["trade_opinion"] == "WAIT"
     assert result["execution_authority"] is False
 
 
+def test_groq_provider_uses_responses_api_and_low_reasoning():
+    ai = AIAnalyst("secret", "openai/gpt-oss-20b", enabled=True, provider="groq")
+    payload = ai._request_payload("test")
+    assert ai.endpoint == "https://api.groq.com/openai/v1/responses"
+    assert payload["reasoning"] == {"effort": "low"}
+    assert payload["text"]["format"]["type"] == "json_schema"
+    assert ai.safe_status()["provider"] == "GROQ"
+    assert "secret" not in str(ai.safe_status())
+
+
 def test_ai_v3_schema_forbids_execution_authority():
     schema = AIAnalyst.SCHEMA
-    assert schema["properties"]["execution_authority"]["const"] is False
+    assert schema["properties"]["execution_authority"]["enum"] == [False]
     assert "setup_quality" in schema["required"]
     assert "trade_opinion" in schema["required"]
     assert schema["properties"]["setup_quality"]["maximum"] == 100
