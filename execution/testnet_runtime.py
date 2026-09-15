@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Optional
 
+from loguru import logger
+
 from config.settings import BotSettings, get_settings
 from core.state import BotState
 from data.binance_execution_client import BinanceFuturesExecutionClient, ExecutionError
@@ -248,7 +250,31 @@ class TestnetExecutionRuntime:
         # manage that position instead of treating it as a smoke-test failure
         # (which previously attempted to flatten it in the smoke exception
         # handler). A smoke is only meaningful on a verified-flat account.
-        self.authenticate()
+        auth = self.authenticate()
+        account = auth.get("account") or {}
+        wallet = float(
+            account.get("wallet_balance")
+            or account.get("wallet_balance_usdt")
+            or 0.0
+        )
+        performance_guard = self.executor._execution_performance_guard(wallet)
+        logger.info(
+            "PERFORMANCE GUARD: ALLOWED {} | REASON {} | LOSS_STREAK {} | PF {} | DAILY_DD {}% | RISK_MULTIPLIER {} | COOLDOWN_UNTIL {}",
+            performance_guard.get("allowed"),
+            performance_guard.get("reason"),
+            performance_guard.get("consecutive_losses"),
+            performance_guard.get("rolling_profit_factor"),
+            performance_guard.get("daily_drawdown_pct"),
+            performance_guard.get("risk_multiplier"),
+            performance_guard.get("cooldown_until"),
+        )
+        self.journal.record(
+            decision_id=None,
+            action="PERFORMANCE_GUARD_STATUS",
+            status="PASS" if performance_guard.get("allowed") else "BLOCKED",
+            reason=str(performance_guard.get("reason") or "UNKNOWN"),
+            details=performance_guard,
+        )
         recovered = self.executor.recover_from_exchange()
         recovered_position = recovered.get("position") or {}
         has_active_position = float(recovered_position.get("position_amt") or 0) != 0

@@ -37,6 +37,12 @@ class BotSettings(BaseSettings):
     TEST_ORDER_MAX_NOTIONAL_USDT: float = Field(default=100.0, ge=50.0, le=250.0)
     MAX_OPEN_POSITIONS: int = Field(default=1, ge=1, le=1)
     EXECUTION_POLL_SECONDS: int = Field(default=15, ge=5, le=300)
+    PERFORMANCE_GUARD_ENABLED: bool = True
+    PERFORMANCE_GUARD_CONSECUTIVE_LOSSES: int = Field(default=2, ge=1, le=10)
+    PERFORMANCE_GUARD_COOLDOWN_HOURS: float = Field(default=12.0, ge=1.0, le=72.0)
+    PERFORMANCE_GUARD_RISK_MULTIPLIER: float = Field(default=0.50, gt=0.0, le=1.0)
+    PERFORMANCE_GUARD_ROLLING_WINDOW: int = Field(default=10, ge=3, le=100)
+    PERFORMANCE_GUARD_MIN_PROFIT_FACTOR: float = Field(default=1.0, ge=0.0, le=10.0)
 
     # External APIs (Context only)
     COINGLASS_API_KEY: Optional[str] = None
