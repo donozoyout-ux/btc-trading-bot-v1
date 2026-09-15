@@ -72,7 +72,9 @@ class BotSettings(BaseSettings):
     NEWS_CACHE_SECONDS: int = Field(default=300, ge=60, le=3600)
     AI_ENABLED: bool = False
     OPENAI_API_KEY: Optional[str] = None
-    OPENAI_MODEL: str = "gpt-5"
+    OPENAI_MODEL: str = "gpt-5.6-luna"
+    AI_SHADOW_MIN_INTERVAL_SECONDS: int = Field(default=300, ge=60, le=3600)
+    AI_SHADOW_MAX_NEWS_ITEMS: int = Field(default=8, ge=1, le=20)
 
     # Kept only for backwards-compatible env parsing. Interactive dashboard auth
     # is intentionally disabled for the unattended 24/7 TESTNET runtime.
