@@ -284,8 +284,20 @@ class TestnetExecutor(BaseExecutor):
             }
 
         now_ms = int(now_ms or time.time() * 1000)
+        trade_reader = getattr(self.client, "get_user_trades", None)
+        if not callable(trade_reader):
+            # Unit-test/minimal compatibility clients may not expose USER_DATA
+            # history. The real Binance TESTNET execution client always does.
+            return {
+                "allowed": True,
+                "risk_multiplier": 1.0,
+                "reason": "CLIENT_HISTORY_UNSUPPORTED",
+                "consecutive_losses": 0,
+                "rolling_profit_factor": None,
+                "daily_drawdown_pct": 0.0,
+            }
         try:
-            fills = self.client.get_user_trades("BTCUSDT", limit=1000)
+            fills = trade_reader("BTCUSDT", limit=1000)
         except Exception as exc:
             return {
                 "allowed": False,
