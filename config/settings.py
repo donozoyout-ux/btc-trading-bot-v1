@@ -44,6 +44,14 @@ class BotSettings(BaseSettings):
     PERFORMANCE_GUARD_ROLLING_WINDOW: int = Field(default=10, ge=3, le=100)
     PERFORMANCE_GUARD_MIN_PROFIT_FACTOR: float = Field(default=1.0, ge=0.0, le=10.0)
 
+    # Evidence-gated TESTNET execution. Analysis may still surface every setup,
+    # but order submission can be constrained to historically supported paths.
+    EVIDENCE_EXECUTION_GATE_ENABLED: bool = False
+    EVIDENCE_ALLOWED_SETUP: str = "TREND_PULLBACK"
+    EVIDENCE_ALLOWED_DIRECTION: str = "SHORT"
+    EVIDENCE_ALLOWED_REGIME: str = "STRONG_BEAR"
+    EVIDENCE_REQUIRE_FUTURES_NATIVE: bool = True
+
     # External APIs (Context only)
     COINGLASS_API_KEY: Optional[str] = None
     COINMARKETCAP_API_KEY: Optional[str] = None
