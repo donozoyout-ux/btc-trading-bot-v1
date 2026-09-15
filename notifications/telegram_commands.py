@@ -489,6 +489,7 @@ class TelegramCommandService:
                 "🤖 AI MARKET ANALYST",
                 "",
                 f"Durum: {self._text(ai.get('status') or source.get('status'), 'UNAVAILABLE')}",
+                f"Provider: {self._text(ai.get('provider') or source.get('provider'), '—')}",
                 f"Yapılandırılmış: {'EVET' if source.get('configured') else 'HAYIR'}",
                 f"Model: {self._text(source.get('model'), '—')}",
                 "Execution authority: YOK",
@@ -502,6 +503,7 @@ class TelegramCommandService:
         return "\n".join([
             "🤖 AI MARKET ANALYST · SHADOW",
             "",
+            f"Provider: {self._text(ai.get('provider') or source.get('provider'), '—')}",
             f"Bias: {self._text(ai.get('market_bias'))}",
             f"Setup quality: {self._text(ai.get('setup_quality'))}/100",
             f"Görüş: {self._text(ai.get('trade_opinion'))}",
