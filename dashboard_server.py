@@ -646,6 +646,17 @@ class DashboardRuntime:
                 "open_position_count": len(account["positions"]),
                 "open_order_count": len(account["open_orders"]),
             }
+            market_status_fn = getattr(self.binance, "status", None)
+            market_status = (
+                dict(market_status_fn())
+                if callable(market_status_fn)
+                else {
+                    "market_data_source": getattr(self.binance, "active_environment", "CUSTOM_PUBLIC"),
+                    "market_basis": "UNKNOWN",
+                    "market_data_trading_safe": False,
+                    "derivatives_status": "UNKNOWN",
+                }
+            )
             binance_source_status = "HEALTHY" if not any([mark_err, oi_err, funding_err, ls_err, taker_err]) else "DEGRADED"
             critical_ready = (
                 binance_source_status in {"HEALTHY", "DEGRADED"}
