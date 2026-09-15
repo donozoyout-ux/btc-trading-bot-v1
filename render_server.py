@@ -745,7 +745,8 @@ def _warm_snapshot() -> None:
         ai = snapshot.get("ai_analyst") or {}
         news = snapshot.get("news") or {}
         logger.info(
-            "AI SHADOW SNAPSHOT: STATUS {} | BIAS {} | QUALITY {} | OPINION {} | CONFIDENCE {} | MODEL {} | EXECUTION_AUTHORITY {}",
+            "AI SHADOW SNAPSHOT: PROVIDER {} | STATUS {} | BIAS {} | QUALITY {} | OPINION {} | CONFIDENCE {} | MODEL {} | EXECUTION_AUTHORITY {}",
+            ai.get("provider"),
             ai.get("status"),
             ai.get("market_bias"),
             ai.get("setup_quality"),
@@ -888,6 +889,22 @@ def main() -> None:
     logger.info("RUN_EXECUTION_SMOKE_TEST: {}", str(settings.RUN_EXECUTION_SMOKE_TEST).upper())
     logger.info("COINGLASS: {}", "CONFIGURED" if settings.COINGLASS_API_KEY else "NOT CONFIGURED")
     logger.info("COINMARKETCAP: {}", "CONFIGURED" if settings.COINMARKETCAP_API_KEY else "NOT CONFIGURED")
+    ai_provider = str(settings.AI_PROVIDER or "groq").strip().lower()
+    ai_configured = bool(
+        settings.AI_ENABLED
+        and (
+            settings.GROQ_API_KEY
+            if ai_provider == "groq"
+            else settings.OPENAI_API_KEY
+        )
+    )
+    ai_model = settings.GROQ_MODEL if ai_provider == "groq" else settings.OPENAI_MODEL
+    logger.info(
+        "AI SHADOW: PROVIDER {} | {} | MODEL {} | EXECUTION AUTHORITY NONE",
+        ai_provider.upper(),
+        "CONFIGURED" if ai_configured else "NOT CONFIGURED",
+        ai_model,
+    )
     logger.info("BINANCE ACCOUNT MODE: TESTNET")
     logger.info("ACCOUNT ACCESS: {}", "EXECUTION" if execution_enabled else "READ ONLY")
     logger.info("SHADOW MODE: {}", "DISABLED" if execution_enabled else "ENABLED")
